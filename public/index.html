@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM Alquiler Vacacional</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- Pantalla de login (cubre toda la app si no hay sesión válida) -->
+  <div id="login-overlay" class="login-overlay oculto">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-logo">CRM</div>
+      <div class="login-sub">Alquiler Vacacional</div>
+      <div class="login-campo">
+        <label for="login-username">Usuario</label>
+        <input id="login-username" type="text" autocomplete="username" autofocus>
+      </div>
+      <div class="login-campo">
+        <label for="login-password">Contraseña</label>
+        <input id="login-password" type="password" autocomplete="current-password">
+      </div>
+      <div id="login-error" class="login-error oculto"></div>
+      <button type="submit" class="btn-pri login-btn">Entrar</button>
+    </form>
+  </div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <span class="sidebar-logo" title="CRM Alquiler Vacacional">CRM</span>
+      <button class="sidebar-toggle" id="sidebar-toggle" title="Plegar / desplegar menú" aria-label="Plegar o desplegar menú">☰</button>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item activo" data-tab="dashboard" title="Dashboard">
+        <span class="nav-icono">📊</span><span class="nav-texto">Dashboard</span>
+      </button>
+      <button class="nav-item" data-tab="planning" title="Planning">
+        <span class="nav-icono">📅</span><span class="nav-texto">Planning</span>
+      </button>
+      <button class="nav-item" data-tab="alojamientos" title="Alojamientos">
+        <span class="nav-icono">🏠</span><span class="nav-texto">Alojamientos</span>
+      </button>
+      <button class="nav-item" data-tab="propietarios" title="Propietarios">
+        <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
+      </button>
+      <button class="nav-item" data-tab="reservas" title="Reservas">
+        <span class="nav-icono">📋</span><span class="nav-texto">Reservas</span>
+      </button>
+      <button class="nav-item" data-tab="ajustes" title="Ajustes">
+        <span class="nav-icono">⚙️</span><span class="nav-texto">Ajustes</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <span class="avatar avatar-sm" id="su-avatar">?</span>
+        <span class="su-nombre nav-texto" id="su-nombre">—</span>
+        <button class="su-logout" id="su-logout" title="Cerrar sesión" aria-label="Cerrar sesión">⎋</button>
+      </div>
+      <div class="sidebar-version nav-texto">v1.0</div>
+    </div>
+  </aside>
+
+  <main>
+    <!-- ============ DASHBOARD ============ -->
+    <section id="vista-dashboard" class="vista activa">
+      <div id="dashboard" class="dashboard"></div>
+    </section>
+
+    <!-- ============ PLANNING ============ -->
+    <section id="vista-planning" class="vista">
+      <div class="barra-herramientas">
+        <div class="nav-mes">
+          <button id="nav-anterior" class="btn-icono" title="Retroceder una semana">◀</button>
+          <button id="nav-siguiente" class="btn-icono" title="Avanzar una semana">▶</button>
+          <label class="nav-fecha" for="fecha-inicio">Fecha inicio</label>
+          <input type="date" id="fecha-inicio" class="input-fecha" />
+          <button id="nav-hoy" class="btn-sec">Hoy</button>
+        </div>
+        <div class="filtros">
+          <div id="filtro-tih" class="filtro-tih-btns" role="group" aria-label="Filtro por línea">
+            <button class="btn-filtro-tih activo" data-val="">Todos</button>
+            <button class="btn-filtro-tih" data-val="1">1ª Línea</button>
+            <button class="btn-filtro-tih" data-val="2">2ª Línea</button>
+          </div>
+          <button id="btn-importar" class="btn-pri">Importar reservas</button>
+          <input type="file" id="input-archivo" accept=".xlsx,.xls,.csv" hidden />
+        </div>
+      </div>
+
+      <div id="sin-asignar" class="sin-asignar oculto">
+        <div class="sin-asignar-titulo">Sin asignar <span id="sin-asignar-conteo"></span></div>
+        <div id="sin-asignar-lista" class="sin-asignar-lista"></div>
+      </div>
+
+      <div class="planning-scroll">
+        <div id="planning" class="planning"></div>
+      </div>
+    </section>
+
+    <!-- ============ ALOJAMIENTOS ============ -->
+    <section id="vista-alojamientos" class="vista">
+      <div class="barra-herramientas">
+        <h2>Alojamientos</h2>
+        <button id="btn-nuevo-alojamiento" class="btn-pri">+ Nuevo alojamiento</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-alojamientos">
+          <thead>
+            <tr>
+              <th>Nombre</th><th>Edificio</th><th>Tipo</th><th>Capacidad</th><th>Propietario</th><th>Notas</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ PROPIETARIOS ============ -->
+    <section id="vista-propietarios" class="vista">
+      <div class="barra-herramientas">
+        <div class="prop-titulo-grupo">
+          <h2>Propietarios</h2>
+          <span id="prop-conteo" class="prop-conteo">Total: 0 propietarios</span>
+        </div>
+        <div class="prop-controles">
+          <input type="text" id="prop-buscar" class="input-buscar" placeholder="Buscar nombre, email o teléfono…">
+          <button id="btn-importar-propietarios" class="btn-sec">Importar Excel</button>
+          <button id="btn-nuevo-propietario" class="btn-pri">+ Nuevo propietario</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla tabla-propietarios" id="tabla-propietarios">
+          <thead>
+            <tr>
+              <th class="col-avatar"></th>
+              <th data-orden="nombre" class="ordenable">Nombre</th>
+              <th>Teléfono</th>
+              <th data-orden="numero_documento" class="ordenable">DNI/NIE</th>
+              <th data-orden="num_alojamientos" class="ordenable">Alojamientos</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="prop-paginacion">
+        <span id="prop-paginacion-texto">Resultados 0–0 de 0</span>
+        <div class="prop-paginacion-btns">
+          <button id="prop-prev" class="btn-mini">‹ Anterior</button>
+          <button id="prop-next" class="btn-mini">Siguiente ›</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RESERVAS ============ -->
+    <section id="vista-reservas" class="vista">
+      <div class="barra-herramientas">
+        <div class="reservas-controles">
+          <input type="text" id="reservas-buscar" class="input-buscar" placeholder="Buscar nº reserva o cliente…">
+          <div class="filtro-tih-btns" role="group" aria-label="Filtro por línea">
+            <button class="btn-filtro-tih btn-filtro-tih-res activo" data-val="">Todos</button>
+            <button class="btn-filtro-tih btn-filtro-tih-res" data-val="1">1ª Línea</button>
+            <button class="btn-filtro-tih btn-filtro-tih-res" data-val="2">2ª Línea</button>
+          </div>
+          <select id="reservas-filtro-mes" class="select-filtro"></select>
+        </div>
+        <button id="btn-nueva-reserva" class="btn-pri">+ Nueva reserva</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-reservas">
+          <thead>
+            <tr>
+              <th>Nº Reserva</th>
+              <th>Nombre Cliente</th>
+              <th>Apartamento</th>
+              <th>Entrada</th>
+              <th>Salida</th>
+              <th>Pers.</th>
+              <th>TIH</th>
+              <th>Observaciones</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ AJUSTES ============ -->
+    <section id="vista-ajustes" class="vista">
+      <div class="barra-herramientas">
+        <h2>Ajustes</h2>
+        <div class="ajustes-subtabs" id="ajustes-subtabs">
+          <button class="subtab activo" data-sub="razon">Razón Social</button>
+          <button class="subtab" data-sub="usuarios">Usuarios</button>
+          <button class="subtab oculto" data-sub="actividad" id="subtab-actividad">Actividad</button>
+        </div>
+      </div>
+      <div class="ajustes-scroll">
+        <!-- Razón Social -->
+        <div class="sub-panel activo" data-panel-sub="razon">
+          <div class="sub-panel-head">
+            <span class="sub-panel-titulo">Razones sociales</span>
+            <button id="btn-nueva-razon" class="btn-pri">＋ Nueva razón social</button>
+          </div>
+          <div id="razones-cards" class="razones-cards"></div>
+        </div>
+
+        <!-- Usuarios -->
+        <div class="sub-panel" data-panel-sub="usuarios">
+          <div class="sub-panel-head">
+            <span class="sub-panel-titulo">Usuarios</span>
+            <button id="btn-nuevo-usuario" class="btn-pri">＋ Nuevo usuario</button>
+          </div>
+          <div class="tabla-scroll">
+            <table class="tabla tabla-usuarios" id="tabla-usuarios">
+              <thead>
+                <tr>
+                  <th class="col-avatar"></th>
+                  <th>Nombre</th>
+                  <th>Usuario</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Último acceso</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Actividad (solo administradores) -->
+        <div class="sub-panel" data-panel-sub="actividad">
+          <div class="sub-panel-head">
+            <span class="sub-panel-titulo">Registro de actividad</span>
+            <div class="actividad-filtros">
+              <select id="filtro-act-usuario" class="select-filtro"></select>
+              <select id="filtro-act-accion" class="select-filtro"></select>
+            </div>
+          </div>
+          <div class="tabla-scroll">
+            <table class="tabla" id="tabla-actividad">
+              <thead>
+                <tr>
+                  <th>Fecha/hora</th>
+                  <th>Usuario</th>
+                  <th>Acción</th>
+                  <th>Entidad</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal genérico -->
+  <div id="modal-fondo" class="modal-fondo oculto">
+    <div class="modal">
+      <button class="modal-cerrar" id="modal-cerrar">&times;</button>
+      <div id="modal-contenido"></div>
+    </div>
+  </div>
+
+  <!-- Panel lateral de ficha de propietario -->
+  <div id="panel-fondo" class="panel-fondo"></div>
+  <aside id="panel-propietario" class="panel-lateral" aria-label="Ficha de propietario">
+    <header class="panel-cabecera">
+      <h3 id="panel-titulo">Propietario</h3>
+      <div class="panel-cabecera-acciones">
+        <button id="panel-editar" class="btn-sec">Editar</button>
+        <button id="panel-guardar" class="btn-pri oculto">Guardar</button>
+        <button id="panel-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
+      </div>
+    </header>
+    <div id="panel-cuerpo" class="panel-cuerpo"></div>
+  </aside>
+
+  <!-- Aviso flotante (toast) -->
+  <div id="toast" class="toast oculto"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/planning.js"></script>
+  <script src="js/alojamientos.js"></script>
+  <script src="js/propietarios.js"></script>
+  <script src="js/reservas.js"></script>
+  <script src="js/ajustes.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

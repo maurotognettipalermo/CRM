@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Process *)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; Start-Process -FilePath \"node\" -ArgumentList \"C:\\\\CRM\\\\server.js\" -WorkingDirectory \"C:\\\\CRM\" -WindowStyle Hidden; Start-Sleep -Seconds 2; Write-Output \"Server started\")",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -TimeoutSec 5; Write-Output \"HTTP $\\($r.StatusCode\\) - Length: $\\($r.Content.Length\\) chars\")",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check C:/CRM/public/js/planning.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check C:/CRM/routes/reservas.js)",
+      "Bash(/c/Program Files/nodejs/node.exe *)",
+      "Bash(curl.exe -s http://localhost:3000/api/propietarios)",
+      "Bash(curl.exe -s -X POST http://localhost:3000/api/propietarios -H \"Content-Type: application/json\" -d '{\"nombre\":\"Beatriz\",\"apellidos\":\"Lopez\",\"email\":\"bea@test.com\",\"numero_documento\":\"99999X\",\"tipo_documento\":\"DNI\",\"ciudad\":\"Cadiz\",\"tags\":\"VIP, web\",\"metodo_pago\":\"Transferencia\"}')",
+      "Bash(curl.exe -s \"http://localhost:3000/api/propietarios\")",
+      "Bash(cd /tmp)",
+      "Bash(printf 'Nombre,Primer Apellido,Email,DNI,Ciudad,Telefono,Etiquetas,ColumnaRara\\\\nCarlos,Ruiz,carlos@test.com,11223344A,Sevilla,600111222,propietario,xxx\\\\nBeatriz,Lopez-Actualizada,bea@test.com,99999X,Malaga,600999888,actualizado,yyy\\\\n')",
+      "Bash(curl.exe -s -F \"archivo=@props.csv\" http://localhost:3000/api/propietarios/importar)",
+      "Bash(cat)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" /tmp/gen_avantio.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _gen_avantio_tmp.js)",
+      "Bash(cd *)",
+      "Bash(curl.exe -s -F \"archivo=@_avantio_test.xlsx\" http://localhost:3000/api/propietarios/importar)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const a=JSON.parse\\(d\\);console.log\\('total filas:',a.length,'| ids_avantio:',a.map\\(p=>p.id_avantio\\).join\\(','\\)\\);}\\)\")",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _gen2.js)",
+      "Bash(curl.exe -s -F \"archivo=@_av2.xlsx\" http://localhost:3000/api/propietarios/importar)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const a=JSON.parse\\(d\\);console.log\\('total:',a.length\\);a.forEach\\(p=>console.log\\(p.id_avantio,'|',p.email,'|',p.numero_documento\\)\\);}\\)\")",
+      "Bash(curl.exe -s http://localhost:3000/api/ajustes/facturacion)",
+      "Bash(curl.exe -s -X PUT http://localhost:3000/api/ajustes/facturacion -H \"Content-Type: application/json\" -d '{\"razon_social\":\"Mi Empresa SL\",\"cif\":\"B12345678\",\"iva\":\"Reducido 10%\",\"pais\":\"España\",\"iban\":\"ES7620770024003102575766\",\"ciudad\":\"Cádiz\"}')",
+      "Bash(curl.exe -s -X PUT http://localhost:3000/api/ajustes/facturacion -H \"Content-Type: application/json\" -d '{\"razon_social\":\"Otra Razon SL\",\"cif\":\"B12345678\"}')",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _limpia_tmp.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _limpia2.js)",
+      "Bash(curl.exe -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/reservas)",
+      "Bash(curl.exe -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin1234\"}')",
+      "Bash(curl.exe -s http://localhost:3000/)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _t.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" _diag.js)",
+      "Bash(curl.exe -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"Mauro\",\"password\":\"Mauro_3307.+\"}')",
+      "Bash(curl.exe -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"Mauro\",\"password\":\"otra\"}')",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check routes/auth.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check routes/reservas.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/reservas.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/ajustes.js)"
+    ]
+  }
+}

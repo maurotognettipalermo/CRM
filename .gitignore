@@ -1,0 +1,8 @@
+node_modules/
+db/crm.db
+db/crm.db-wal
+db/crm.db-shm
+backups/
+# Imágenes/logos de portales subidos por el usuario (datos, como la BD)
+public/uploads/portales/*
+!public/uploads/portales/.gitkeep

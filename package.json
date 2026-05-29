@@ -1,0 +1,15 @@
+{
+  "name": "crm-alquiler-vacacional",
+  "version": "1.0.0",
+  "description": "CRM de gestión de alquiler vacacional para uso en red local de oficina",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "express": "^4.19.2",
+    "multer": "^2.0.0",
+    "xlsx": "^0.18.5"
+  }
+}

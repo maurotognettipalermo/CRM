@@ -1,0 +1,58 @@
+// Servidor Express del CRM de alquiler vacacional.
+// Arranca con: node server.js  ->  accesible en http://<IP-del-servidor>:3000
+const express = require('express');
+const path = require('path');
+const os = require('os');
+
+require('./db/database'); // inicializa la base de datos al arrancar
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Autenticación: el login es público; el resto de /api exige token válido.
+const { router: authRouter, requireAuth } = require('./routes/auth');
+app.use('/api/auth', authRouter);
+app.use('/api', requireAuth);
+
+// Rutas de la API (protegidas por requireAuth).
+app.use('/api/apartamentos', require('./routes/apartamentos'));
+app.use('/api/propietarios', require('./routes/propietarios'));
+app.use('/api/reservas', require('./routes/reservas'));
+app.use('/api/importar', require('./routes/importar'));
+app.use('/api/ajustes', require('./routes/ajustes'));
+app.use('/api/usuarios', require('./routes/usuarios'));
+app.use('/api/portales', require('./routes/portales'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+
+// Manejador de errores genérico.
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: err.message || 'Error interno del servidor' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('==============================================');
+  console.log(' CRM de Alquiler Vacacional - servidor activo');
+  console.log('==============================================');
+  console.log(` Local:  http://localhost:${PORT}`);
+  for (const ip of ipsLocales()) {
+    console.log(` Red:    http://${ip}:${PORT}   (acceso desde otros ordenadores)`);
+  }
+  console.log('');
+  console.log(' Para detener el servidor: Ctrl + C');
+});
+
+// Devuelve las direcciones IPv4 de la red local de este equipo.
+function ipsLocales() {
+  const ifaces = os.networkInterfaces();
+  const ips = [];
+  for (const nombre of Object.keys(ifaces)) {
+    for (const iface of ifaces[nombre]) {
+      if (iface.family === 'IPv4' && !iface.internal) ips.push(iface.address);
+    }
+  }
+  return ips;
+}
