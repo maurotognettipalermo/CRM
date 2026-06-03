@@ -1629,6 +1629,14 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   .dashboard { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Estadísticas → Propietarios: barra de cashflow */
+.est-cashflow { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; background: #fff; }
+.est-cashflow-titulo { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+.est-cashflow-bar { display: flex; height: 24px; border-radius: 12px; overflow: hidden; background: var(--border-soft); }
+.est-cashflow-pag { background: #10b981; }
+.est-cashflow-pend { background: #f59e0b; }
+.est-cashflow-txt { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
 /* ============ Contratos ============ */
 .cnt-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cnt-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }

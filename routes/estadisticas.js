@@ -216,4 +216,85 @@ router.get('/ocupacion', (req, res) => {
   });
 });
 
+// GET /api/estadisticas/propietarios?anio=2026
+// Compromiso de pago por propietario según sus contratos de **precio_cerrado** del año
+// (los de comisión no tienen cuotas fijas, se excluyen). Se excluyen los cancelados.
+// Comprometido = SUM(precio_total); pagado/pendiente = SUM(importe de cuotas según `pagado`).
+// Ordena por total_pendiente DESC (primero a quien más se debe).
+router.get('/propietarios', (req, res) => {
+  const anio = parseInt(anioParam(req), 10);
+  const FILTRO = "c.tipo = 'precio_cerrado' AND c.anio = ? AND c.estado <> 'cancelado'";
+
+  // Una fila por propietario. Las cuotas se agregan en una subconsulta por contrato para no
+  // duplicar precio_total al hacer JOIN con las cuotas.
+  const por_propietario = db.prepare(`
+    SELECT
+      p.id                                                              AS propietario_id,
+      TRIM(COALESCE(p.nombre, '') || ' ' || COALESCE(p.apellidos, '')) AS propietario_nombre,
+      COUNT(c.id)                                                       AS contratos,
+      COALESCE(SUM(c.precio_total), 0)                                  AS total_comprometido,
+      COALESCE(SUM(cu.pagado_sum), 0)                                   AS total_pagado,
+      COALESCE(SUM(cu.pendiente_sum), 0)                                AS total_pendiente
+    FROM contratos c
+    JOIN propietarios p ON p.id = c.propietario_id
+    LEFT JOIN (
+      SELECT contrato_id,
+        SUM(CASE WHEN pagado = 1 THEN importe ELSE 0 END) AS pagado_sum,
+        SUM(CASE WHEN pagado = 0 THEN importe ELSE 0 END) AS pendiente_sum
+      FROM contrato_cuotas GROUP BY contrato_id
+    ) cu ON cu.contrato_id = c.id
+    WHERE ${FILTRO}
+    GROUP BY p.id, propietario_nombre
+    ORDER BY total_pendiente DESC
+  `).all(anio);
+
+  // Próxima cuota sin pagar (a partir de hoy) por propietario: la fecha_prevista más próxima.
+  const proximas = db.prepare(`
+    SELECT c.propietario_id AS pid, cu.fecha_prevista AS fecha, cu.importe AS importe
+    FROM contrato_cuotas cu
+    JOIN contratos c ON c.id = cu.contrato_id
+    WHERE ${FILTRO}
+      AND cu.pagado = 0 AND cu.fecha_prevista >= date('now')
+    ORDER BY cu.fecha_prevista ASC
+  `).all(anio);
+  const mapProx = {};
+  for (const r of proximas) {
+    if (!(r.pid in mapProx)) mapProx[r.pid] = { fecha: r.fecha, importe: r.importe };
+  }
+  por_propietario.forEach((p) => {
+    const pr = mapProx[p.propietario_id];
+    p.proxima_cuota_fecha = pr ? pr.fecha : null;
+    p.proxima_cuota_importe = pr ? pr.importe : null;
+  });
+
+  // Totales globales (calculados aparte para no depender del JOIN con propietarios).
+  const totC = db.prepare(`
+    SELECT COUNT(*) AS contratos_activos, COALESCE(SUM(precio_total), 0) AS total_comprometido
+    FROM contratos c WHERE ${FILTRO}
+  `).get(anio);
+  const totCuotas = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN cu.pagado = 1 THEN cu.importe ELSE 0 END), 0) AS total_pagado,
+      COALESCE(SUM(CASE WHEN cu.pagado = 0 THEN cu.importe ELSE 0 END), 0) AS total_pendiente
+    FROM contrato_cuotas cu
+    JOIN contratos c ON c.id = cu.contrato_id
+    WHERE ${FILTRO}
+  `).get(anio);
+  const totProp = db.prepare(`
+    SELECT COUNT(DISTINCT propietario_id) AS n
+    FROM contratos c WHERE ${FILTRO} AND propietario_id IS NOT NULL
+  `).get(anio);
+
+  res.json({
+    resumen: {
+      total_propietarios_con_contrato: totProp.n,
+      total_comprometido: totC.total_comprometido,
+      total_pagado: totCuotas.total_pagado,
+      total_pendiente: totCuotas.total_pendiente,
+      contratos_activos: totC.contratos_activos,
+    },
+    por_propietario,
+  });
+});
+
 module.exports = router;

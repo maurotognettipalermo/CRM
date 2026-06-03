@@ -9,6 +9,7 @@ const Estadisticas = (() => {
     portal:      'Ingresos por portal',
     apartamento: 'Ingresos por apartamento',
     ocupacion:   'Ocupación',
+    propietario: 'Propietarios',
   };
   const ANIOS = [2024, 2025, 2026];
 
@@ -21,6 +22,10 @@ const Estadisticas = (() => {
   let aptoSel = null;
   let aptoBuscar = '';
   let aptoCache = null;
+
+  // Estado de "Propietarios": texto del buscador y caché de la respuesta del año.
+  let propBuscar = '';
+  let propCache = null;
 
   // ---- Formato ----
   function euro(n) {
@@ -477,6 +482,164 @@ const Estadisticas = (() => {
     panel.innerHTML = ocupacionHTML(data);
   }
 
+  // ==================== Propietarios (cashflow de contratos) ====================
+
+  function filtrarProp(lista) {
+    const q = propBuscar.trim().toLowerCase();
+    if (!q) return lista;
+    return lista.filter((p) => (p.propietario_nombre || '').toLowerCase().includes(q));
+  }
+
+  // Celda "Próxima cuota": naranja si vencida, verde "Al día ✓" si no hay próxima.
+  function celdaProxima(p) {
+    if (!p.proxima_cuota_fecha) return '<span style="color:#10b981;font-weight:600">Al día ✓</span>';
+    const hoy = new Date().toISOString().slice(0, 10);
+    const vencida = p.proxima_cuota_fecha < hoy;
+    const txt = `${fechaES(p.proxima_cuota_fecha)} — ${euro(p.proxima_cuota_importe)}`;
+    return `<span style="${vencida ? 'color:#f59e0b;font-weight:600' : 'color:var(--text)'}">${txt}</span>`;
+  }
+
+  function filasPropHTML(lista) {
+    if (!lista.length) return '<tr><td colspan="7" class="est-vacio">Sin resultados</td></tr>';
+    return lista.map((p) => {
+      const comp = Number(p.total_comprometido) || 0;
+      const pct = comp > 0 ? (Number(p.total_pagado) / comp) * 100 : 0;
+      return `
+        <tr>
+          <td>${esc(p.propietario_nombre)}</td>
+          <td class="num">${num(p.contratos)}</td>
+          <td class="num">${euro(p.total_comprometido)}</td>
+          <td class="est-col-pct">${euro(p.total_pagado)}${barra(pct, '#10b981')}</td>
+          <td class="num">${euro(p.total_pendiente)}</td>
+          <td>${celdaProxima(p)}</td>
+          <td class="acciones"><button class="btn-mini" data-ver-contratos="${p.propietario_id}">Ver contratos</button></td>
+        </tr>`;
+    }).join('');
+  }
+
+  function totalesPropHTML(lista) {
+    const sum = (k) => lista.reduce((s, p) => s + (Number(p[k]) || 0), 0);
+    return `
+      <tr class="est-fila-total">
+        <td>Total</td>
+        <td class="num">${num(sum('contratos'))}</td>
+        <td class="num">${euro(sum('total_comprometido'))}</td>
+        <td>${euro(sum('total_pagado'))}</td>
+        <td class="num">${euro(sum('total_pendiente'))}</td>
+        <td></td><td></td>
+      </tr>`;
+  }
+
+  function propietariosHTML(data) {
+    const { resumen = {}, por_propietario = [] } = data || {};
+
+    const cards = `
+      <div class="est-cards">
+        ${tarjetaResumen({ icono: '👥', color: '#3b82f6', valor: num(resumen.total_propietarios_con_contrato), label: 'Propietarios con contrato' })}
+        ${tarjetaResumen({ icono: '📋', color: '#6b7280', valor: euro(resumen.total_comprometido), label: 'Total comprometido' })}
+        ${tarjetaResumen({ icono: '✅', color: '#10b981', valor: euro(resumen.total_pagado), label: 'Total pagado' })}
+        ${tarjetaResumen({ icono: '⏳', color: '#f59e0b', valor: euro(resumen.total_pendiente), label: 'Pendiente de pagar' })}
+      </div>`;
+
+    if (!por_propietario.length) {
+      return cards + `
+        <div class="est-placeholder">
+          <span class="est-placeholder-icono">📋</span>
+          <p class="est-placeholder-texto">Sin contratos registrados para ${anio}</p>
+        </div>`;
+    }
+
+    // Cashflow global: barra verde (pagado) + naranja (pendiente).
+    const comp = Number(resumen.total_comprometido) || 0;
+    const pag = Number(resumen.total_pagado) || 0;
+    const pend = Number(resumen.total_pendiente) || 0;
+    const pctPag = comp > 0 ? (pag / comp) * 100 : 0;
+    const pctPend = comp > 0 ? (pend / comp) * 100 : 0;
+    const cashflow = `
+      <div class="est-cashflow">
+        <div class="est-cashflow-titulo">Cashflow de la temporada</div>
+        <div class="est-cashflow-bar">
+          <div class="est-cashflow-pag" style="width:${Math.max(0, Math.min(100, pctPag))}%"></div>
+          <div class="est-cashflow-pend" style="width:${Math.max(0, Math.min(100, pctPend))}%"></div>
+        </div>
+        <div class="est-cashflow-txt"><strong style="color:var(--text)">${euro(pag)}</strong> pagado de <strong style="color:var(--text)">${euro(comp)}</strong> comprometido (${Math.round(pctPag)}%)</div>
+      </div>`;
+
+    const buscador = `
+      <div style="margin-bottom:12px">
+        <input class="input-buscar" data-buscar-prop type="search" placeholder="Buscar propietario…" value="${esc(propBuscar)}">
+      </div>`;
+
+    const lista = filtrarProp(por_propietario);
+    const tabla = `
+      <div class="tabla-scroll">
+        <table class="tabla est-tabla">
+          <thead>
+            <tr>
+              <th>Propietario</th>
+              <th class="num">Contratos</th>
+              <th class="num">Comprometido</th>
+              <th>Pagado</th>
+              <th class="num">Pendiente</th>
+              <th>Próxima cuota</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody data-prop-tbody>${filasPropHTML(lista)}</tbody>
+          <tfoot>${totalesPropHTML(lista)}</tfoot>
+        </table>
+      </div>`;
+
+    return cards + cashflow + buscador + tabla;
+  }
+
+  // Conecta el buscador (filtra en memoria) y los botones "Ver contratos".
+  function enlazarProp(panel) {
+    const input = panel.querySelector('[data-buscar-prop]');
+    if (input) {
+      input.addEventListener('input', () => {
+        propBuscar = input.value;
+        if (!propCache) return;
+        const lista = filtrarProp(propCache.por_propietario || []);
+        const tbody = panel.querySelector('[data-prop-tbody]');
+        const tfoot = panel.querySelector('.est-tabla tfoot');
+        if (tbody) tbody.innerHTML = filasPropHTML(lista);
+        if (tfoot) tfoot.innerHTML = totalesPropHTML(lista);
+        enlazarVerContratos(panel);
+      });
+    }
+    enlazarVerContratos(panel);
+  }
+
+  // "Ver contratos": navega a la pestaña Contratos (el filtrado por propietario lo aplica
+  // allí el usuario; este módulo no toca el de Contratos).
+  function enlazarVerContratos(panel) {
+    panel.querySelectorAll('[data-ver-contratos]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (typeof activarTab === 'function') activarTab('contratos');
+      }));
+  }
+
+  async function renderPropietarios(panel) {
+    if (propCache) { panel.innerHTML = propietariosHTML(propCache); enlazarProp(panel); return; }
+    panel.innerHTML = skeletonCarga(4);
+    const seq = ++reqSeq;
+    let data;
+    try {
+      data = await API.get(`/api/estadisticas/propietarios?anio=${anio}`);
+    } catch (e) {
+      if (seq !== reqSeq) return;
+      panel.innerHTML = errorHTML(e.message);
+      const btn = panel.querySelector('[data-reintentar]');
+      if (btn) btn.addEventListener('click', () => renderPropietarios(panel));
+      return;
+    }
+    if (seq !== reqSeq) return;
+    propCache = data;
+    panel.innerHTML = propietariosHTML(data);
+    enlazarProp(panel);
+  }
+
   // ---- Render del contenido de la sección activa ----
   function renderSeccion() {
     const panel = document.querySelector(
@@ -486,6 +649,7 @@ const Estadisticas = (() => {
     if (seccionActiva === 'portal') { renderPortales(panel); return; }
     if (seccionActiva === 'apartamento') { renderApartamentos(panel); return; }
     if (seccionActiva === 'ocupacion') { renderOcupacion(panel); return; }
+    if (seccionActiva === 'propietario') { renderPropietarios(panel); return; }
     panel.innerHTML = placeholderHTML(SECCIONES[seccionActiva]);
   }
 
@@ -512,12 +676,33 @@ const Estadisticas = (() => {
     ).join('');
   }
 
+  // La 4ª sub-pestaña "Propietarios" y su panel se inyectan por JS (index.html no se toca).
+  function inyectarSubPropietarios() {
+    const subtabs = document.getElementById('est-subtabs');
+    if (subtabs && !subtabs.querySelector('[data-sub="propietario"]')) {
+      const btn = document.createElement('button');
+      btn.className = 'subtab';
+      btn.dataset.sub = 'propietario';
+      btn.textContent = 'Propietarios 💰';
+      subtabs.appendChild(btn);
+    }
+    const scroll = document.querySelector('#vista-estadisticas .est-scroll');
+    if (scroll && !scroll.querySelector('[data-panel-sub="propietario"]')) {
+      const panel = document.createElement('div');
+      panel.className = 'sub-panel';
+      panel.dataset.panelSub = 'propietario';
+      scroll.appendChild(panel);
+    }
+  }
+
   function init() {
     poblarAnios();
+    inyectarSubPropietarios(); // antes de cablear los listeners de las sub-pestañas
     const sel = document.getElementById('est-anio');
     if (sel) sel.addEventListener('change', () => {
       anio = Number(sel.value);
       aptoSel = null; aptoCache = null; aptoBuscar = ''; // el año invalida los datos cacheados
+      propCache = null; propBuscar = '';
       renderSeccion(); // al cambiar el año se recarga la sección activa
     });
     document.querySelectorAll('#est-subtabs .subtab').forEach((b) =>
