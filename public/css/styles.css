@@ -1629,6 +1629,46 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   .dashboard { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ============ Alojamientos (ficha ampliada) ============ */
+/* Badge de clasificación interna (A++ dorado … C gris) */
+.badge-clasif { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge-clasif.c-app { background: #fef9c3; color: #a16207; }  /* A++ dorado */
+.badge-clasif.c-ap  { background: #ffedd5; color: #c2410c; }  /* A+ naranja */
+.badge-clasif.c-a   { background: #f0fdf4; color: #059669; }  /* A verde */
+.badge-clasif.c-bp  { background: #eff6ff; color: #2563eb; }  /* B+ azul */
+.badge-clasif.c-b   { background: #f0f9ff; color: #0ea5e9; }  /* B azul claro */
+.badge-clasif.c-c   { background: #f3f4f6; color: #6b7280; }  /* C gris */
+
+/* Mini tarjetas de recaudación del año (estilo mini dashboard) */
+.alo-mini-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.alo-mini-card { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: #fff; }
+.alo-mini-valor { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.2; }
+.alo-mini-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Botón mostrar/ocultar contraseña wifi */
+.alo-wifi-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; }
+
+/* Sin propietario asignado */
+.alo-sin-prop { text-align: center; padding: 32px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+/* Pestaña Gastos de la ficha de alojamiento */
+.alo-gastos-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.alo-gastos-head-left { display: flex; align-items: center; gap: 12px; }
+.alo-gasto-total-badge { background: #fff7ed; color: #c2410c; border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.alo-gasto-notas { color: var(--muted); font-size: 12px; }
+
+/* Catálogo de gastos (Ajustes): acciones de la cabecera */
+.cat-head-acciones { display: flex; align-items: center; gap: 10px; }
+
+/* Toggle estilizado (En garantía / Quitar planning) */
+.alo-switch { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; font-size: 14px; color: var(--text); }
+.alo-switch input { display: none; }
+.alo-switch-track { width: 40px; height: 22px; border-radius: 999px; background: #cbd5e1; position: relative; transition: background 150ms ease; flex-shrink: 0; }
+.alo-switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 150ms ease; }
+.alo-switch input:checked + .alo-switch-track { background: var(--green); }
+.alo-switch input:checked + .alo-switch-track::after { transform: translateX(18px); }
+.alo-qp-aviso { color: var(--red); font-size: 13px; font-weight: 500; margin: -4px 0 12px; }
+
 /* Estadísticas → Propietarios: barra de cashflow */
 .est-cashflow { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; background: #fff; }
 .est-cashflow-titulo { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }

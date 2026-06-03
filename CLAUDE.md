@@ -35,11 +35,11 @@ npm start              # equivale a: node C:\CRM\server.js
 
 ```
 server.js              Express: json + static(public) + monta /api/* + errores. listen 3000.
-db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos) + seeds (admin por defecto, portales por defecto).
+db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos/apartamentos) + seeds (admin por defecto, portales por defecto).
 scripts/crear-usuario.js  Script suelto (node scripts/crear-usuario.js) para crear/actualizar un usuario admin directamente en la BD sin pasar por el seed.
-db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas (+ índices).
+db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas, catalogo_gastos, apartamento_gastos (+ índices).
 routes/                Un router Express por recurso (CRUD + acciones).
-  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js · contratos.js
+  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js · contratos.js · gastos.js
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV de propietarios, mapeo flexible de cabeceras, upsert por email o documento.
@@ -54,11 +54,11 @@ public/                Frontend vanilla. Sin build, se sirve estático.
   js/auth.js           Módulo Auth (window.Auth). Sesión en localStorage ('crm-sesion'), pantalla de login, logout. onNoAutorizado -> vuelve al login.
   js/dashboard.js      Módulo Dashboard (window.Dashboard). Pantalla de inicio (1ª pestaña). 4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, próximos check-out) desde GET /api/dashboard + API.getPortales(); skeleton de carga, error+reintentar, paginación 5/5 y auto-refresco cada 5 min.
   js/planning.js       Módulo Planning (IIFE -> window.Planning). Vista continua de N días (estilo Avantio) desde una fecha de inicio, drag&drop, import. Las barras se colorean con el color del portal (con su logo dentro) y, si no hay portal, con el color por TIH.
-  js/alojamientos.js   Módulo Alojamientos (window.Alojamientos). Tabla + form modal + ficha. Expone `abrirFicha(id)` (lo usa Contratos para enlazar al apartamento).
+  js/alojamientos.js   Módulo Alojamientos (window.Alojamientos). Tabla (carga con `?todos=1`: incluye los excluidos del planning) + modal de alta/edición (ficha ampliada: clasificación/orientación/situación/parking/wifi/NRA/ref. catastral/escalera/piso/puerta, propietario por **typeahead**, toggles En garantía y Quitar planning) + **ficha en panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`/`.ficha-grid`) con **3 pestañas**: (1) Alojamiento — datos generales + configuración + "Recaudación del año" (mini-cards desde GET /api/estadisticas/apartamentos); (2) Propietario — lazy GET /api/propietarios/:id en lectura + "Abrir ficha completa"; (3) **Gastos** — selector de año + total, tabla de GET /api/apartamentos/:id/gastos con marcar/desmarcar cobrado y borrar, y modal "Añadir gasto" (typeahead de catálogo que autocompleta el precio, editable). Expone `abrirFicha(id)` (lo usan Contratos y Propietarios para enlazar).
   js/contratos.js      Módulo Contratos (window.Contratos). Contratos de gestión con el propietario: precio_cerrado (importe garantizado en cuotas) o comision (% sobre cada reserva). Cabecera con filtro de año + tipo + propietario (este último, un `<select>` inyectado por JS — `inyectarFiltroPropietario`/`poblarPropietarios` lo llenan con los propietarios de los contratos ya cargados, sin llamada extra) y "Nuevo contrato"; tabla (badges tipo/estado, Importe/% según tipo, columna Cuotas X/Y con mini barra). Expone `Contratos.filtrarPorPropietario(id, nombre)` (lo usa Estadísticas→Propietarios para abrir Contratos ya filtrado por ese propietario). Ficha en **panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`): Datos del contrato (apartamento con link a su ficha, IVA/retención, cálculo fiscal), y según tipo: plan de pagos (tabla de cuotas con marcar/desmarcar pago vía mini modal, pie Precio base/IVA/Retención/Total/Pagado/Pendiente) o resumen de comisión (reservas del apto ese año × %). Modal alta/edición: **autocompletado typeahead** del apartamento (≥2 chars, busca nombre/edificio, ↑↓/Enter/Esc, autorrellena propietario), radios grandes de tipo, rango de temporada, sección Fiscalidad (IVA 21% + retención 0/19/24 con resumen en vivo, solo precio_cerrado) y plan de pagos dinámico (añadir/eliminar cuotas, "Distribuir automáticamente", contador de cuadre verde/rojo).
   js/propietarios.js   Módulo Propietarios (window.Propietarios). Lista con avatar/búsqueda/orden/paginación, ficha en panel lateral deslizante editable, modal por pestañas e importación Excel.
   js/reservas.js       Módulo Reservas (window.Reservas). Tabla (con columna Portal: logo o círculo de color) + filtros + alta/edición manual + validación de disponibilidad + ficha en panel lateral deslizante (sub-pestañas Datos/Mensajes/Margen comercial/Liquidación propietario; solo Datos es funcional) con modal de edición de los campos de gestión. El panel del lateral se crea dinámicamente por JS (no está en index.html).
-  js/ajustes.js        Módulo Ajustes (window.Ajustes). Sub-pestañas Razón Social (tarjetas + modal) / Usuarios (tabla + modal) / Actividad (admin) / Portales (tabla con logo+color, reordenar ▲▼, modal con selector de color y subida de logo). La sub-pestaña Portales y su panel se inyectan por JS.
+  js/ajustes.js        Módulo Ajustes (window.Ajustes). Sub-pestañas Razón Social (tarjetas + modal) / Usuarios (tabla + modal) / Actividad (admin) / Portales (tabla con logo+color, reordenar ▲▼, modal con selector de color y subida de logo) / Catálogo de gastos (tabla concepto/precio/descripción/estado + buscador + modal). Las sub-pestañas Portales y Catálogo de gastos y sus paneles se inyectan por JS (`inyectarPortales`/`inyectarCatalogoGastos`).
   js/estadisticas.js   Módulo Estadísticas (window.Estadisticas). **Solo administradores** (ítem de sidebar `#nav-estadisticas` oculto si no es admin; guard en `activarTab`). Cabecera con título + selector de año (2024/2025/2026, actual por defecto) y 4 sub-pestañas (reusan `.subtab`/`.sub-panel`), **todas con datos reales**; cada una hace skeleton/error+reintentar y comparte el guard `reqSeq` anti-respuesta-obsoleta. (1) **"Ingresos por portal"** (GET /api/estadisticas/portales): 2 tarjetas de resumen + tabla con barra de % sobre ingresos_cobrados. (2) **"Ingresos por apartamento"** (GET /api/estadisticas/apartamentos): dos modos — vista general (3 tarjetas, buscador que filtra en memoria sin recargar, tabla con badge TIH + barra de ocupación coloreada por umbral + barra de % de ingresos; clic en fila → detalle) y vista detalle (botón "← Volver", cabecera + 3 tarjetas + tabla de reservas con total al pie, GET con `&apartamento_id=`). Cachea la vista general por año (`aptoCache`); el cambio de año invalida la caché. (3) **"Ocupación"** (GET /api/estadisticas/ocupacion): 4 tarjetas + gráfico de barras verticales por mes (CSS inline, color por umbral, mes actual resaltado) + comparativa 1ª/2ª Línea. (4) **"Propietarios 💰"** (GET /api/estadisticas/propietarios): cashflow de contratos precio_cerrado — 4 tarjetas + barra de cashflow (verde pagado / naranja pendiente) + tabla por propietario (Comprometido/Pagado con mini barra/Pendiente/Próxima cuota/"Ver contratos" → `activarTab('contratos')` + `Contratos.filtrarPorPropietario`) con buscador en memoria, totales en `<tfoot>` y caché por año (`propCache`). **Esta 4ª sub-pestaña y su panel se inyectan por JS** (`inyectarSubPropietarios`), no están en index.html. Recarga al cambiar año o sub-pestaña.
   js/app.js            Gate de login (arranca la app solo con sesión) + menú lateral (navegación, plegado, usuario, logout) + init de los módulos. La vista por defecto al entrar es Dashboard. `activarTab('estadisticas')` exige rol admin (si no, toast "Acceso restringido a administradores" y no activa); el ítem del sidebar se muestra/oculta por rol en `arrancarApp`.
 ```
@@ -118,11 +118,19 @@ Patrones de componentes en el CSS:
 
 | Método | Ruta                                    | Descripción                                                      |
 |--------|-----------------------------------------|------------------------------------------------------------------|
-| GET    | /api/apartamentos                       | Lista; ?tih=1\|2                                                 |
-| GET    | /api/apartamentos/:id                   | Ficha + propietario + historial de reservas                      |
+| GET    | /api/apartamentos                       | Lista; ?tih=1\|2. Por defecto **excluye** los `quitar_planning=1`; `?todos=1` los incluye (Alojamientos) |
+| GET    | /api/apartamentos/:id                   | Ficha (`a.*`, incluye campos ampliados) + propietario + historial de reservas |
 | POST   | /api/apartamentos                       | Crear apartamento (nombre obligatorio)                           |
-| PUT    | /api/apartamentos/:id                   | Editar apartamento                                               |
+| PUT    | /api/apartamentos/:id                   | Editar (**merge**: solo los campos presentes en el body; incluye los campos de la ficha ampliada) |
 | DELETE | /api/apartamentos/:id                   | Borrar (sus reservas pasan a Sin asignar)                        |
+| GET    | /api/apartamentos/:id/gastos            | ?anio=AAAA. Gastos del apartamento del año + `total_anio` (LEFT JOIN catálogo) |
+| POST   | /api/apartamentos/:id/gastos            | Añadir gasto; body `{ catalogo_gasto_id, fecha, precio?, notas, cobrado_propietario }`. nombre = snapshot del catálogo; precio = body.precio si viene, si no el del catálogo |
+| PUT    | /api/apartamentos/:id/gastos/:gasto_id  | Editar fecha/notas/cobrado_propietario (no cambia nombre ni precio) |
+| DELETE | /api/apartamentos/:id/gastos/:gasto_id  | Eliminar gasto                                                   |
+| GET    | /api/catalogo-gastos                    | Catálogo de gastos (activos primero, alfabético)                 |
+| POST   | /api/catalogo-gastos                    | Crear concepto (nombre único)                                    |
+| PUT    | /api/catalogo-gastos/:id                | Editar nombre/precio/descripcion/activo                          |
+| DELETE | /api/catalogo-gastos/:id                | Borrar; **409** si tiene gastos asociados                        |
 | GET    | /api/propietarios                       | Lista                                                            |
 | GET    | /api/propietarios/:id                   | Ficha + apartamentos asociados                                   |
 | POST   | /api/propietarios                       | Crear propietario (todos los campos; nombre obligatorio)         |
@@ -192,6 +200,11 @@ interprete como parámetro de ruta.
   verdad para construir INSERT/UPDATE.
 - **apartamentos**: nombre, edificio, `tipo` ('1'|'2' = 1ª/2ª línea), capacidad, notas,
   `propietario_id` (FK nullable, ON DELETE SET NULL). Un propietario tiene N apartamentos.
+  Ficha ampliada (añadida vía `migrarApartamentos`/`COLUMNAS_APARTAMENTOS`): `tipo_clasificacion`
+  (A/A+/A++/B/B+/C), `orientacion`, `situacion`, `parking`, `pwd_wifi`, `en_garantia` (0/1),
+  `quitar_planning` (0/1; si 1 se excluye de GET /api/apartamentos salvo `?todos=1`),
+  `licencia_turistica`, `nra`, `ref_catastral`, `bloque`, `escalera`, `piso`, `puerta`. La UI
+  oculta edificio/TIH/bloque del formulario y la ficha (siguen en BD; el PUT merge no los pisa).
 - **reservas**: `numero_reserva` (TEXT UNIQUE, identificador del Excel o alta manual),
   nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida`
   (ISO YYYY-MM-DD), observaciones, `apartamento_id` (FK nullable; **NULL = "Sin asignar"**).
@@ -235,6 +248,14 @@ interprete como parámetro de ruta.
   `importe`, `pagado` (0/1), `fecha_pago` (ISO), `notas`. En precio_cerrado la suma de
   importes debe cuadrar con `contratos.precio_total` (validado en POST/PUT, ±0.01€). El PUT de
   contrato **borra y reinserta** todas las cuotas.
+- **catalogo_gastos**: catálogo reutilizable de conceptos de gasto (limpieza, mantenimiento…),
+  gestionado en Ajustes. `nombre` UNIQUE, `precio`, `descripcion`, `activo` (0/1). No se puede
+  borrar si está en uso (409).
+- **apartamento_gastos**: gastos imputados a un apartamento. `apartamento_id` (FK NOT NULL,
+  **ON DELETE CASCADE**), `catalogo_gasto_id` (FK nullable, ON DELETE SET NULL), `nombre`/`precio`
+  (**snapshot** del catálogo al insertar; el precio puede sobreescribirse con `body.precio`),
+  `fecha` (ISO), `notas`, `cobrado_propietario` (0/1), `created_by`. Cambiar el catálogo no
+  altera los gastos ya registrados.
 
 TIH/tipo se guardan normalizados como `'1'`/`'2'` (ver `normalizaTih`); en UI se muestran
 "1ª Línea"/"2ª Línea" (ver `tihTexto`). Fechas en BD siempre ISO; en UI se muestran

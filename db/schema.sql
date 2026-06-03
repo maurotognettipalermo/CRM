@@ -199,6 +199,34 @@ CREATE INDEX IF NOT EXISTS idx_contratos_propietario ON contratos(propietario_id
 CREATE INDEX IF NOT EXISTS idx_contratos_anio ON contratos(anio);
 CREATE INDEX IF NOT EXISTS idx_cuotas_contrato ON contrato_cuotas(contrato_id);
 
+-- Catálogo de gastos reutilizables (limpieza, mantenimiento, etc.); se gestiona en Ajustes.
+CREATE TABLE IF NOT EXISTS catalogo_gastos (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre      TEXT NOT NULL UNIQUE,
+  precio      REAL NOT NULL DEFAULT 0,
+  descripcion TEXT,
+  activo      INTEGER DEFAULT 1,
+  created_at  TEXT DEFAULT (datetime('now'))
+);
+
+-- Gastos imputados a un apartamento. nombre/precio son un SNAPSHOT del catálogo en el
+-- momento de insertar (cambios futuros del catálogo no alteran el histórico).
+CREATE TABLE IF NOT EXISTS apartamento_gastos (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id      INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  catalogo_gasto_id   INTEGER REFERENCES catalogo_gastos(id) ON DELETE SET NULL,
+  nombre              TEXT NOT NULL,
+  precio              REAL NOT NULL,
+  fecha               TEXT NOT NULL,        -- ISO YYYY-MM-DD
+  notas               TEXT,
+  cobrado_propietario INTEGER DEFAULT 0,    -- 0/1
+  created_by          TEXT,
+  created_at          TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_apto_gastos_apartamento ON apartamento_gastos(apartamento_id);
+CREATE INDEX IF NOT EXISTS idx_apto_gastos_catalogo ON apartamento_gastos(catalogo_gasto_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

@@ -93,6 +93,24 @@ const COLUMNAS_CUOTAS = {
   // (reservado para columnas futuras de las cuotas)
 };
 
+// Columnas extra de la tabla apartamentos (ficha ampliada). DEFAULT constante en los 0/1.
+const COLUMNAS_APARTAMENTOS = {
+  tipo_clasificacion: 'TEXT',               // A / A+ / A++ / B / B+ / C
+  orientacion:        'TEXT',               // Norte / Sur / Este / Oeste / Sureste / ...
+  situacion:          'TEXT',               // Frontal / Lateral Principio / Medio / Final
+  parking:            'TEXT',               // nº/código de plaza
+  pwd_wifi:           'TEXT',
+  en_garantia:        'INTEGER DEFAULT 0',  // 0/1
+  quitar_planning:    'INTEGER DEFAULT 0',  // 0/1 — si 1 no aparece en el planning
+  licencia_turistica: 'TEXT',
+  nra:                'TEXT',               // nº de registro de actividad
+  ref_catastral:      'TEXT',
+  bloque:             'TEXT',
+  escalera:           'TEXT',
+  piso:               'TEXT',
+  puerta:             'TEXT',
+};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -101,6 +119,7 @@ function init() {
   migrarReservas();
   migrarPortales();
   migrarContratos();
+  migrarApartamentos();
   seedAdmin();
   seedPortales();
 }
@@ -136,6 +155,12 @@ function migrarPortales() {
 function migrarContratos() {
   anadirColumnasFaltantes('contratos', COLUMNAS_CONTRATOS);
   anadirColumnasFaltantes('contrato_cuotas', COLUMNAS_CUOTAS);
+}
+
+// Migración de la tabla apartamentos: añade los campos de la ficha ampliada si faltan
+// (los DEFAULT constantes 0 de en_garantia/quitar_planning se aplican a las filas existentes).
+function migrarApartamentos() {
+  anadirColumnasFaltantes('apartamentos', COLUMNAS_APARTAMENTOS);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

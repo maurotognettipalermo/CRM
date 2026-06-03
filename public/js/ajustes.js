@@ -24,8 +24,13 @@ const Ajustes = (() => {
 
   let usuarios = [];
   let portalesLista = [];
+  let catalogoLista = [];
+  let catBuscar = '';
 
   // ---- Utilidades ----
+  function euro(n) {
+    return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
   function colorAvatar(s) {
     s = s || '';
     let h = 0;
@@ -55,7 +60,135 @@ const Ajustes = (() => {
     await cargarRazones();
     await cargarUsuarios();
     await cargarPortales();
+    await cargarCatalogoGastos();
     if (Auth.esAdmin()) await cargarActividad();
+  }
+
+  // ==================== Catálogo de gastos ====================
+  // La sub-pestaña y su panel se inyectan por JS (no se toca index.html).
+  function inyectarCatalogoGastos() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="catalogo"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.dataset.sub = 'catalogo';
+    btn.textContent = 'Catálogo de gastos 🔧';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'catalogo';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Catálogo de gastos</span>
+        <div class="cat-head-acciones">
+          <input type="text" id="cat-buscar" class="input-buscar" placeholder="Buscar concepto…">
+          <button id="btn-nuevo-concepto" class="btn-pri">＋ Nuevo concepto</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-catalogo">
+          <thead>
+            <tr><th>Concepto</th><th>Precio</th><th>Descripción</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+    document.getElementById('btn-nuevo-concepto').addEventListener('click', () => formularioConcepto(null));
+    document.getElementById('cat-buscar').addEventListener('input', (e) => { catBuscar = e.target.value; renderCatalogo(); });
+  }
+
+  async function cargarCatalogoGastos() {
+    try { catalogoLista = await API.get('/api/catalogo-gastos'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderCatalogo();
+  }
+
+  function renderCatalogo() {
+    const tbody = document.querySelector('#tabla-catalogo tbody');
+    if (!tbody) return;
+    const q = catBuscar.trim().toLowerCase();
+    const lista = catalogoLista.filter((c) => !q || (c.nombre || '').toLowerCase().includes(q));
+    tbody.innerHTML = '';
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#6b7280;text-align:center;padding:24px">Sin conceptos.</td></tr>';
+      return;
+    }
+    for (const c of lista) {
+      const estado = c.activo
+        ? '<span class="badge-estado activo">Activo</span>'
+        : '<span class="badge-estado neutro">Inactivo</span>';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(c.nombre)}</td>
+        <td>${euro(c.precio)}</td>
+        <td>${esc(c.descripcion) || '—'}</td>
+        <td>${estado}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-c="${c.id}" title="Editar">✏️</button>
+          <button class="btn-mini" data-borrar-c="${c.id}" title="Eliminar">🗑️</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('[data-editar-c]').forEach((b) =>
+      b.addEventListener('click', () => formularioConcepto(catalogoLista.find((x) => x.id == b.dataset.editarC))));
+    tbody.querySelectorAll('[data-borrar-c]').forEach((b) =>
+      b.addEventListener('click', () => borrarConcepto(b.dataset.borrarC)));
+  }
+
+  function formularioConcepto(c) {
+    c = c || {};
+    const esNuevo = !c.id;
+    const activoChecked = c.activo === undefined ? true : !!c.activo;
+    abrirModal(`
+      <h3>${esNuevo ? 'Nuevo' : 'Editar'} concepto</h3>
+      <div class="campo"><label>Nombre *</label><input id="c-nombre" value="${esc(c.nombre)}"></div>
+      <div class="campo"><label>Precio (€) *</label><input id="c-precio" type="number" step="0.01" min="0" value="${c.precio != null ? c.precio : ''}"></div>
+      <div class="campo"><label>Descripción</label><textarea id="c-desc">${esc(c.descripcion)}</textarea></div>
+      <div class="campo"><label>Estado</label>
+        <label class="toggle-campo"><input type="checkbox" id="c-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="c-cancelar">Cancelar</button>
+        <button class="btn-pri" id="c-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('c-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('c-guardar').addEventListener('click', async () => {
+      const nombre = document.getElementById('c-nombre').value.trim();
+      if (!nombre) return toast('El nombre es obligatorio', 'error');
+      const precioRaw = document.getElementById('c-precio').value;
+      if (precioRaw === '' || isNaN(parseFloat(precioRaw))) return toast('El precio es obligatorio', 'error');
+      const body = {
+        nombre,
+        precio: parseFloat(precioRaw),
+        descripcion: document.getElementById('c-desc').value,
+        activo: document.getElementById('c-activo').checked ? 1 : 0,
+      };
+      try {
+        if (esNuevo) await API.post('/api/catalogo-gastos', body);
+        else await API.put('/api/catalogo-gastos/' + c.id, body);
+        cerrarModal();
+        await cargarCatalogoGastos();
+        toast('Concepto guardado', 'ok');
+      } catch (e) {
+        if (e.status === 409) toast('Ya existe un concepto con ese nombre', 'error');
+        else toast(e.message, 'error');
+      }
+    });
+  }
+
+  async function borrarConcepto(id) {
+    const c = catalogoLista.find((x) => x.id == id);
+    if (!confirm(`¿Eliminar el concepto "${c ? c.nombre : id}"?`)) return;
+    try {
+      await API.del('/api/catalogo-gastos/' + id);
+      await cargarCatalogoGastos();
+      toast('Concepto eliminado', 'ok');
+    } catch (e) {
+      if (e.status === 409) toast('Este concepto tiene gastos registrados y no puede eliminarse', 'error');
+      else toast(e.message, 'error');
+    }
   }
 
   // ==================== Portales ====================
@@ -500,7 +633,8 @@ const Ajustes = (() => {
 
   // ==================== Init ====================
   function init() {
-    inyectarPortales(); // crea la 4ª sub-pestaña antes de enlazar los clics de sub-pestaña
+    inyectarPortales();        // 4ª sub-pestaña (antes de enlazar los clics)
+    inyectarCatalogoGastos();  // 5ª sub-pestaña
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));
