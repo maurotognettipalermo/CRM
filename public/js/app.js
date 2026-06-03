@@ -58,6 +58,7 @@ function arrancarApp() {
   Planning.init();
   Alojamientos.init();
   Contratos.init();
+  Facturas.init();
   Propietarios.init();
   Reservas.init();
   Ajustes.init();
@@ -84,6 +85,7 @@ function activarTab(nombre) {
   if (nombre === 'planning') Planning.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'alojamientos') Alojamientos.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'contratos')    Contratos.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'facturacion')  Facturas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'propietarios') Propietarios.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'reservas')     Reservas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'estadisticas') Estadisticas.cargar().catch((e) => toast(e.message, 'error'));

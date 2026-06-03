@@ -1697,6 +1697,50 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(6),
 .sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(6) { min-width: 120px; }
 
+/* ============ Facturación ============ */
+.fac-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fac-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }
+.fac-contador { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+#tabla-facturas td.num, #tabla-facturas th.num,
+#fac-panel td.num, #fac-panel th.num { text-align: right; white-space: nowrap; }
+
+.fac-emisor-cel { display: inline-flex; align-items: center; gap: 6px; }
+.fac-logo-mini { height: 20px; max-width: 40px; object-fit: contain; border-radius: 3px; }
+.fac-ficha-logo { height: 48px; object-fit: contain; margin-bottom: 8px; }
+
+/* Badges de tipo / estado */
+.badge-fac-tipo, .badge-fac-estado { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.bf-propietario { background: #eff6ff; color: #2563eb; }
+.bf-autofactura { background: #f5f3ff; color: #7c3aed; }
+.bf-gastos      { background: #fff7ed; color: #c2410c; }
+.bf-huesped     { background: #f0fdf4; color: #059669; }
+.be-borrador { background: #f3f4f6; color: #6b7280; }
+.be-emitida  { background: #eff6ff; color: #2563eb; }
+.be-pagada   { background: #f0fdf4; color: #059669; }
+.be-anulada  { background: #fef2f2; color: var(--red); }
+
+/* Totales en la ficha */
+.fac-totales { margin-top: 14px; margin-left: auto; max-width: 320px; }
+.fac-tot-row { display: flex; justify-content: space-between; gap: 16px; font-size: 14px; color: var(--text); padding: 4px 0; }
+.fac-tot-total { font-size: 18px; font-weight: 700; border-top: 2px solid var(--border); margin-top: 6px; padding-top: 8px; }
+
+/* Wizard */
+.fac-wiz-paso { font-size: 12px; color: var(--muted); margin: 2px 0 14px; }
+.fac-tipo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.fac-tipo-op { border: 2px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer; text-align: center; transition: border-color 120ms ease, background 120ms ease; }
+.fac-tipo-op:hover { border-color: #9ca3af; }
+.fac-tipo-op.activo { border-color: var(--nav); background: #f5f7ff; }
+.fac-tipo-op-icono { font-size: 26px; display: block; margin-bottom: 6px; }
+.fac-tipo-op-titulo { font-weight: 600; color: var(--text); }
+.fac-tipo-op-desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.fac-check { display: block; font-size: 14px; color: var(--text); padding: 5px 0; cursor: pointer; }
+.fac-pend { color: #c2410c; font-size: 12px; }
+.fac-resumen { font-size: 14px; font-weight: 600; color: var(--text); margin: 4px 0 14px; }
+.fac-vacio { color: var(--muted); font-size: 14px; padding: 8px 0; }
+.fac-info-azul { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 8px 0 14px; }
+.fac-razon-logo { height: 32px; max-width: 90px; object-fit: contain; }
+
 /* ============ Contratos ============ */
 .cnt-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cnt-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }

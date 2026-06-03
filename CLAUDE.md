@@ -35,11 +35,11 @@ npm start              # equivale a: node C:\CRM\server.js
 
 ```
 server.js              Express: json + static(public) + monta /api/* + errores. listen 3000.
-db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos/apartamentos/catalogo_gastos/razones_sociales) + seeds (admin por defecto, portales por defecto).
+db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos/apartamentos/catalogo_gastos/razones_sociales/facturas) + seeds (admin por defecto, portales por defecto).
 scripts/crear-usuario.js  Script suelto (node scripts/crear-usuario.js) para crear/actualizar un usuario admin directamente en la BD sin pasar por el seed.
-db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas, catalogo_gastos, apartamento_gastos (+ índices).
+db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas, catalogo_gastos, apartamento_gastos, facturas, factura_lineas, factura_contador (+ índices).
 routes/                Un router Express por recurso (CRUD + acciones).
-  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js · contratos.js · gastos.js
+  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js · contratos.js · gastos.js · facturas.js
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV de propietarios, mapeo flexible de cabeceras, upsert por email o documento.
@@ -47,7 +47,7 @@ services/
   asignacion.js        buscarPisoLibre(apartamentos, ocupaciones, tih, entrada, salida) + normalizaTih.
   dateUtils.js         parseFecha (DD/MM/AAAA, serial Excel, ISO), solapan (intervalos medio abiertos).
 public/                Frontend vanilla. Sin build, se sirve estático.
-  index.html           SPA de 8 pestañas (Dashboard por defecto; Estadísticas solo admin) + menú lateral plegable + modal genérico + panel lateral + toast.
+  index.html           SPA de 9 pestañas (Dashboard por defecto; Estadísticas solo admin) + menú lateral plegable + modal genérico + panel lateral + toast.
   uploads/portales/    Imágenes/logos de portales subidos (servidos estáticos; ver tabla portales).
   css/styles.css       Tema claro (fondo blanco, sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (añaden header X-Auth-Token; 401 -> window.onNoAutorizado) + API.getPortales() (lista de portales cacheada en memoria, compartida por planning/reservas) + toast() + abrirModal/cerrarModal + helpers (esc, fechaES, tihTexto).
@@ -55,7 +55,8 @@ public/                Frontend vanilla. Sin build, se sirve estático.
   js/dashboard.js      Módulo Dashboard (window.Dashboard). Pantalla de inicio (1ª pestaña). 4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, próximos check-out) desde GET /api/dashboard + API.getPortales(); skeleton de carga, error+reintentar, paginación 5/5 y auto-refresco cada 5 min.
   js/planning.js       Módulo Planning (IIFE -> window.Planning). Vista continua de N días (estilo Avantio) desde una fecha de inicio, drag&drop, import. Las barras se colorean con el color del portal (con su logo dentro) y, si no hay portal, con el color por TIH.
   js/alojamientos.js   Módulo Alojamientos (window.Alojamientos). Tabla (carga con `?todos=1`: incluye los excluidos del planning) + modal de alta/edición (ficha ampliada: clasificación/orientación/situación/parking/wifi/NRA/ref. catastral/escalera/piso/puerta, propietario por **typeahead**, toggles En garantía y Quitar planning) + **ficha en panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`/`.ficha-grid`) con **3 pestañas**: (1) Alojamiento — datos generales + configuración + "Recaudación del año" (mini-cards desde GET /api/estadisticas/apartamentos); (2) Propietario — lazy GET /api/propietarios/:id en lectura + "Abrir ficha completa"; (3) **Gastos** — selector de año + total, tabla de GET /api/apartamentos/:id/gastos con marcar/desmarcar cobrado y borrar, y modal "Añadir gasto" (typeahead de catálogo que autocompleta el precio, editable). Expone `abrirFicha(id)` (lo usan Contratos y Propietarios para enlazar).
-  js/contratos.js      Módulo Contratos (window.Contratos). Contratos de gestión con el propietario: precio_cerrado (importe garantizado en cuotas) o comision (% sobre cada reserva). Cabecera con filtro de año + tipo + propietario (este último, un `<select>` inyectado por JS — `inyectarFiltroPropietario`/`poblarPropietarios` lo llenan con los propietarios de los contratos ya cargados, sin llamada extra) y "Nuevo contrato"; tabla (badges tipo/estado, Importe/% según tipo, columna Cuotas X/Y con mini barra). Expone `Contratos.filtrarPorPropietario(id, nombre)` (lo usa Estadísticas→Propietarios para abrir Contratos ya filtrado por ese propietario). Ficha en **panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`): Datos del contrato (apartamento con link a su ficha, IVA/retención, cálculo fiscal), y según tipo: plan de pagos (tabla de cuotas con marcar/desmarcar pago vía mini modal, pie Precio base/IVA/Retención/Total/Pagado/Pendiente) o resumen de comisión (reservas del apto ese año × %). Modal alta/edición: **autocompletado typeahead** del apartamento (≥2 chars, busca nombre/edificio, ↑↓/Enter/Esc, autorrellena propietario), radios grandes de tipo, rango de temporada, sección Fiscalidad (IVA 21% + retención 0/19/24 con resumen en vivo, solo precio_cerrado) y plan de pagos dinámico (añadir/eliminar cuotas, "Distribuir automáticamente", contador de cuadre verde/rojo).
+  js/contratos.js      Módulo Contratos (window.Contratos). Contratos de gestión con el propietario: precio_cerrado (importe garantizado en cuotas) o comision (% sobre cada reserva). Cabecera con filtro de año + tipo + propietario (este último, un `<select>` inyectado por JS — `inyectarFiltroPropietario`/`poblarPropietarios` lo llenan con los propietarios de los contratos ya cargados, sin llamada extra) y "Nuevo contrato"; tabla (badges tipo/estado, Importe/% según tipo, columna Cuotas X/Y con mini barra). Expone `Contratos.filtrarPorPropietario(id, nombre)` (lo usa Estadísticas→Propietarios para abrir Contratos ya filtrado por ese propietario).
+  js/facturas.js       Módulo Facturación (window.Facturas). Pestaña entre Contratos y Propietarios. Cabecera con filtros año/tipo/estado + "Nueva factura" y contador (nº + suma de totales). Tabla (badges de tipo: propietario azul/autofactura morado/gastos naranja/huésped verde; estado: borrador gris/emitida azul/pagada verde/anulada rojo; logo de emisor 20px) con acciones 👁 ver PDF / ✓ pagar / ⊘ anular / 🗑 borrar (solo borradores). Ficha en **panel lateral creado por JS** (emisor/receptor, detalles, líneas + totales con Base/IVA/Retención/TOTAL; botones Descargar PDF/Anular). **Wizard de 2 pasos** para emitir: paso 1 tipo (4 tarjetas) + razón social emisora; paso 2 según tipo con typeahead (propietario→contrato→cuotas pendientes / apartamento→gastos sin cobrar / reserva→datos manuales del huésped). 👁 y "Descargar PDF" abren `/api/facturas/:id/pdf` en nueva pestaña. Ficha en **panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`): Datos del contrato (apartamento con link a su ficha, IVA/retención, cálculo fiscal), y según tipo: plan de pagos (tabla de cuotas con marcar/desmarcar pago vía mini modal, pie Precio base/IVA/Retención/Total/Pagado/Pendiente) o resumen de comisión (reservas del apto ese año × %). Modal alta/edición: **autocompletado typeahead** del apartamento (≥2 chars, busca nombre/edificio, ↑↓/Enter/Esc, autorrellena propietario), radios grandes de tipo, rango de temporada, sección Fiscalidad (IVA 21% + retención 0/19/24 con resumen en vivo, solo precio_cerrado) y plan de pagos dinámico (añadir/eliminar cuotas, "Distribuir automáticamente", contador de cuadre verde/rojo).
   js/propietarios.js   Módulo Propietarios (window.Propietarios). Lista con avatar/búsqueda/orden/paginación, ficha en panel lateral deslizante editable, modal por pestañas e importación Excel.
   js/reservas.js       Módulo Reservas (window.Reservas). Tabla (con columna Portal: logo o círculo de color) + filtros + alta/edición manual + validación de disponibilidad + ficha en panel lateral deslizante (sub-pestañas Datos/Mensajes/Margen comercial/Liquidación propietario; solo Datos es funcional) con modal de edición de los campos de gestión. El panel del lateral se crea dinámicamente por JS (no está en index.html).
   js/ajustes.js        Módulo Ajustes (window.Ajustes). Sub-pestañas Razón Social (tarjetas con logo/avatar + modal con subida de logo, mismo patrón que portales) / Usuarios (tabla + modal) / Actividad (admin) / Portales (tabla con logo+color, reordenar ▲▼, modal con selector de color y subida de logo) / Catálogo de gastos (tabla concepto/precio/descripción/estado + buscador + modal). Las sub-pestañas Portales y Catálogo de gastos y sus paneles se inyectan por JS (`inyectarPortales`/`inyectarCatalogoGastos`).
@@ -176,6 +177,13 @@ Patrones de componentes en el CSS:
 | PUT    | /api/contratos/:id                      | Editar contrato y **reemplazar cuotas** (DELETE+INSERT en transacción), misma validación |
 | DELETE | /api/contratos/:id                      | Borrar (cuotas en CASCADE); **409** si tiene alguna cuota pagada |
 | PUT    | /api/contratos/:id/cuotas/:cuota_id     | Marcar/desmarcar cuota pagada; body `{ pagado, fecha_pago }` (al marcar sin fecha usa hoy; al desmarcar la limpia) |
+| GET    | /api/facturas                           | ?anio=&tipo=&estado=&propietario_id=&reserva_id= (filtros opcionales). Lista (`f.*` + razon_logo_url), orden fecha_emision DESC |
+| GET    | /api/facturas/:id                       | Ficha + `lineas[]` (ordenadas por orden)                         |
+| GET    | /api/facturas/:id/pdf                   | PDF de la factura (pdfkit); `Content-Disposition: attachment; filename="{numero}.pdf"` |
+| POST   | /api/facturas                           | Crear según `tipo` (huésped/propietario/autofactura/gastos); construye emisor/receptor/líneas/importes y numera correlativo (F-{anio}-NNN) en transacción |
+| PUT    | /api/facturas/:id                       | Solo estado / fecha_vencimiento / notas (no toca importes)       |
+| PUT    | /api/facturas/:id/anular                | Marca estado='anulada' (no borra); registra actividad            |
+| DELETE | /api/facturas/:id                       | Solo si estado='borrador'; si no → 409                          |
 
 Todas las rutas `/api/*` **salvo `/api/auth/login`** pasan por el middleware `requireAuth`
 (header `X-Auth-Token`) y reciben `req.usuario = { id, nombre, username, rol }`.
@@ -260,6 +268,18 @@ interprete como parámetro de ruta.
   (**snapshot** del catálogo al insertar; el precio puede sobreescribirse con `body.precio`),
   `fecha` (ISO), `notas`, `cobrado_propietario` (0/1), `created_by`. Cambiar el catálogo no
   altera los gastos ya registrados.
+- **facturas**: 4 tipos (`tipo` CHECK: huésped/propietario/autofactura/gastos), `estado` CHECK
+  (borrador/emitida/pagada/anulada). `numero` UNIQUE (F-{anio}-NNN). Datos **snapshot** de emisor
+  (emisor_nombre/cif/direccion/logo_url) y receptor (receptor_nombre/cif/direccion/email), importes
+  (base_imponible, porcentaje_iva/importe_iva, porcentaje_retencion/importe_retencion, total) y FKs
+  de referencia (contrato_id, apartamento_id, propietario_id, reserva_id, razon_social_id — todas
+  ON DELETE SET NULL). El POST construye todo a partir de los datos referenciados; IVA por tipo
+  (propietario/autofactura: del contrato; gastos: 21% si algún gasto lleva IVA; huésped: 10%).
+- **factura_lineas**: líneas de una factura. `factura_id` (FK NOT NULL, **ON DELETE CASCADE**),
+  descripcion, cantidad, precio_unitario, importe, orden.
+- **factura_contador**: `anio` PK / `ultimo_numero`. `siguienteNumeroFactura(anio, serie)`
+  (INSERT OR IGNORE + UPDATE +1 + SELECT) corre **dentro de la transacción** del INSERT de la
+  factura → numeración correlativa sin huecos ni duplicados.
 
 TIH/tipo se guardan normalizados como `'1'`/`'2'` (ver `normalizaTih`); en UI se muestran
 "1ª Línea"/"2ª Línea" (ver `tihTexto`). Fechas en BD siempre ISO; en UI se muestran
@@ -328,6 +348,13 @@ también funciona un CSV genérico con cabeceras en la fila 0. Cabeceras → cam
   con `datetime('now')` (en BD nuevas el DEFAULT del `schema.sql` ya lo cubre). Si añades una
   columna "fecha de creación" a otra tabla, sigue el mismo patrón.
 - **multer 2.x**: memoryStorage + `.single('archivo')` (la 1.x tenía vulnerabilidades).
+- **PDF de facturas con `pdfkit`** (no html-pdf-node/puppeteer): se eligió pdfkit porque es JS
+  puro, sin Chromium (~300MB) ni compilación nativa, así funciona en el servidor offline de la
+  oficina (mismo criterio que better-sqlite3). El PDF se construye por coordenadas en
+  `routes/facturas.js` (GET `/:id/pdf`); el logo del emisor se embebe con `fs.readFileSync`
+  (pdfkit acepta el Buffer directo) **solo si es PNG/JPG** (pdfkit no soporta SVG/WEBP). El
+  buffer se acumula de los eventos `data`/`end` del documento y se envía con `Content-Type:
+  application/pdf`.
 - **Autenticación** (login simple para red local): el login es lo primero que se ve si no
   hay sesión válida. `POST /api/auth/login` valida usuario+contraseña (sha256) y genera
   `token = sha256(username+password+fecha)`, lo guarda en `usuarios.token` y lo devuelve. El

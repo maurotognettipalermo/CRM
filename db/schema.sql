@@ -227,6 +227,72 @@ CREATE TABLE IF NOT EXISTS apartamento_gastos (
 CREATE INDEX IF NOT EXISTS idx_apto_gastos_apartamento ON apartamento_gastos(apartamento_id);
 CREATE INDEX IF NOT EXISTS idx_apto_gastos_catalogo ON apartamento_gastos(catalogo_gasto_id);
 
+-- Facturas (huésped / propietario / autofactura / gastos).
+CREATE TABLE IF NOT EXISTS facturas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  numero TEXT UNIQUE NOT NULL,        -- F-2026-001
+  serie TEXT NOT NULL DEFAULT 'F',
+  anio INTEGER NOT NULL,
+  tipo TEXT NOT NULL CHECK(tipo IN ('huésped','propietario','autofactura','gastos')),
+  estado TEXT DEFAULT 'emitida' CHECK(estado IN ('borrador','emitida','pagada','anulada')),
+
+  -- Emisor (nuestra empresa o propietario en autofactura)
+  razon_social_id INTEGER REFERENCES razones_sociales(id) ON DELETE SET NULL,
+  emisor_nombre TEXT NOT NULL,
+  emisor_cif TEXT,
+  emisor_direccion TEXT,
+  emisor_logo_url TEXT,
+
+  -- Receptor
+  receptor_nombre TEXT NOT NULL,
+  receptor_cif TEXT,
+  receptor_direccion TEXT,
+  receptor_email TEXT,
+
+  -- Importes
+  base_imponible REAL DEFAULT 0,
+  porcentaje_iva REAL DEFAULT 21,
+  importe_iva REAL DEFAULT 0,
+  porcentaje_retencion REAL DEFAULT 0,
+  importe_retencion REAL DEFAULT 0,
+  total REAL DEFAULT 0,
+
+  -- Referencias
+  contrato_id INTEGER REFERENCES contratos(id) ON DELETE SET NULL,
+  apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
+  propietario_id INTEGER REFERENCES propietarios(id) ON DELETE SET NULL,
+  reserva_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+
+  -- Metadata
+  fecha_emision TEXT NOT NULL DEFAULT (date('now')),
+  fecha_vencimiento TEXT,
+  notas TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS factura_lineas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  factura_id INTEGER NOT NULL REFERENCES facturas(id) ON DELETE CASCADE,
+  descripcion TEXT NOT NULL,
+  cantidad REAL DEFAULT 1,
+  precio_unitario REAL NOT NULL,
+  importe REAL NOT NULL,           -- cantidad * precio_unitario
+  orden INTEGER DEFAULT 0
+);
+
+-- Contador de numeración de facturas por año (numeración correlativa sin huecos).
+CREATE TABLE IF NOT EXISTS factura_contador (
+  anio INTEGER PRIMARY KEY,
+  ultimo_numero INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_facturas_anio ON facturas(anio);
+CREATE INDEX IF NOT EXISTS idx_facturas_tipo ON facturas(tipo);
+CREATE INDEX IF NOT EXISTS idx_facturas_propietario ON facturas(propietario_id);
+CREATE INDEX IF NOT EXISTS idx_facturas_reserva ON facturas(reserva_id);
+CREATE INDEX IF NOT EXISTS idx_factura_lineas_factura ON factura_lineas(factura_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

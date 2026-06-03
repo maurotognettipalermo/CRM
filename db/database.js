@@ -121,6 +121,10 @@ const COLUMNAS_RAZONES = {
   logo_url: 'TEXT',
 };
 
+// Columnas extra de las tablas de facturación (forward-compat: se añaden si faltan).
+// Las tablas las crea schema.sql; aquí solo reservamos el punto para columnas futuras.
+const COLUMNAS_FACTURAS = {};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -132,6 +136,7 @@ function init() {
   migrarApartamentos();
   migrarGastos();
   migrarRazones();
+  migrarFacturas();
   seedAdmin();
   seedPortales();
 }
@@ -183,6 +188,11 @@ function migrarGastos() {
 // Migración de la tabla razones_sociales: añade logo_url si falta.
 function migrarRazones() {
   anadirColumnasFaltantes('razones_sociales', COLUMNAS_RAZONES);
+}
+
+// Migración de la tabla facturas (las tablas las crea schema.sql; reservado para columnas futuras).
+function migrarFacturas() {
+  anadirColumnasFaltantes('facturas', COLUMNAS_FACTURAS);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

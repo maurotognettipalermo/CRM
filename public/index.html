@@ -46,6 +46,9 @@
       <button class="nav-item" data-tab="contratos" title="Contratos">
         <span class="nav-icono">📄</span><span class="nav-texto">Contratos</span>
       </button>
+      <button class="nav-item" data-tab="facturacion" title="Facturación">
+        <span class="nav-icono">🧾</span><span class="nav-texto">Facturación</span>
+      </button>
       <button class="nav-item" data-tab="propietarios" title="Propietarios">
         <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
       </button>
@@ -148,6 +151,51 @@
               <th>Temporada</th>
               <th>Importe/%</th>
               <th>Cuotas</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ FACTURACIÓN ============ -->
+    <section id="vista-facturacion" class="vista">
+      <div class="barra-herramientas">
+        <div class="fac-controles">
+          <h2>Facturación</h2>
+          <select id="fac-filtro-anio" class="select-filtro"></select>
+          <select id="fac-filtro-tipo" class="select-filtro">
+            <option value="">Todos los tipos</option>
+            <option value="propietario">Propietario</option>
+            <option value="autofactura">Autofactura</option>
+            <option value="gastos">Gastos</option>
+            <option value="huésped">Huésped</option>
+          </select>
+          <select id="fac-filtro-estado" class="select-filtro">
+            <option value="">Todos los estados</option>
+            <option value="borrador">Borrador</option>
+            <option value="emitida">Emitida</option>
+            <option value="pagada">Pagada</option>
+            <option value="anulada">Anulada</option>
+          </select>
+        </div>
+        <button id="btn-nueva-factura" class="btn-pri">＋ Nueva factura</button>
+      </div>
+      <div id="fac-contador" class="fac-contador"></div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-facturas">
+          <thead>
+            <tr>
+              <th>Nº Factura</th>
+              <th>Tipo</th>
+              <th>Fecha</th>
+              <th>Emisor</th>
+              <th>Receptor</th>
+              <th class="num">Base</th>
+              <th class="num">IVA</th>
+              <th class="num">Total</th>
               <th>Estado</th>
               <th></th>
             </tr>
@@ -351,6 +399,7 @@
   <script src="js/planning.js"></script>
   <script src="js/alojamientos.js"></script>
   <script src="js/contratos.js"></script>
+  <script src="js/facturas.js"></script>
   <script src="js/propietarios.js"></script>
   <script src="js/reservas.js"></script>
   <script src="js/ajustes.js"></script>
