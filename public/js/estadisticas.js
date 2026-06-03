@@ -687,7 +687,7 @@ const Estadisticas = (() => {
       const btn = document.createElement('button');
       btn.className = 'subtab';
       btn.dataset.sub = 'propietario';
-      btn.textContent = 'Propietarios 💰';
+      btn.textContent = 'Propietarios';
       subtabs.appendChild(btn);
     }
     const scroll = document.querySelector('#vista-estadisticas .est-scroll');

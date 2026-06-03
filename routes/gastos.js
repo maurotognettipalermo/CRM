@@ -35,8 +35,8 @@ catalogo.post('/', (req, res) => {
   }
   const activo = (b.activo === undefined || b.activo === null) ? 1 : (b.activo ? 1 : 0);
   const info = db.prepare(
-    'INSERT INTO catalogo_gastos (nombre, precio, descripcion, activo) VALUES (?, ?, ?, ?)'
-  ).run(nombre, num(b.precio), txt(b.descripcion), activo);
+    'INSERT INTO catalogo_gastos (nombre, precio, descripcion, activo, incluye_iva) VALUES (?, ?, ?, ?, ?)'
+  ).run(nombre, num(b.precio), txt(b.descripcion), activo, b.incluye_iva ? 1 : 0);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'catalogo_gasto', info.lastInsertRowid, nombre);
   res.status(201).json({ id: info.lastInsertRowid });
 });
@@ -57,9 +57,10 @@ catalogo.put('/:id', (req, res) => {
   const precio = b.precio !== undefined ? num(b.precio) : actual.precio;
   const descripcion = b.descripcion !== undefined ? txt(b.descripcion) : actual.descripcion;
   const activo = b.activo !== undefined ? (b.activo ? 1 : 0) : actual.activo;
+  const incluye_iva = b.incluye_iva !== undefined ? (b.incluye_iva ? 1 : 0) : actual.incluye_iva;
 
-  db.prepare('UPDATE catalogo_gastos SET nombre = ?, precio = ?, descripcion = ?, activo = ? WHERE id = ?')
-    .run(nombre, precio, descripcion, activo, req.params.id);
+  db.prepare('UPDATE catalogo_gastos SET nombre = ?, precio = ?, descripcion = ?, activo = ?, incluye_iva = ? WHERE id = ?')
+    .run(nombre, precio, descripcion, activo, incluye_iva, req.params.id);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'catalogo_gasto', req.params.id, nombre);
   res.json({ ok: true });
 });

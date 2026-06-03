@@ -72,7 +72,7 @@ const Ajustes = (() => {
     const btn = document.createElement('button');
     btn.className = 'subtab';
     btn.dataset.sub = 'catalogo';
-    btn.textContent = 'Catálogo de gastos 🔧';
+    btn.textContent = 'Catálogo de gastos';
     subtabs.appendChild(btn);
 
     const panel = document.createElement('div');
@@ -146,6 +146,10 @@ const Ajustes = (() => {
       <div class="campo"><label>Nombre *</label><input id="c-nombre" value="${esc(c.nombre)}"></div>
       <div class="campo"><label>Precio (€) *</label><input id="c-precio" type="number" step="0.01" min="0" value="${c.precio != null ? c.precio : ''}"></div>
       <div class="campo"><label>Descripción</label><textarea id="c-desc">${esc(c.descripcion)}</textarea></div>
+      <div class="campo">
+        <label class="toggle-campo"><input type="checkbox" id="c-iva"${c.incluye_iva ? ' checked' : ''}><span>Incluye IVA (21%)</span></label>
+        <div id="c-iva-desglose" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+      </div>
       <div class="campo"><label>Estado</label>
         <label class="toggle-campo"><input type="checkbox" id="c-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
       </div>
@@ -153,6 +157,18 @@ const Ajustes = (() => {
         <button class="btn-sec" id="c-cancelar">Cancelar</button>
         <button class="btn-pri" id="c-guardar">Guardar</button>
       </div>`);
+
+    const actualizarDesglose = () => {
+      const el = document.getElementById('c-iva-desglose');
+      if (!document.getElementById('c-iva').checked) { el.textContent = ''; return; }
+      const base = parseFloat(document.getElementById('c-precio').value) || 0;
+      const iva = base * 0.21;
+      el.textContent = `Base: ${euro(base)} + IVA 21%: ${euro(iva)} = Total: ${euro(base + iva)}`;
+    };
+    actualizarDesglose();
+    document.getElementById('c-precio').addEventListener('input', actualizarDesglose);
+    document.getElementById('c-iva').addEventListener('change', actualizarDesglose);
+
     document.getElementById('c-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('c-guardar').addEventListener('click', async () => {
       const nombre = document.getElementById('c-nombre').value.trim();
@@ -164,6 +180,7 @@ const Ajustes = (() => {
         precio: parseFloat(precioRaw),
         descripcion: document.getElementById('c-desc').value,
         activo: document.getElementById('c-activo').checked ? 1 : 0,
+        incluye_iva: document.getElementById('c-iva').checked ? 1 : 0,
       };
       try {
         if (esNuevo) await API.post('/api/catalogo-gastos', body);

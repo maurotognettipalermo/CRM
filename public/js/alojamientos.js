@@ -446,7 +446,11 @@ const Alojamientos = (() => {
       </div>
       <div class="fila-campos">
         <div class="campo"><label>Fecha *</label><input type="date" id="ag-fecha" value="${hoy}"></div>
-        <div class="campo"><label>Importe (€)</label><input type="number" step="0.01" min="0" id="ag-importe" value=""></div>
+        <div class="campo">
+          <label>Importe (€)</label>
+          <input type="number" step="0.01" min="0" id="ag-importe" value="">
+          <div id="ag-iva-desglose" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+        </div>
       </div>
       <div class="campo"><label>Notas</label><textarea id="ag-notas"></textarea></div>
       <label class="toggle-campo"><input type="checkbox" id="ag-cobrado"><span>Cobrado al propietario</span></label>
@@ -456,6 +460,7 @@ const Alojamientos = (() => {
       </div>`);
 
     initConceptoTypeahead();
+    document.getElementById('ag-importe').addEventListener('input', actualizarGastoIvaDesglose);
     document.getElementById('ag-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('ag-guardar').addEventListener('click', async () => {
       if (!gastoCatSel) return toast('Selecciona un concepto', 'error');
@@ -484,6 +489,7 @@ const Alojamientos = (() => {
     const input = document.getElementById('ag-concepto-buscar');
     input.addEventListener('input', () => {
       gastoCatSel = null;
+      actualizarGastoIvaDesglose(); // sin concepto seleccionado, se oculta
       const q = input.value.trim().toLowerCase();
       if (q.length < 2) { cerrarConceptoDrop(); return; }
       gtaMatches = gastoCatList.filter((c) => (c.nombre || '').toLowerCase().includes(q));
@@ -519,6 +525,17 @@ const Alojamientos = (() => {
     document.getElementById('ag-concepto-buscar').value = c ? c.nombre : '';
     if (c) document.getElementById('ag-importe').value = c.precio; // autocompleta el precio
     cerrarConceptoDrop();
+    actualizarGastoIvaDesglose();
+  }
+
+  // Desglose de IVA bajo el importe (solo si el concepto seleccionado incluye IVA).
+  function actualizarGastoIvaDesglose() {
+    const el = document.getElementById('ag-iva-desglose');
+    if (!el) return;
+    const c = gastoCatList.find((x) => x.id === gastoCatSel);
+    if (!c || !c.incluye_iva) { el.textContent = ''; return; }
+    const base = parseFloat(document.getElementById('ag-importe').value) || 0;
+    el.textContent = `Base: ${euro(base)} + IVA 21%: ${euro(base * 0.21)}`;
   }
   function cerrarConceptoDrop() {
     const dd = document.getElementById('ag-concepto-dropdown');

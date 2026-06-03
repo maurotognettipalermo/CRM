@@ -111,6 +111,11 @@ const COLUMNAS_APARTAMENTOS = {
   puerta:             'TEXT',
 };
 
+// Columnas extra de la tabla catalogo_gastos.
+const COLUMNAS_CATALOGO_GASTOS = {
+  incluye_iva: 'INTEGER DEFAULT 0',         // 0/1 — el precio lleva IVA 21% (informativo)
+};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -120,6 +125,7 @@ function init() {
   migrarPortales();
   migrarContratos();
   migrarApartamentos();
+  migrarGastos();
   seedAdmin();
   seedPortales();
 }
@@ -161,6 +167,11 @@ function migrarContratos() {
 // (los DEFAULT constantes 0 de en_garantia/quitar_planning se aplican a las filas existentes).
 function migrarApartamentos() {
   anadirColumnasFaltantes('apartamentos', COLUMNAS_APARTAMENTOS);
+}
+
+// Migración de la tabla catalogo_gastos: añade incluye_iva si falta.
+function migrarGastos() {
+  anadirColumnasFaltantes('catalogo_gastos', COLUMNAS_CATALOGO_GASTOS);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

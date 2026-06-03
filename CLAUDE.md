@@ -35,7 +35,7 @@ npm start              # equivale a: node C:\CRM\server.js
 
 ```
 server.js              Express: json + static(public) + monta /api/* + errores. listen 3000.
-db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos/apartamentos) + seeds (admin por defecto, portales por defecto).
+db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos/apartamentos/catalogo_gastos) + seeds (admin por defecto, portales por defecto).
 scripts/crear-usuario.js  Script suelto (node scripts/crear-usuario.js) para crear/actualizar un usuario admin directamente en la BD sin pasar por el seed.
 db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas, catalogo_gastos, apartamento_gastos (+ índices).
 routes/                Un router Express por recurso (CRUD + acciones).
@@ -129,7 +129,7 @@ Patrones de componentes en el CSS:
 | DELETE | /api/apartamentos/:id/gastos/:gasto_id  | Eliminar gasto                                                   |
 | GET    | /api/catalogo-gastos                    | Catálogo de gastos (activos primero, alfabético)                 |
 | POST   | /api/catalogo-gastos                    | Crear concepto (nombre único)                                    |
-| PUT    | /api/catalogo-gastos/:id                | Editar nombre/precio/descripcion/activo                          |
+| PUT    | /api/catalogo-gastos/:id                | Editar nombre/precio/descripcion/activo/incluye_iva              |
 | DELETE | /api/catalogo-gastos/:id                | Borrar; **409** si tiene gastos asociados                        |
 | GET    | /api/propietarios                       | Lista                                                            |
 | GET    | /api/propietarios/:id                   | Ficha + apartamentos asociados                                   |
@@ -249,8 +249,9 @@ interprete como parámetro de ruta.
   importes debe cuadrar con `contratos.precio_total` (validado en POST/PUT, ±0.01€). El PUT de
   contrato **borra y reinserta** todas las cuotas.
 - **catalogo_gastos**: catálogo reutilizable de conceptos de gasto (limpieza, mantenimiento…),
-  gestionado en Ajustes. `nombre` UNIQUE, `precio`, `descripcion`, `activo` (0/1). No se puede
-  borrar si está en uso (409).
+  gestionado en Ajustes. `nombre` UNIQUE, `precio`, `descripcion`, `activo` (0/1), `incluye_iva`
+  (0/1, vía `migrarGastos`; informativo: el precio lleva IVA 21%, con desglose en los modales).
+  No se puede borrar si está en uso (409).
 - **apartamento_gastos**: gastos imputados a un apartamento. `apartamento_id` (FK NOT NULL,
   **ON DELETE CASCADE**), `catalogo_gasto_id` (FK nullable, ON DELETE SET NULL), `nombre`/`precio`
   (**snapshot** del catálogo al insertar; el precio puede sobreescribirse con `body.precio`),
