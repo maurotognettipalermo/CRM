@@ -512,7 +512,7 @@ const Estadisticas = (() => {
           <td class="est-col-pct">${euro(p.total_pagado)}${barra(pct, '#10b981')}</td>
           <td class="num">${euro(p.total_pendiente)}</td>
           <td>${celdaProxima(p)}</td>
-          <td class="acciones"><button class="btn-mini" data-ver-contratos="${p.propietario_id}">Ver contratos</button></td>
+          <td class="acciones"><button class="btn-mini" data-ver-contratos="${p.propietario_id}" data-nombre="${esc(p.propietario_nombre)}">Ver contratos</button></td>
         </tr>`;
     }).join('');
   }
@@ -611,12 +611,16 @@ const Estadisticas = (() => {
     enlazarVerContratos(panel);
   }
 
-  // "Ver contratos": navega a la pestaña Contratos (el filtrado por propietario lo aplica
-  // allí el usuario; este módulo no toca el de Contratos).
+  // "Ver contratos": navega a la pestaña Contratos y la filtra por ese propietario.
   function enlazarVerContratos(panel) {
     panel.querySelectorAll('[data-ver-contratos]').forEach((b) =>
       b.addEventListener('click', () => {
+        const id = b.dataset.verContratos;
+        const nombre = b.dataset.nombre || '';
         if (typeof activarTab === 'function') activarTab('contratos');
+        if (typeof Contratos !== 'undefined' && typeof Contratos.filtrarPorPropietario === 'function') {
+          Contratos.filtrarPorPropietario(id, nombre);
+        }
       }));
   }
 

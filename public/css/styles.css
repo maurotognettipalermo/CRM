@@ -1637,6 +1637,22 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .est-cashflow-pend { background: #f59e0b; }
 .est-cashflow-txt { margin-top: 10px; font-size: 13px; color: var(--muted); }
 
+/* Tabla de Propietarios: dar aire entre columnas numéricas (acotado a esa sub-pestaña
+   para no afectar a las tablas de Portal/Apartamento que comparten .est-tabla). */
+.sub-panel[data-panel-sub="propietario"] .est-tabla td.num,
+.sub-panel[data-panel-sub="propietario"] .est-tabla th.num { padding-right: 24px; }
+/* En totales <tfoot> el Pagado es <td> sin .num: damos padding a todas las celdas. */
+.sub-panel[data-panel-sub="propietario"] .est-tabla tfoot td { padding-right: 24px; }
+/* min-width en Comprometido (3), Pagado (4), Pendiente (5) y Próxima cuota (6). */
+.sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(3),
+.sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(3),
+.sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(4),
+.sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(4),
+.sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(5),
+.sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(5),
+.sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(6),
+.sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(6) { min-width: 120px; }
+
 /* ============ Contratos ============ */
 .cnt-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cnt-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }
