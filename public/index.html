@@ -43,6 +43,9 @@
       <button class="nav-item" data-tab="alojamientos" title="Alojamientos">
         <span class="nav-icono">🏠</span><span class="nav-texto">Alojamientos</span>
       </button>
+      <button class="nav-item" data-tab="contratos" title="Contratos">
+        <span class="nav-icono">📄</span><span class="nav-texto">Contratos</span>
+      </button>
       <button class="nav-item" data-tab="propietarios" title="Propietarios">
         <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
       </button>
@@ -114,6 +117,39 @@
           <thead>
             <tr>
               <th>Nombre</th><th>Edificio</th><th>Tipo</th><th>Capacidad</th><th>Propietario</th><th>Notas</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ CONTRATOS ============ -->
+    <section id="vista-contratos" class="vista">
+      <div class="barra-herramientas">
+        <div class="cnt-controles">
+          <h2>Contratos</h2>
+          <select id="cnt-filtro-anio" class="select-filtro"></select>
+          <select id="cnt-filtro-tipo" class="select-filtro">
+            <option value="">Todos los tipos</option>
+            <option value="precio_cerrado">Precio cerrado</option>
+            <option value="comision">Comisión</option>
+          </select>
+        </div>
+        <button id="btn-nuevo-contrato" class="btn-pri">＋ Nuevo contrato</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-contratos">
+          <thead>
+            <tr>
+              <th>Apartamento</th>
+              <th>Propietario</th>
+              <th>Tipo</th>
+              <th>Temporada</th>
+              <th>Importe/%</th>
+              <th>Cuotas</th>
+              <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -314,6 +350,7 @@
   <script src="js/auth.js"></script>
   <script src="js/planning.js"></script>
   <script src="js/alojamientos.js"></script>
+  <script src="js/contratos.js"></script>
   <script src="js/propietarios.js"></script>
   <script src="js/reservas.js"></script>
   <script src="js/ajustes.js"></script>

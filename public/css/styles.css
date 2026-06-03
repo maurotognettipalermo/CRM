@@ -1629,5 +1629,81 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   .dashboard { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ============ Contratos ============ */
+.cnt-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cnt-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }
+
+/* Badges de tipo de contrato (estado reutiliza .badge-estado) */
+.badge-tipo { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge-tipo.cerrado  { background: #f0fdf4; color: #059669; }
+.badge-tipo.comision { background: #eff6ff; color: var(--blue); }
+
+/* Columna Cuotas: texto + mini barra de progreso */
+.cnt-cuotas-cel { min-width: 96px; }
+.cnt-cuotas-txt { font-size: 12px; color: var(--muted); margin-bottom: 3px; display: block; }
+.cnt-barra { display: block; height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.cnt-barra-fill { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+
+/* Ficha (panel lateral): reutiliza .panel-*, .rsv-* y .tabla */
+.cnt-link { color: var(--blue); cursor: pointer; }
+.cnt-link:hover { text-decoration: underline; }
+.cnt-tabla-cuotas tfoot td { font-weight: 700; border-top: 2px solid var(--border); }
+.cnt-vacio { color: var(--muted); text-align: center; padding: 24px; }
+
+/* Modal: radios grandes de tipo */
+.campo-label-suelto { display: block; font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+.cnt-tipo-opciones { display: flex; gap: 12px; margin-bottom: 14px; }
+.cnt-tipo-op { flex: 1; border: 2px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer; text-align: center; font-weight: 600; color: var(--text); transition: border-color 120ms ease, background 120ms ease; }
+.cnt-tipo-op:hover { border-color: #9ca3af; }
+.cnt-tipo-op.activo { border-color: var(--nav); background: #f5f7ff; }
+.cnt-tipo-op input { display: none; }
+.cnt-tipo-op-icono { font-size: 22px; display: block; margin-bottom: 4px; }
+
+/* Modal: rango de temporada (inicio → fin) */
+.cnt-rango { display: flex; align-items: flex-end; gap: 10px; }
+.cnt-rango .campo { flex: 1; margin-bottom: 0; }
+.cnt-rango-sep { padding-bottom: 10px; color: var(--muted); font-weight: 700; }
+.cnt-rango-info { font-size: 12px; color: var(--muted); margin: 6px 0 14px; }
+
+/* Modal: plan de pagos dinámico */
+.cnt-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 10px; }
+.cnt-plan-titulo { font-size: 15px; font-weight: 600; color: var(--text); }
+.cnt-cuota-fila { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.cnt-cuota-num { width: 22px; text-align: center; color: var(--muted); font-weight: 600; flex-shrink: 0; }
+.cnt-cuota-fila input { padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; font: inherit; color: var(--text); }
+.cnt-cuota-fila input:focus { outline: none; border-color: var(--nav); }
+.cnt-cuota-fecha { flex: 1; }
+.cnt-cuota-importe { width: 130px; }
+.cnt-cuota-borrar { background: #fef2f2; color: var(--red); border: none; border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 18px; line-height: 1; flex-shrink: 0; }
+.cnt-cuota-borrar:hover { background: #fee2e2; }
+.cnt-total-cuotas { font-weight: 600; font-size: 14px; margin: 10px 0; }
+.cnt-total-cuotas.ok  { color: #059669; }
+.cnt-total-cuotas.mal { color: var(--red); }
+.cnt-error-inline { background: #fef2f2; color: var(--red); border: 1px solid #fecaca; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0; }
+
+/* Modal: autocompletado (typeahead) de apartamento */
+.cnt-typeahead { position: relative; }
+.cnt-ta-dropdown { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin-top: 4px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); max-height: 252px; overflow-y: auto; }
+.cnt-ta-op { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.cnt-ta-op:hover, .cnt-ta-op.activo { background: #f5f7ff; }
+.cnt-ta-nombre { font-size: 14px; color: var(--text); }
+.cnt-ta-edif { font-size: 12px; color: var(--muted); }
+.cnt-ta-vacio { padding: 10px 12px; color: var(--muted); font-size: 13px; }
+.badge-tih-mini { border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.badge-tih-mini.tih-1 { background: #f0fdf4; color: #059669; }
+.badge-tih-mini.tih-2 { background: #eff6ff; color: var(--blue); }
+
+/* Modal y ficha: fiscalidad (IVA + retención) */
+.cnt-fisc-titulo { font-size: 15px; font-weight: 600; color: var(--text); margin: 4px 0 10px; }
+.cnt-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); margin-bottom: 12px; cursor: pointer; }
+.cnt-check input { width: 16px; height: 16px; }
+.cnt-fisc-ret { margin-bottom: 12px; }
+.cnt-radio { display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; font-size: 14px; color: var(--text); cursor: pointer; }
+.cnt-fisc-resumen-box { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin: 8px 0 14px; }
+.cnt-fisc-row { display: flex; justify-content: space-between; gap: 16px; font-size: 14px; color: var(--text); padding: 3px 0; }
+.cnt-fisc-row em { color: var(--muted); font-style: normal; font-size: 12px; }
+.cnt-fisc-row.total { font-weight: 700; border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
+.cnt-fila-total td { background: #f9fafb; }
+
 /* ===== Utilidades ===== */
 .oculto { display: none !important; }

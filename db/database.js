@@ -84,6 +84,15 @@ const COLUMNAS_PORTALES = {
   imagen_url: 'TEXT',
 };
 
+// Columnas extra de las tablas de contratos (forward-compat: se añaden si faltan).
+const COLUMNAS_CONTRATOS = {
+  aplica_iva: 'INTEGER DEFAULT 1',          // 0/1 — IVA del 21% sobre el precio base
+  porcentaje_retencion: 'REAL DEFAULT 19',  // retención IRPF: 0 / 19 (residentes) / 24 (no residentes)
+};
+const COLUMNAS_CUOTAS = {
+  // (reservado para columnas futuras de las cuotas)
+};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -91,6 +100,7 @@ function init() {
   migrarPropietarios();
   migrarReservas();
   migrarPortales();
+  migrarContratos();
   seedAdmin();
   seedPortales();
 }
@@ -118,6 +128,14 @@ function migrarReservas() {
 // Migración de la tabla portales: añade color (def. azul) e imagen_url.
 function migrarPortales() {
   anadirColumnasFaltantes('portales', COLUMNAS_PORTALES);
+}
+
+// Migración de las tablas de contratos. Las tablas las crea schema.sql (CREATE TABLE IF
+// NOT EXISTS, se re-ejecuta en cada arranque), así que aquí solo añadimos de forma segura
+// las columnas que pudieran faltar en BD antiguas (ALTER TABLE ADD COLUMN idempotente).
+function migrarContratos() {
+  anadirColumnasFaltantes('contratos', COLUMNAS_CONTRATOS);
+  anadirColumnasFaltantes('contrato_cuotas', COLUMNAS_CUOTAS);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

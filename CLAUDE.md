@@ -35,11 +35,11 @@ npm start              # equivale a: node C:\CRM\server.js
 
 ```
 server.js              Express: json + static(public) + monta /api/* + errores. listen 3000.
-db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales) + seeds (admin por defecto, portales por defecto).
+db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreign_keys; ejecuta schema + migraciones ALTER (anadirColumnasFaltantes para propietarios/reservas/portales/contratos) + seeds (admin por defecto, portales por defecto).
 scripts/crear-usuario.js  Script suelto (node scripts/crear-usuario.js) para crear/actualizar un usuario admin directamente en la BD sin pasar por el seed.
-db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales (+ índices).
+db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas (+ índices).
 routes/                Un router Express por recurso (CRUD + acciones).
-  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js
+  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js · contratos.js
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV de propietarios, mapeo flexible de cabeceras, upsert por email o documento.
@@ -47,14 +47,15 @@ services/
   asignacion.js        buscarPisoLibre(apartamentos, ocupaciones, tih, entrada, salida) + normalizaTih.
   dateUtils.js         parseFecha (DD/MM/AAAA, serial Excel, ISO), solapan (intervalos medio abiertos).
 public/                Frontend vanilla. Sin build, se sirve estático.
-  index.html           SPA de 7 pestañas (Dashboard por defecto; Estadísticas solo admin) + menú lateral plegable + modal genérico + panel lateral + toast.
+  index.html           SPA de 8 pestañas (Dashboard por defecto; Estadísticas solo admin) + menú lateral plegable + modal genérico + panel lateral + toast.
   uploads/portales/    Imágenes/logos de portales subidos (servidos estáticos; ver tabla portales).
   css/styles.css       Tema claro (fondo blanco, sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (añaden header X-Auth-Token; 401 -> window.onNoAutorizado) + API.getPortales() (lista de portales cacheada en memoria, compartida por planning/reservas) + toast() + abrirModal/cerrarModal + helpers (esc, fechaES, tihTexto).
   js/auth.js           Módulo Auth (window.Auth). Sesión en localStorage ('crm-sesion'), pantalla de login, logout. onNoAutorizado -> vuelve al login.
   js/dashboard.js      Módulo Dashboard (window.Dashboard). Pantalla de inicio (1ª pestaña). 4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, próximos check-out) desde GET /api/dashboard + API.getPortales(); skeleton de carga, error+reintentar, paginación 5/5 y auto-refresco cada 5 min.
   js/planning.js       Módulo Planning (IIFE -> window.Planning). Vista continua de N días (estilo Avantio) desde una fecha de inicio, drag&drop, import. Las barras se colorean con el color del portal (con su logo dentro) y, si no hay portal, con el color por TIH.
-  js/alojamientos.js   Módulo Alojamientos (window.Alojamientos). Tabla + form modal + ficha.
+  js/alojamientos.js   Módulo Alojamientos (window.Alojamientos). Tabla + form modal + ficha. Expone `abrirFicha(id)` (lo usa Contratos para enlazar al apartamento).
+  js/contratos.js      Módulo Contratos (window.Contratos). Contratos de gestión con el propietario: precio_cerrado (importe garantizado en cuotas) o comision (% sobre cada reserva). Cabecera con filtro de año + tipo y "Nuevo contrato"; tabla (badges tipo/estado, Importe/% según tipo, columna Cuotas X/Y con mini barra). Ficha en **panel lateral creado por JS** (reutiliza `.panel-lateral`/`.rsv-*`): Datos del contrato (apartamento con link a su ficha, IVA/retención, cálculo fiscal), y según tipo: plan de pagos (tabla de cuotas con marcar/desmarcar pago vía mini modal, pie Precio base/IVA/Retención/Total/Pagado/Pendiente) o resumen de comisión (reservas del apto ese año × %). Modal alta/edición: **autocompletado typeahead** del apartamento (≥2 chars, busca nombre/edificio, ↑↓/Enter/Esc, autorrellena propietario), radios grandes de tipo, rango de temporada, sección Fiscalidad (IVA 21% + retención 0/19/24 con resumen en vivo, solo precio_cerrado) y plan de pagos dinámico (añadir/eliminar cuotas, "Distribuir automáticamente", contador de cuadre verde/rojo).
   js/propietarios.js   Módulo Propietarios (window.Propietarios). Lista con avatar/búsqueda/orden/paginación, ficha en panel lateral deslizante editable, modal por pestañas e importación Excel.
   js/reservas.js       Módulo Reservas (window.Reservas). Tabla (con columna Portal: logo o círculo de color) + filtros + alta/edición manual + validación de disponibilidad + ficha en panel lateral deslizante (sub-pestañas Datos/Mensajes/Margen comercial/Liquidación propietario; solo Datos es funcional) con modal de edición de los campos de gestión. El panel del lateral se crea dinámicamente por JS (no está en index.html).
   js/ajustes.js        Módulo Ajustes (window.Ajustes). Sub-pestañas Razón Social (tarjetas + modal) / Usuarios (tabla + modal) / Actividad (admin) / Portales (tabla con logo+color, reordenar ▲▼, modal con selector de color y subida de logo). La sub-pestaña Portales y su panel se inyectan por JS.
@@ -63,7 +64,7 @@ public/                Frontend vanilla. Sin build, se sirve estático.
 ```
 
 Frontend: cada módulo es una IIFE que expone un objeto global (`Dashboard`, `Planning`,
-`Alojamientos`, `Propietarios`, `Reservas`, `Ajustes`, `Estadisticas`, `Auth`). El orden de carga de scripts en `index.html`
+`Alojamientos`, `Contratos`, `Propietarios`, `Reservas`, `Ajustes`, `Estadisticas`, `Auth`). El orden de carga de scripts en `index.html`
 importa: `api.js` y `auth.js` primero (definen helpers globales y sesión), `app.js` último
 (orquesta; arranca los módulos solo si hay sesión válida). Los módulos se referencian entre
 sí solo dentro de handlers en runtime (no en carga).
@@ -158,6 +159,13 @@ Patrones de componentes en el CSS:
 | GET    | /api/estadisticas/portales              | ?anio=AAAA (def. año actual). Ingresos agregados por portal del año (por `entrada`, excluye canceladas): `{ portales[], resumen }`. Cada portal: nombre (NULL/''→'Sin portal'), color/imagen_url (LEFT JOIN portales por nombre), total_reservas, ingresos_brutos/cobrados, pendiente_cobro, noches_totales (SUM julianday). Orden ingresos_brutos DESC |
 | GET    | /api/estadisticas/apartamentos          | ?anio=AAAA[&apartamento_id=]. Sin id: ingresos por apartamento del año (JOIN apartamentos; excluye canceladas y sin asignar): `{ apartamentos[], resumen }`. Cada uno: nombre, tipo (TIH), total_reservas, ingresos_netos (SUM pagado), noches_ocupadas, porcentaje_ocupacion (noches/365·100). Orden ingresos_netos DESC. Con id: `{ apartamento }` (LEFT JOIN, devuelve aunque tenga 0 reservas) + `reservas[]` del año (numero_reserva, cliente, entrada/salida, noches, pagado, portal); 404 si no existe |
 | GET    | /api/estadisticas/ocupacion             | ?anio=AAAA. Ocupación del año: `{ resumen, por_mes[12], por_tih }`. por_mes: noches_ocupadas (solape reserva↔mes vía julianday MIN/MAX), noches_disponibles (nº apartamentos·días reales del mes), porcentaje. por_tih: primera_linea/segunda_linea con total_apartamentos, media_ocupacion, noches_ocupadas. resumen: total_apartamentos, media_ocupacion_anual, mes_mas_ocupado, total_noches_ocupadas. Excluye canceladas y sin asignar; maneja bisiestos |
+| GET    | /api/contratos                          | ?anio=&apartamento_id=&propietario_id= (todos opcionales). Lista (`c.*` + apartamento_nombre + propietario nombre/apellidos). Orden anio DESC, nombre. **No trae recuento de cuotas** (el frontend lo obtiene de la ficha de cada uno) |
+| GET    | /api/contratos/resumen-propietario      | ?propietario_id=X&anio=AAAA. Por contrato del propietario/año: apartamento, tipo, precio_total/porcentaje, total_cuotas, cuotas_pagadas, importe_pagado, importe_pendiente. **Declarar antes de /:id** |
+| GET    | /api/contratos/:id                      | Ficha (`c.*` + apartamento_nombre/tih + propietario) + `cuotas[]` ordenadas por numero_cuota |
+| POST   | /api/contratos                          | Crear contrato + cuotas (transacción). Valida: apartamento existe, tipo válido, inicio<fin, y en precio_cerrado suma de cuotas == precio_total (±0.01€). `created_by` = req.usuario.username |
+| PUT    | /api/contratos/:id                      | Editar contrato y **reemplazar cuotas** (DELETE+INSERT en transacción), misma validación |
+| DELETE | /api/contratos/:id                      | Borrar (cuotas en CASCADE); **409** si tiene alguna cuota pagada |
+| PUT    | /api/contratos/:id/cuotas/:cuota_id     | Marcar/desmarcar cuota pagada; body `{ pagado, fecha_pago }` (al marcar sin fecha usa hoy; al desmarcar la limpia) |
 
 Todas las rutas `/api/*` **salvo `/api/auth/login`** pasan por el middleware `requireAuth`
 (header `X-Auth-Token`) y reciben `req.usuario = { id, nombre, username, rol }`.
@@ -212,6 +220,20 @@ interprete como parámetro de ruta.
 - **actividad_log**: auditoría — usuario_id (FK a usuarios), usuario_nombre, accion, entidad,
   entidad_id, detalle, fecha. ⚠️ Tiene FK a `usuarios` sin ON DELETE: para borrar un usuario
   con registros hay que vaciar antes sus filas del log (o el DELETE falla por FK).
+- **contratos**: contrato de gestión con el propietario. `apartamento_id` (FK NOT NULL,
+  **ON DELETE RESTRICT**), `propietario_id` (FK nullable, ON DELETE SET NULL), `tipo`
+  ('precio_cerrado'|'comision', CHECK), `temporada_inicio`/`temporada_fin` (ISO), `anio`,
+  `precio_total` (solo precio_cerrado), `porcentaje_comision` (solo comision), `aplica_iva`
+  (0/1, def. 1) y `porcentaje_retencion` (0/19/24, def. 19) — **fiscalidad** del precio_cerrado:
+  total = base + (IVA 21% si aplica) − (base·retención/100). `estado`
+  ('activo'|'finalizado'|'cancelado', CHECK), `notas`, `created_at`, `created_by`. `aplica_iva`
+  y `porcentaje_retencion` se añaden vía `migrarContratos`/`COLUMNAS_CONTRATOS` en
+  `db/database.js`; el resto en `schema.sql`.
+- **contrato_cuotas**: calendario de pagos de un contrato (sobre todo precio_cerrado).
+  `contrato_id` (FK NOT NULL, **ON DELETE CASCADE**), `numero_cuota`, `fecha_prevista` (ISO),
+  `importe`, `pagado` (0/1), `fecha_pago` (ISO), `notas`. En precio_cerrado la suma de
+  importes debe cuadrar con `contratos.precio_total` (validado en POST/PUT, ±0.01€). El PUT de
+  contrato **borra y reinserta** todas las cuotas.
 
 TIH/tipo se guardan normalizados como `'1'`/`'2'` (ver `normalizaTih`); en UI se muestran
 "1ª Línea"/"2ª Línea" (ver `tihTexto`). Fechas en BD siempre ISO; en UI se muestran

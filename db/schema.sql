@@ -165,6 +165,40 @@ CREATE TABLE IF NOT EXISTS actividad_log (
   fecha          TEXT DEFAULT (datetime('now'))
 );
 
+-- Contratos de gestión con el propietario (precio cerrado garantizado o comisión).
+CREATE TABLE IF NOT EXISTS contratos (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id     INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE RESTRICT,
+  propietario_id     INTEGER REFERENCES propietarios(id) ON DELETE SET NULL,
+  tipo               TEXT NOT NULL CHECK(tipo IN ('precio_cerrado','comision')),
+  temporada_inicio   TEXT NOT NULL,   -- ISO YYYY-MM-DD
+  temporada_fin      TEXT NOT NULL,   -- ISO YYYY-MM-DD
+  anio               INTEGER NOT NULL,            -- año del contrato ej: 2026
+  precio_total       REAL DEFAULT 0,              -- solo precio_cerrado: importe garantizado total
+  porcentaje_comision REAL DEFAULT 0,             -- solo comision: % sobre precio_total reserva
+  estado             TEXT DEFAULT 'activo' CHECK(estado IN ('activo','finalizado','cancelado')),
+  notas              TEXT,
+  created_at         TEXT DEFAULT (datetime('now')),
+  created_by         TEXT
+);
+
+-- Cuotas/calendario de pagos de un contrato (sobre todo para precio_cerrado).
+CREATE TABLE IF NOT EXISTS contrato_cuotas (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  contrato_id    INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+  numero_cuota   INTEGER NOT NULL,     -- 1, 2, 3...
+  fecha_prevista TEXT NOT NULL,        -- ISO YYYY-MM-DD: fecha en que se debe pagar
+  importe        REAL NOT NULL,
+  pagado         INTEGER DEFAULT 0,    -- 0/1
+  fecha_pago     TEXT,                 -- ISO YYYY-MM-DD: fecha en que se pagó realmente
+  notas          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_contratos_apartamento ON contratos(apartamento_id);
+CREATE INDEX IF NOT EXISTS idx_contratos_propietario ON contratos(propietario_id);
+CREATE INDEX IF NOT EXISTS idx_contratos_anio ON contratos(anio);
+CREATE INDEX IF NOT EXISTS idx_cuotas_contrato ON contrato_cuotas(contrato_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);
