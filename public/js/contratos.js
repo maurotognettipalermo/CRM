@@ -407,7 +407,7 @@ const Contratos = (() => {
 
   async function cargarApartamentos() {
     if (apartamentos.length) return;
-    try { apartamentos = await API.get('/api/apartamentos'); }
+    try { apartamentos = await API.get('/api/apartamentos?todos=1'); }
     catch (e) { apartamentos = []; }
   }
 

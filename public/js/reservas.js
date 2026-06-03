@@ -23,7 +23,7 @@ const Reservas = (() => {
     try {
       [todasReservas, apartamentos] = await Promise.all([
         API.get('/api/reservas/todas'),
-        API.get('/api/apartamentos'),
+        API.get('/api/apartamentos?todos=1'),
       ]);
       await cargarPortalesMap();
       renderTabla(filtrar());

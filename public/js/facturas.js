@@ -55,7 +55,7 @@ const Facturas = (() => {
     }
     for (const f of todas) {
       const logo = f.emisor_logo_url ? `<img class="fac-logo-mini" src="${esc(f.emisor_logo_url)}" alt="" onerror="this.style.display='none'"> ` : '';
-      const accVer = `<button class="btn-mini" data-ver="${f.id}" title="Ver PDF">👁</button>`;
+      const accVer = `<button class="btn-mini" data-ver="${f.id}" data-numero="${esc(f.numero)}" title="Ver PDF">👁</button>`;
       const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada') ? `<button class="btn-mini" data-pagar="${f.id}" title="Marcar pagada">✓</button>` : '';
       const accAnular = (f.estado !== 'anulada') ? `<button class="btn-mini" data-anular="${f.id}" title="Anular">⊘</button>` : '';
       const accBorrar = (f.estado === 'borrador') ? `<button class="btn-mini" data-borrar="${f.id}" title="Eliminar">🗑️</button>` : '';
@@ -76,7 +76,7 @@ const Facturas = (() => {
     }
     tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
       tr.addEventListener('click', (e) => { if (e.target.closest('button')) return; abrirFicha(tr.dataset.ficha); }));
-    tbody.querySelectorAll('[data-ver]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); descargarPDF(b.dataset.ver); }));
+    tbody.querySelectorAll('[data-ver]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); descargarPDF(b.dataset.ver, b.dataset.numero); }));
     tbody.querySelectorAll('[data-pagar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); marcarPagada(b.dataset.pagar); }));
     tbody.querySelectorAll('[data-anular]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); anular(b.dataset.anular); }));
     tbody.querySelectorAll('[data-borrar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); borrar(b.dataset.borrar); }));
@@ -101,8 +101,26 @@ const Facturas = (() => {
     catch (e) { toast(e.message, 'error'); }
   }
 
-  function descargarPDF(id) {
-    window.open(`/api/facturas/${id}/pdf`, '_blank');
+  // Descarga via fetch con el token (window.open no envía X-Auth-Token -> 401).
+  async function descargarPDF(id, numero) {
+    try {
+      const sesion = Auth.sesion() || {};
+      const response = await fetch(`/api/facturas/${id}/pdf`, {
+        headers: { 'X-Auth-Token': sesion.token },
+      });
+      if (!response.ok) throw new Error('Error al generar PDF');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${numero || 'factura'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast('Error al descargar el PDF', 'error');
+    }
   }
 
   // ==================== Panel lateral (ficha) ====================
@@ -132,7 +150,7 @@ const Facturas = (() => {
     document.body.appendChild(panel);
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#fac-cerrar').addEventListener('click', cerrarPanel);
-    panel.querySelector('#fac-pdf').addEventListener('click', () => { if (fichaActual) descargarPDF(fichaActual.id); });
+    panel.querySelector('#fac-pdf').addEventListener('click', () => { if (fichaActual) descargarPDF(fichaActual.id, fichaActual.numero); });
     panel.querySelector('#fac-anular').addEventListener('click', () => { if (fichaActual) anular(fichaActual.id); });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -246,6 +264,15 @@ const Facturas = (() => {
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
+    // Preselección de razón social: única -> esa; si hay varias -> "COSTA AZAHAR..." si existe;
+    // en su defecto, la primera de la lista.
+    const lista = razonesCache || [];
+    if (lista.length === 1) {
+      wiz.razonId = lista[0].id;
+    } else if (lista.length > 1) {
+      const costa = lista.find((r) => r.razon_social === 'COSTA AZAHAR REAL ESTATE SOLUTIONS 2023 SLU');
+      wiz.razonId = (costa || lista[0]).id;
+    }
     renderWizard();
   }
 

@@ -309,7 +309,7 @@ router.get('/:id/pdf', (req, res) => {
   const logo = leerLogoBuffer(f.emisor_logo_url);
   if (logo) { try { doc.image(logo, M, y, { fit: [120, 60] }); } catch (e) { /* logo inválido */ } }
 
-  const titulo = f.tipo === 'autofactura' ? 'AUTOFACTURA' : 'FACTURA';
+  const titulo = 'FACTURA';
   const boxW = 210;
   const boxH = 30;
   doc.rect(right - boxW, y, boxW, boxH).fill('#1a1a2e');
@@ -384,7 +384,7 @@ router.get('/:id/pdf', (req, res) => {
   };
   fila('Base imponible:', euroPDF(f.base_imponible));
   if (f.porcentaje_iva) fila(`IVA ${f.porcentaje_iva}%:`, euroPDF(f.importe_iva));
-  if (f.porcentaje_retencion) fila(`Retención ${f.porcentaje_retencion}%:`, '-' + euroPDF(f.importe_retencion), { color: '#b91c1c' });
+  if (f.porcentaje_retencion) fila(`Retención ${f.porcentaje_retencion}%:`, '-' + euroPDF(f.importe_retencion));
   doc.moveTo(totX, y).lineTo(right, y).strokeColor('#1a1a2e').lineWidth(1).stroke();
   y += 6;
   fila('TOTAL:', euroPDF(f.total), { bold: true, big: true });
@@ -394,11 +394,6 @@ router.get('/:id/pdf', (req, res) => {
     y += 12;
     doc.font('Helvetica').fontSize(9).fillColor('#374151').text('Notas: ' + f.notas, M, y, { width: contentW });
     y = doc.y;
-  }
-  if (f.tipo === 'autofactura') {
-    y += 12;
-    doc.font('Helvetica-Oblique').fontSize(9).fillColor('#374151')
-      .text(`Este documento es una autofactura emitida por ${f.receptor_nombre} en nombre de ${f.emisor_nombre}.`, M, y, { width: contentW });
   }
 
   doc.end();
