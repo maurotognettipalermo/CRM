@@ -1697,6 +1697,42 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .sub-panel[data-panel-sub="propietario"] .est-tabla th:nth-child(6),
 .sub-panel[data-panel-sub="propietario"] .est-tabla td:nth-child(6) { min-width: 120px; }
 
+/* ============ Planning: filtro de clasificación (dropdown) ============ */
+.cls-filtro { position: relative; }
+.cls-filtro-btn { display: inline-flex; align-items: center; gap: 6px; width: 200px; box-sizing: border-box; }
+#cls-filtro-label { flex: 1; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cls-flecha { font-size: 11px; flex-shrink: 0; transition: transform 150ms ease; }
+.cls-filtro.abierto .cls-flecha { transform: rotate(180deg); }
+.cls-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  width: 200px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+}
+.cls-todos {
+  padding: 7px 8px;
+  margin: -2px -2px 4px;
+  border-bottom: 1px solid var(--border);
+  background: #f8f9fa;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+.cls-todos:hover { background: #eef0f3; }
+.cls-op { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.cls-op:hover { background: #f5f7ff; }
+.cls-op input { width: 15px; height: 15px; flex-shrink: 0; }
+.cls-op-label { font-size: 14px; color: var(--text); }
+
 /* ============ Facturación ============ */
 .fac-controles { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fac-controles h2 { font-size: 20px; font-weight: 600; color: var(--text); }

@@ -15,6 +15,21 @@ const Planning = (() => {
   let resizeTimer = null;
   let portalesMap = {};    // { nombre: { color, imagen_url } } para colorear las barras
 
+  // Filtro por tipo de clasificación (cliente, sobre los apartamentos ya cargados).
+  const TIPOS_CLAS = [
+    { key: 'A++', clase: 'c-app' },
+    { key: 'A+', clase: 'c-ap' },
+    { key: 'A', clase: 'c-a' },
+    { key: 'B+', clase: 'c-bp' },
+    { key: 'B', clase: 'c-b' },
+    { key: 'C', clase: 'c-c' },
+    { key: '__sin__', clase: null }, // Sin clasificar
+  ];
+  let tiposSel = new Set(TIPOS_CLAS.map((t) => t.key)); // por defecto, todos marcados
+  let apartamentosCache = [];  // apartamentos cargados (para filtrar sin re-fetch)
+  let reservasCache = [];
+  let desdeCache = '';
+
   const MESES_ABREV = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const DOW_LETRA = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
@@ -86,27 +101,33 @@ const Planning = (() => {
     nDias = calcularDias();
     const desde = iso(fechaInicio);
     const hasta = iso(addDias(fechaInicio, nDias - 1)); // último día visible (inclusive)
-    const tih = document.querySelector('#filtro-tih .activo').dataset.val;
-
-    const qs = (extra) => {
-      const p = new URLSearchParams();
-      if (tih) p.set('tih', tih);
-      for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
-      return p.toString();
-    };
 
     const [apartamentos, reservas, sinAsignar, portales] = await Promise.all([
-      API.get('/api/apartamentos?' + qs()),
-      API.get('/api/reservas?' + qs({ desde, hasta })),
-      API.get('/api/reservas/sin-asignar?' + qs()),
+      API.get('/api/apartamentos'),
+      API.get('/api/reservas?' + new URLSearchParams({ desde, hasta }).toString()),
+      API.get('/api/reservas/sin-asignar'),
       API.getPortales(),
     ]);
 
     portalesMap = {};
     for (const p of portales) portalesMap[p.nombre] = { color: p.color, imagen_url: p.imagen_url };
 
-    render(apartamentos, reservas, desde);
+    apartamentosCache = apartamentos;
+    reservasCache = reservas;
+    desdeCache = desde;
+
+    render(filtrarApartamentos(apartamentos), reservas, desde);
     renderSinAsignar(sinAsignar);
+  }
+
+  // Filtra por tipo de clasificación seleccionado (los sin clasificar -> '__sin__').
+  function filtrarApartamentos(lista) {
+    return lista.filter((a) => tiposSel.has(a.tipo_clasificacion || '__sin__'));
+  }
+
+  // Re-renderiza el grid con el filtro actual, sin volver a pedir datos al backend.
+  function reaplicarFiltro() {
+    render(filtrarApartamentos(apartamentosCache), reservasCache, desdeCache);
   }
 
   function render(apartamentos, reservas, desdeISO) {
@@ -374,6 +395,82 @@ const Planning = (() => {
     document.getElementById('cerrar-resumen').addEventListener('click', cerrarModal);
   }
 
+  // ---- Filtro de clasificación (dropdown multiselección, reemplaza los botones TIH) ----
+  function construirFiltroClasificacion() {
+    const cont = document.getElementById('filtro-tih');
+    if (!cont) return;
+    cont.classList.remove('filtro-tih-btns');
+    cont.classList.add('cls-filtro');
+    cont.innerHTML = `
+      <button type="button" class="btn-sec cls-filtro-btn" id="cls-filtro-btn" aria-haspopup="true" aria-expanded="false">
+        <span id="cls-filtro-label">Tipo: Todos</span><span class="cls-flecha">▾</span>
+      </button>
+      <div class="cls-dropdown oculto" id="cls-dropdown">
+        <div class="cls-todos" id="cls-todos"></div>
+        ${TIPOS_CLAS.map((t) => `
+          <label class="cls-op">
+            <input type="checkbox" data-tipo="${t.key}" checked>
+            ${t.key === '__sin__'
+              ? '<span class="cls-op-label">Sin clasificar</span>'
+              : `<span class="badge-clasif ${t.clase}">${t.key}</span>`}
+          </label>`).join('')}
+      </div>`;
+
+    const btn = document.getElementById('cls-filtro-btn');
+    const dd = document.getElementById('cls-dropdown');
+    const abrir = (v) => {
+      dd.classList.toggle('oculto', !v);
+      cont.classList.toggle('abierto', v);
+      btn.setAttribute('aria-expanded', v ? 'true' : 'false');
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); abrir(dd.classList.contains('oculto')); });
+    dd.addEventListener('click', (e) => e.stopPropagation());
+    dd.querySelectorAll('input[data-tipo]').forEach((cb) =>
+      cb.addEventListener('change', () => {
+        if (cb.checked) tiposSel.add(cb.dataset.tipo); else tiposSel.delete(cb.dataset.tipo);
+        actualizarLabelClasif();
+        actualizarToggleTodos();
+        reaplicarFiltro();
+      }));
+
+    // Opción "Seleccionar / Deseleccionar todos".
+    const todos = document.getElementById('cls-todos');
+    todos.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const marcar = todos.dataset.modo === 'sel'; // 'sel' -> marcar todos
+      tiposSel = new Set(marcar ? TIPOS_CLAS.map((t) => t.key) : []);
+      dd.querySelectorAll('input[data-tipo]').forEach((cb) => { cb.checked = marcar; });
+      actualizarLabelClasif();
+      actualizarToggleTodos();
+      reaplicarFiltro();
+    });
+
+    document.addEventListener('click', () => abrir(false));     // cerrar al hacer clic fuera
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
+    actualizarLabelClasif();
+    actualizarToggleTodos();
+  }
+
+  // Texto/modo de la fila "todos" según cuántos tipos haya marcados.
+  function actualizarToggleTodos() {
+    const el = document.getElementById('cls-todos');
+    if (!el) return;
+    const todosMarcados = TIPOS_CLAS.every((t) => tiposSel.has(t.key));
+    el.textContent = todosMarcados ? '✗ Deseleccionar todos' : '✓ Seleccionar todos';
+    el.dataset.modo = todosMarcados ? 'des' : 'sel';
+  }
+
+  function actualizarLabelClasif() {
+    const label = document.getElementById('cls-filtro-label');
+    if (!label) return;
+    const sel = TIPOS_CLAS.filter((t) => tiposSel.has(t.key));
+    let txt;
+    if (sel.length === TIPOS_CLAS.length) txt = 'Todos';
+    else if (sel.length === 0) txt = 'Ninguno';
+    else txt = sel.map((t) => (t.key === '__sin__' ? 'Sin clasificar' : t.key)).join(', ');
+    label.textContent = 'Tipo: ' + txt;
+  }
+
   // ---- Init ----
   function sincronizarInput() {
     const input = document.getElementById('fecha-inicio');
@@ -406,13 +503,7 @@ const Planning = (() => {
       cargar();
     });
 
-    document.querySelectorAll('#filtro-tih .btn-filtro-tih').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#filtro-tih .btn-filtro-tih').forEach(b => b.classList.remove('activo'));
-        btn.classList.add('activo');
-        cargar();
-      });
-    });
+    construirFiltroClasificacion();
 
     // Recalcular el nº de días visibles cuando cambia el ancho del contenedor.
     nDias = calcularDias();
