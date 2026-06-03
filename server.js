@@ -26,6 +26,7 @@ app.use('/api/ajustes', require('./routes/ajustes'));
 app.use('/api/usuarios', require('./routes/usuarios'));
 app.use('/api/portales', require('./routes/portales'));
 app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/estadisticas', require('./routes/estadisticas'));
 
 // Manejador de errores genérico.
 app.use((err, req, res, next) => {

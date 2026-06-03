@@ -37,7 +37,23 @@
       "Bash(\"/c/Program Files/nodejs/node.exe\" --check routes/auth.js)",
       "Bash(\"/c/Program Files/nodejs/node.exe\" --check routes/reservas.js)",
       "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/reservas.js)",
-      "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/ajustes.js)"
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/ajustes.js)",
+      "Bash('/c/Program Files/nodejs/node.exe' --check public/js/estadisticas.js)",
+      "Bash('/c/Program Files/nodejs/node.exe' --check public/js/app.js)",
+      "Bash('/c/Program Files/nodejs/node.exe' --check routes/estadisticas.js)",
+      "Bash('/c/Program Files/nodejs/node.exe' --check server.js)",
+      "Bash(netstat -ano)",
+      "Bash(PORT=3100 \"/c/Program Files/nodejs/node.exe\" server.js)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(curl.exe *)",
+      "Bash(grep -oE \"[0-9]+$\")",
+      "Bash(xargs -r taskkill //F //PID)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" --check public/js/estadisticas.js)",
+      "Bash(gh auth *)",
+      "Bash(git config *)",
+      "PowerShell($g = Get-Command gh -ErrorAction SilentlyContinue; if \\($g\\) { \"gh: $\\($g.Source\\)\"; gh auth status } else { \"gh NOT installed\" })",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

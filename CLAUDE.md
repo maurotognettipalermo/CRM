@@ -39,7 +39,7 @@ db/database.js         Conexión better-sqlite3 (síncrono), pragma WAL + foreig
 scripts/crear-usuario.js  Script suelto (node scripts/crear-usuario.js) para crear/actualizar un usuario admin directamente en la BD sin pasar por el seed.
 db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales, usuarios, actividad_log, portales (+ índices).
 routes/                Un router Express por recurso (CRUD + acciones).
-  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js
+  apartamentos.js · propietarios.js · reservas.js · importar.js · ajustes.js · auth.js · usuarios.js · portales.js · dashboard.js · estadisticas.js
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV de propietarios, mapeo flexible de cabeceras, upsert por email o documento.
@@ -47,7 +47,7 @@ services/
   asignacion.js        buscarPisoLibre(apartamentos, ocupaciones, tih, entrada, salida) + normalizaTih.
   dateUtils.js         parseFecha (DD/MM/AAAA, serial Excel, ISO), solapan (intervalos medio abiertos).
 public/                Frontend vanilla. Sin build, se sirve estático.
-  index.html           SPA de 6 pestañas (Dashboard por defecto) + menú lateral plegable + modal genérico + panel lateral + toast.
+  index.html           SPA de 7 pestañas (Dashboard por defecto; Estadísticas solo admin) + menú lateral plegable + modal genérico + panel lateral + toast.
   uploads/portales/    Imágenes/logos de portales subidos (servidos estáticos; ver tabla portales).
   css/styles.css       Tema claro (fondo blanco, sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (añaden header X-Auth-Token; 401 -> window.onNoAutorizado) + API.getPortales() (lista de portales cacheada en memoria, compartida por planning/reservas) + toast() + abrirModal/cerrarModal + helpers (esc, fechaES, tihTexto).
@@ -58,11 +58,12 @@ public/                Frontend vanilla. Sin build, se sirve estático.
   js/propietarios.js   Módulo Propietarios (window.Propietarios). Lista con avatar/búsqueda/orden/paginación, ficha en panel lateral deslizante editable, modal por pestañas e importación Excel.
   js/reservas.js       Módulo Reservas (window.Reservas). Tabla (con columna Portal: logo o círculo de color) + filtros + alta/edición manual + validación de disponibilidad + ficha en panel lateral deslizante (sub-pestañas Datos/Mensajes/Margen comercial/Liquidación propietario; solo Datos es funcional) con modal de edición de los campos de gestión. El panel del lateral se crea dinámicamente por JS (no está en index.html).
   js/ajustes.js        Módulo Ajustes (window.Ajustes). Sub-pestañas Razón Social (tarjetas + modal) / Usuarios (tabla + modal) / Actividad (admin) / Portales (tabla con logo+color, reordenar ▲▼, modal con selector de color y subida de logo). La sub-pestaña Portales y su panel se inyectan por JS.
-  js/app.js            Gate de login (arranca la app solo con sesión) + menú lateral (navegación, plegado, usuario, logout) + init de los módulos. La vista por defecto al entrar es Dashboard.
+  js/estadisticas.js   Módulo Estadísticas (window.Estadisticas). **Solo administradores** (ítem de sidebar `#nav-estadisticas` oculto si no es admin; guard en `activarTab`). Cabecera con título + selector de año (2024/2025/2026, actual por defecto) y sub-pestañas (reusan `.subtab`/`.sub-panel`): "Ingresos por portal" (datos reales desde GET /api/estadisticas/portales: 2 tarjetas de resumen + tabla con barra de % sobre ingresos_cobrados, skeleton/error+reintentar, guard `reqSeq` anti-respuesta-obsoleta), "Ingresos por apartamento" y "Ocupación" (placeholder "Próximamente" todavía). Recarga al cambiar año o sub-pestaña.
+  js/app.js            Gate de login (arranca la app solo con sesión) + menú lateral (navegación, plegado, usuario, logout) + init de los módulos. La vista por defecto al entrar es Dashboard. `activarTab('estadisticas')` exige rol admin (si no, toast "Acceso restringido a administradores" y no activa); el ítem del sidebar se muestra/oculta por rol en `arrancarApp`.
 ```
 
 Frontend: cada módulo es una IIFE que expone un objeto global (`Dashboard`, `Planning`,
-`Alojamientos`, `Propietarios`, `Reservas`, `Ajustes`, `Auth`). El orden de carga de scripts en `index.html`
+`Alojamientos`, `Propietarios`, `Reservas`, `Ajustes`, `Estadisticas`, `Auth`). El orden de carga de scripts en `index.html`
 importa: `api.js` y `auth.js` primero (definen helpers globales y sesión), `app.js` último
 (orquesta; arranca los módulos solo si hay sesión válida). Los módulos se referencian entre
 sí solo dentro de handlers en runtime (no en carga).
@@ -105,6 +106,12 @@ Patrones de componentes en el CSS:
   ficha de reserva y en la tabla de reservas el portal se muestra con `.portal-val` +
   `.portal-val-logo`/`.portal-val-color` (ficha, 24/12px) o `.portal-cel-logo`/
   `.portal-cel-color` (tabla, 20/10px). Si la imagen falla (`onerror`) se oculta sin romper.
+- **Estadísticas**: clases `.est-*`. Cabecera `.est-cabecera` (título 24px + selector de
+  año), sub-pestañas `.est-subtabs` (reusan `.subtab`) sobre `.sub-panel`. Tarjetas de
+  resumen `.est-cards`/`.est-card` (icono de color tipo dashboard). Tabla `.est-tabla` con
+  `.num` (alineado dcha.), barra de % `.est-barra`/`.est-barra-fill` (ancho=%, color del
+  portal), fila de totales `.est-fila-total`. Reusa `.portal-cel-logo`/`.portal-cel-color`
+  para la celda de portal y `.skeleton` para la carga. Placeholder `.est-placeholder`.
 
 ## API REST
 
@@ -148,6 +155,7 @@ Patrones de componentes en el CSS:
 | DELETE | /api/ajustes/razones-sociales/:id       | Borrar razón social                                              |
 | GET    | /api/ajustes/actividad                  | **Solo admin**. ?usuario_id=&accion=&limit=200; orden fecha DESC |
 | GET    | /api/dashboard                          | Datos del dashboard en una llamada: proximos_checkin, reservas_en_curso, proximos_checkout (máx 50 c/u, JOIN apartamento), pagos_pendientes {total,count}, reservas_entrantes {count} |
+| GET    | /api/estadisticas/portales              | ?anio=AAAA (def. año actual). Ingresos agregados por portal del año (por `entrada`, excluye canceladas): `{ portales[], resumen }`. Cada portal: nombre (NULL/''→'Sin portal'), color/imagen_url (LEFT JOIN portales por nombre), total_reservas, ingresos_brutos/cobrados, pendiente_cobro, noches_totales (SUM julianday). Orden ingresos_brutos DESC |
 
 Todas las rutas `/api/*` **salvo `/api/auth/login`** pasan por el middleware `requireAuth`
 (header `X-Auth-Token`) y reciben `req.usuario = { id, nombre, username, rol }`.

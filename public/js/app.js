@@ -51,18 +51,28 @@ function arrancarApp() {
   document.getElementById('su-avatar').textContent = (nombre || '?').trim().charAt(0).toUpperCase();
   document.getElementById('su-nombre').textContent = nombre;
 
+  // Estadísticas es solo para administradores: el ítem del sidebar se muestra según el rol.
+  document.getElementById('nav-estadisticas').classList.toggle('oculto', !Auth.esAdmin());
+
   Dashboard.init();
   Planning.init();
   Alojamientos.init();
   Propietarios.init();
   Reservas.init();
   Ajustes.init();
+  Estadisticas.init();
 
   // Dashboard es la vista por defecto al entrar.
   Dashboard.cargar().catch((e) => toast(e.message, 'error'));
 }
 
 function activarTab(nombre) {
+  // Estadísticas está restringida a administradores (también frente a acceso directo).
+  if (nombre === 'estadisticas' && !Auth.esAdmin()) {
+    toast('Acceso restringido a administradores', 'error');
+    return;
+  }
+
   document.querySelectorAll('.nav-item').forEach((t) =>
     t.classList.toggle('activo', t.dataset.tab === nombre)
   );
@@ -74,5 +84,6 @@ function activarTab(nombre) {
   if (nombre === 'alojamientos') Alojamientos.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'propietarios') Propietarios.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'reservas')     Reservas.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'estadisticas') Estadisticas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'ajustes')      Ajustes.cargar().catch((e) => toast(e.message, 'error'));
 }
