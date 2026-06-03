@@ -6,3 +6,6 @@ backups/
 # Imágenes/logos de portales subidos por el usuario (datos, como la BD)
 public/uploads/portales/*
 !public/uploads/portales/.gitkeep
+# Logos de razones sociales subidos por el usuario
+public/uploads/razones-sociales/*
+!public/uploads/razones-sociales/.gitkeep

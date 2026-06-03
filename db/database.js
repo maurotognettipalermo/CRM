@@ -116,6 +116,11 @@ const COLUMNAS_CATALOGO_GASTOS = {
   incluye_iva: 'INTEGER DEFAULT 0',         // 0/1 — el precio lleva IVA 21% (informativo)
 };
 
+// Columnas extra de la tabla razones_sociales.
+const COLUMNAS_RAZONES = {
+  logo_url: 'TEXT',
+};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -126,6 +131,7 @@ function init() {
   migrarContratos();
   migrarApartamentos();
   migrarGastos();
+  migrarRazones();
   seedAdmin();
   seedPortales();
 }
@@ -172,6 +178,11 @@ function migrarApartamentos() {
 // Migración de la tabla catalogo_gastos: añade incluye_iva si falta.
 function migrarGastos() {
   anadirColumnasFaltantes('catalogo_gastos', COLUMNAS_CATALOGO_GASTOS);
+}
+
+// Migración de la tabla razones_sociales: añade logo_url si falta.
+function migrarRazones() {
+  anadirColumnasFaltantes('razones_sociales', COLUMNAS_RAZONES);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

@@ -434,9 +434,15 @@ const Ajustes = (() => {
       const card = document.createElement('div');
       card.className = 'razon-card';
       const linea = (etq, v) => v ? `<div class="razon-dato"><span>${etq}:</span> ${esc(v)}</div>` : '';
+      const logo = rs.logo_url
+        ? `<img class="razon-logo" src="${esc(rs.logo_url)}" alt="" onerror="this.style.display='none'">`
+        : `<span class="razon-logo-inicial" style="background:${colorAvatar(rs.razon_social)}">${esc(inicial(rs.razon_social))}</span>`;
       card.innerHTML = `
         <div class="razon-card-head">
-          <span class="razon-nombre">${esc(rs.razon_social) || '(sin nombre)'}</span>
+          <div class="razon-card-titulo">
+            ${logo}
+            <span class="razon-nombre">${esc(rs.razon_social) || '(sin nombre)'}</span>
+          </div>
           ${unica ? '<span class="badge-principal">Principal</span>' : ''}
         </div>
         ${linea('CIF/NIF', rs.cif_nif)}
@@ -458,6 +464,8 @@ const Ajustes = (() => {
   function formularioRazon(rs) {
     rs = rs || {};
     const esNueva = !rs.id;
+    let archivoLogo = null;                  // File pendiente de subir (se sube al guardar)
+    const logoUrlActual = rs.logo_url || null;
     const campo = ([key, label, tipo]) => {
       let v = rs[key] != null ? rs[key] : '';
       if (esNueva && key === 'pais' && !v) v = 'España';
@@ -474,23 +482,75 @@ const Ajustes = (() => {
       <div class="ajustes-grid">${RS_GENERAL.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Datos bancarios</div>
       <div class="ajustes-grid">${RS_BANCO.map(campo).join('')}</div>
+      <div class="ajustes-seccion-titulo">Logo</div>
+      <div class="campo">
+        <div id="rs-logo-zona"></div>
+        <input type="file" id="rs-logo-input" accept=".jpg,.jpeg,.png,.webp,.svg" hidden>
+      </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="rs-cancelar">Cancelar</button>
         <button class="btn-pri" id="rs-guardar">Guardar</button>
       </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
+
+    // Zona de logo: imagen actual/preview + "Cambiar", o dropzone si no hay imagen.
+    const input = document.getElementById('rs-logo-input');
+    const renderZonaLogo = (previewSrc) => {
+      const zona = document.getElementById('rs-logo-zona');
+      const src = previewSrc || logoUrlActual;
+      if (src) {
+        zona.innerHTML = `<img class="razon-logo-modal" src="${esc(src)}" alt=""><button type="button" class="btn-sec" id="rs-logo-cambiar" style="margin-left:10px">Cambiar</button>`;
+        zona.querySelector('#rs-logo-cambiar').addEventListener('click', () => input.click());
+      } else {
+        zona.innerHTML = '<div class="portal-dropzone" id="rs-dropzone"><span class="dz-icono">⬆</span><span>Subir logo</span></div>';
+        const dz = zona.querySelector('#rs-dropzone');
+        dz.addEventListener('click', () => input.click());
+        ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dz-activo'); }));
+        ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dz-activo'); }));
+        dz.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) seleccionarLogo(f); });
+      }
+    };
+    const seleccionarLogo = (file) => {
+      archivoLogo = file;
+      const reader = new FileReader();
+      reader.onload = () => renderZonaLogo(reader.result);
+      reader.readAsDataURL(file);
+    };
+    input.addEventListener('change', () => { if (input.files[0]) seleccionarLogo(input.files[0]); });
+    renderZonaLogo(null);
+
     document.getElementById('rs-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('rs-guardar').addEventListener('click', async () => {
       const body = {};
       document.querySelectorAll('#modal-contenido [data-rs]').forEach((el) => { body[el.dataset.rs] = el.value; });
       try {
-        if (esNueva) await API.post('/api/ajustes/razones-sociales', body);
-        else await API.put('/api/ajustes/razones-sociales/' + rs.id, body);
+        let id = rs.id;
+        if (esNueva) { const res = await API.post('/api/ajustes/razones-sociales', body); id = res.id; }
+        else await API.put('/api/ajustes/razones-sociales/' + id, body);
+        if (archivoLogo) await subirLogoRazon(id, archivoLogo);
         cerrarModal();
         await cargarRazones();
         toast('Razón social guardada', 'ok');
       } catch (e) { toast(e.message, 'error'); }
     });
+  }
+
+  // Sube el logo de una razón social (campo "logo", igual patrón que los portales).
+  async function subirLogoRazon(id, file) {
+    const fd = new FormData();
+    fd.append('logo', file);
+    const s = Auth.sesion() || {};
+    const r = await fetch('/api/ajustes/razones-sociales/' + id + '/logo', {
+      method: 'POST',
+      headers: s.token ? { 'X-Auth-Token': s.token } : {},
+      body: fd,
+    });
+    if (!r.ok) {
+      let msg = 'Error ' + r.status;
+      try { const d = await r.json(); if (d && d.error) msg = d.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    return r.json();
   }
 
   async function borrarRazon(id) {

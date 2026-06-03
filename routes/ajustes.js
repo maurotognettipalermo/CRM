@@ -1,9 +1,18 @@
 // API REST de ajustes: razones sociales (datos de facturación) y registro de actividad.
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db/database');
 const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
+
+// Logos de razones sociales: se reciben en memoria y se escriben con el nombre definitivo.
+const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'razones-sociales');
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const EXT_LOGO = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // Columnas editables de razones_sociales (todas menos id y created_at).
 const RS_CAMPOS = [
@@ -44,6 +53,34 @@ router.put('/razones-sociales/:id', (req, res) => {
   if (info.changes === 0) return res.status(404).json({ error: 'Razón social no encontrada' });
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'razon_social', req.params.id, d.razon_social);
   res.json({ ok: true });
+});
+
+// Sube/actualiza el logo de una razón social (multipart, campo "logo").
+router.post('/razones-sociales/:id/logo', upload.single('logo'), (req, res) => {
+  const id = Number(req.params.id);
+  const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(id);
+  if (!rs) return res.status(404).json({ error: 'Razón social no encontrada' });
+  if (!req.file) return res.status(400).json({ error: 'No se ha recibido ninguna imagen' });
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!EXT_LOGO.includes(ext)) {
+    return res.status(400).json({ error: 'Formato no permitido (solo .jpg, .jpeg, .png, .webp, .svg)' });
+  }
+
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+  // Borra el logo anterior del disco, si lo había.
+  if (rs.logo_url) {
+    try { fs.unlinkSync(path.join(PUBLIC_DIR, rs.logo_url)); } catch (e) { /* puede no existir */ }
+  }
+
+  const nombreArchivo = `razon-${id}-${Date.now()}${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, nombreArchivo), req.file.buffer);
+
+  const logo_url = `/uploads/razones-sociales/${nombreArchivo}`;
+  db.prepare('UPDATE razones_sociales SET logo_url = ? WHERE id = ?').run(logo_url, id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'razon_social', id, rs.razon_social);
+  res.json({ ok: true, logo_url });
 });
 
 router.delete('/razones-sociales/:id', (req, res) => {
