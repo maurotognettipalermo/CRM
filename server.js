@@ -23,7 +23,13 @@ app.use('/api/apartamentos/:id/gastos', gastos.apartamentoGastos); // antes del 
 app.use('/api/apartamentos', require('./routes/apartamentos'));
 app.use('/api/catalogo-gastos', gastos.catalogo);
 app.use('/api/propietarios', require('./routes/propietarios'));
+// Sub-recursos de reserva (pagos y extras): se montan ANTES del router de reservas para
+// que /:id no capture estos prefijos.
+const extras = require('./routes/catalogo-extras');
+app.use('/api/reservas/:id/pagos', require('./routes/reserva-pagos'));
+app.use('/api/reservas/:id/extras', extras.reservaExtras);
 app.use('/api/reservas', require('./routes/reservas'));
+app.use('/api/catalogo-extras', extras.catalogo);
 app.use('/api/importar', require('./routes/importar'));
 app.use('/api/ajustes', require('./routes/ajustes'));
 app.use('/api/usuarios', require('./routes/usuarios'));

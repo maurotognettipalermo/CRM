@@ -293,6 +293,49 @@ CREATE INDEX IF NOT EXISTS idx_facturas_propietario ON facturas(propietario_id);
 CREATE INDEX IF NOT EXISTS idx_facturas_reserva ON facturas(reserva_id);
 CREATE INDEX IF NOT EXISTS idx_factura_lineas_factura ON factura_lineas(factura_id);
 
+-- Plan de pagos de una reserva (huésped): confirmación 20% / resto 80%, o pagos manuales.
+CREATE TABLE IF NOT EXISTS reserva_pagos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reserva_id INTEGER NOT NULL REFERENCES reservas(id) ON DELETE CASCADE,
+  concepto TEXT NOT NULL,           -- 'Confirmación (20%)' / 'Resto a la llegada (80%)' / libre
+  importe REAL NOT NULL,
+  metodo_pago TEXT CHECK(metodo_pago IN ('caja','tpv','transferencia')),
+  pagado INTEGER DEFAULT 0,         -- 0/1
+  fecha_pago TEXT,                  -- ISO YYYY-MM-DD, null hasta que se paga
+  notas TEXT,
+  orden INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Catálogo de extras reutilizables (cuna, parking, late check-out...); se gestiona en Ajustes.
+CREATE TABLE IF NOT EXISTS catalogo_extras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  precio REAL NOT NULL DEFAULT 0,
+  tipo_precio TEXT DEFAULT 'unidad' CHECK(tipo_precio IN ('unidad','noche','persona')),
+  descripcion TEXT,
+  activo INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Extras imputados a una reserva. nombre/precio_unitario/tipo_precio son SNAPSHOT del catálogo.
+CREATE TABLE IF NOT EXISTS reserva_extras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reserva_id INTEGER NOT NULL REFERENCES reservas(id) ON DELETE CASCADE,
+  catalogo_extra_id INTEGER REFERENCES catalogo_extras(id) ON DELETE SET NULL,
+  nombre TEXT NOT NULL,             -- snapshot del nombre
+  precio_unitario REAL NOT NULL,    -- snapshot del precio
+  tipo_precio TEXT NOT NULL,        -- snapshot del tipo
+  cantidad INTEGER DEFAULT 1,
+  importe REAL NOT NULL,            -- calculado: precio_unitario * cantidad (* noches si tipo=noche)
+  noches INTEGER DEFAULT 1,         -- número de noches de la reserva en el momento de añadir
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reserva_pagos_reserva ON reserva_pagos(reserva_id);
+CREATE INDEX IF NOT EXISTS idx_reserva_extras_reserva ON reserva_extras(reserva_id);
+CREATE INDEX IF NOT EXISTS idx_reserva_extras_catalogo ON reserva_extras(catalogo_extra_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

@@ -834,14 +834,14 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   max-width: 860px;
   min-width: 420px;
   background: #ffffff;
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
   transform: translateX(100%);
   transition: transform 300ms ease-out;
   z-index: 95;
   display: flex;
   flex-direction: column;
 }
-.panel-lateral.abierto { transform: translateX(0); }
+.panel-lateral.abierto { transform: translateX(0); box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18); }
 
 .panel-cabecera {
   display: flex;
@@ -1382,6 +1382,100 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   font-size: 14px;
 }
 
+/* ===== Sección PAGOS (ficha de reserva) ===== */
+.pago-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pago-resumen { font-size: 15px; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: 0; }
+
+.pago-barra {
+  height: 8px;
+  border-radius: 4px;
+  background: #e5e7eb;
+  overflow: hidden;
+  margin: 4px 0 16px;
+}
+.pago-barra-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+.pago-precio-inline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.pago-precio-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pago-precio-val { font-size: 16px; font-weight: 700; color: var(--text); }
+
+/* Aviso de desfase entre la suma de pagos y el precio de la reserva */
+.pago-aviso {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+.pago-aviso-warn { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+.pago-aviso-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+.pago-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pago-tabla th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.pago-tabla td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.pago-vacio { color: var(--muted); text-align: center; padding: 16px; }
+.pago-acciones { display: flex; gap: 4px; justify-content: flex-end; }
+
+.pago-metodo-badge {
+  display: inline-block;
+  background: #f3f4f6;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.pago-estado {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.pago-estado-ok { background: #dcfce7; color: #15803d; }
+.pago-estado-pend { background: #ffedd5; color: #c2410c; }
+
+.pago-botones { display: flex; gap: 8px; margin-top: 14px; }
+.pago-toggle-campo { display: flex; align-items: flex-end; }
+.pago-toggle-campo label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.pago-toggle-campo input[type="checkbox"] { width: auto; }
+
 /* ===== Portales: logo y color ===== */
 .tabla .col-logo { width: 56px; }
 .cel-logo { width: 56px; }
@@ -1852,6 +1946,134 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .cnt-fisc-row em { color: var(--muted); font-style: normal; font-size: 12px; }
 .cnt-fisc-row.total { font-weight: 700; border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
 .cnt-fila-total td { background: #f9fafb; }
+
+/* ===== Catálogo de extras (Ajustes) ===== */
+.badge-tipo-extra {
+  display: inline-block;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.radio-grupo { display: flex; flex-wrap: wrap; gap: 16px; }
+.radio-campo { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); cursor: pointer; }
+.radio-campo input { width: 16px; height: 16px; }
+
+/* ===== Sección EXTRAS (ficha de reserva) ===== */
+.extra-tipo-badge {
+  display: inline-block;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.extra-tabla .extra-acciones { display: flex; gap: 4px; justify-content: flex-end; }
+.extra-vacio { color: var(--muted); text-align: center; padding: 16px; }
+
+/* Modal añadir/editar extra */
+.typeahead-campo { position: relative; }
+.typeahead-lista {
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  z-index: 20;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.typeahead-item { padding: 9px 12px; cursor: pointer; font-size: 14px; color: var(--text); }
+.typeahead-item:hover { background: #f5f7ff; }
+.typeahead-sub { font-size: 12px; color: var(--muted); margin-left: 6px; }
+.extra-info {
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.extra-resumen { font-size: 14px; font-weight: 600; color: var(--text); margin: 4px 0 8px; min-height: 18px; }
+
+/* ===== Filtros avanzados (pestaña Reservas) ===== */
+.rsv-filtros-wrap { position: relative; display: inline-block; }
+#rsv-filtros-btn { display: inline-flex; align-items: center; gap: 6px; }
+.rsv-filtros-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.rsv-limpiar { margin-left: 4px; }
+
+.rsv-filtros-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  padding: 16px;
+}
+.rsv-f-grupo { margin-bottom: 16px; }
+.rsv-f-grupo:last-child { margin-bottom: 0; }
+.rsv-f-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.rsv-f-todos {
+  font-size: 12px;
+  color: var(--blue);
+  cursor: pointer;
+  margin-bottom: 6px;
+  display: inline-block;
+}
+.rsv-f-todos:hover { text-decoration: underline; }
+.rsv-f-ops { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.rsv-f-op { display: inline-flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: pointer; }
+.rsv-f-op input { width: 15px; height: 15px; flex-shrink: 0; }
+.rsv-f-op-label { font-size: 14px; color: var(--text); }
+
+.rsv-f-fechas { display: flex; gap: 12px; margin-bottom: 8px; }
+.rsv-f-fechas label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 3px; }
+.rsv-f-fechas input { font-size: 13px; }
+.rsv-f-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.rsv-f-pill {
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.rsv-f-pill:hover { background: #e5e7eb; }
 
 /* ===== Utilidades ===== */
 .oculto { display: none !important; }

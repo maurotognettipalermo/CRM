@@ -3,11 +3,33 @@
 const Reservas = (() => {
   let todasReservas = []; // caché para filtrado en cliente
   let apartamentos = [];  // para el selector del formulario
-  let filtroTih = '';
-  let filtroMes = '';
   let busqueda = '';
   let fichaActual = null; // reserva abierta en el panel lateral
   let portalesMap = {};   // { nombre: { color, imagen_url } } para la ficha
+
+  // ---- Estado de filtros avanzados (módulo: se mantiene al cambiar de pestaña) ----
+  const CLASIFICACIONES = [
+    { key: 'A++', clase: 'c-app' }, { key: 'A+', clase: 'c-ap' }, { key: 'A', clase: 'c-a' },
+    { key: 'B+', clase: 'c-bp' }, { key: 'B', clase: 'c-b' }, { key: 'C', clase: 'c-c' },
+    { key: '__sin__', clase: null }, // Sin clasificar
+  ];
+  const ESTADOS = ['Confirmada', 'Pendiente', 'Cancelada'];
+  const CONDICIONES = [
+    { key: 'Reembolsable', label: 'Reembolsable' },
+    { key: 'No reembolsable', label: 'No reembolsable' },
+    { key: '__sin__', label: 'Sin especificar' },
+  ];
+  let fClas = new Set(CLASIFICACIONES.map((c) => c.key));   // todas marcadas
+  let fEstado = new Set(ESTADOS);                            // todos marcados
+  let fCond = new Set(CONDICIONES.map((c) => c.key));        // todas marcadas
+  let fPortal = null;                                        // se inicializa al cargar portales
+  let fPortalConocido = new Set();                          // claves de portal ya vistas (para añadir nuevos)
+  let portalesNombres = [];                                 // nombres de portales para los checkboxes
+  let fDesde = '';
+  let fHasta = '';
+  let pagosData = { pagos: [], total_pagado: 0, total_pendiente: 0, precio_total_reserva: 0 }; // pagos de la ficha
+  let extrasData = { extras: [], total_extras: 0 }; // extras de la ficha
+  let catalogoExtras = [];  // catálogo de extras activos (para el modal añadir)
 
   // Construye el mapa de portales (API.getPortales está cacheado: solo una llamada real).
   async function cargarPortalesMap() {
@@ -26,24 +48,59 @@ const Reservas = (() => {
         API.get('/api/apartamentos?todos=1'),
       ]);
       await cargarPortalesMap();
-      renderTabla(filtrar());
+      sincronizarPortalesFiltro();
+      aplicarFiltros();
     } catch (e) {
       toast(e.message, 'error');
     }
   }
 
+  // Actualiza la lista de portales del filtro y, la primera vez, marca todos por defecto.
+  function sincronizarPortalesFiltro() {
+    portalesNombres = Object.keys(portalesMap);
+    const claves = [...portalesNombres, '__sin__'];
+    if (fPortal === null) {
+      fPortal = new Set(claves); // por defecto, todos marcados
+    } else {
+      // Mantén selección previa; añade portales nuevos como marcados.
+      for (const k of claves) if (!fPortalConocido.has(k)) fPortal.add(k);
+    }
+    fPortalConocido = new Set(claves);
+    poblarPortalesFiltro();
+  }
+
+  // ---- Helpers de clasificación de una reserva ----
+  // Clasificación del apartamento de la reserva ('__sin__' si no asignado o sin clasificar).
+  function clasDeReserva(r) {
+    if (!r.apartamento_id) return '__sin__';
+    const apto = apartamentos.find((a) => a.id == r.apartamento_id);
+    return (apto && apto.tipo_clasificacion) || '__sin__';
+  }
+
+  // ---- ¿Cada grupo de filtros está en su valor por defecto (todo marcado / sin fecha)? ----
+  function clasDefault() { return fClas.size === CLASIFICACIONES.length; }
+  function estadoDefault() { return fEstado.size === ESTADOS.length; }
+  function condDefault() { return fCond.size === CONDICIONES.length; }
+  function portalDefault() {
+    if (!fPortal) return true;
+    const claves = [...portalesNombres, '__sin__'];
+    return claves.every((k) => fPortal.has(k));
+  }
+  function fechaDefault() { return !fDesde && !fHasta; }
+
+  // Número de grupos de filtros activos (distintos al default) — para el badge.
+  function filtrosActivos() {
+    return [!clasDefault(), !portalDefault(), !estadoDefault(), !condDefault(), !fechaDefault()]
+      .filter(Boolean).length;
+  }
+
   // ---- Filtrado en cliente ----
   function filtrar() {
+    const aplicaClas = !clasDefault();
+    const aplicaPortal = !portalDefault();
+    const aplicaEstado = !estadoDefault();
+    const aplicaCond = !condDefault();
     return todasReservas.filter((r) => {
-      if (filtroTih && r.tih !== filtroTih) return false;
-      if (filtroMes) {
-        const [anio, mes] = filtroMes.split('-').map(Number);
-        const inicio = `${anio}-${String(mes).padStart(2, '0')}-01`;
-        const nextM = mes === 12 ? 1 : mes + 1;
-        const nextY = mes === 12 ? anio + 1 : anio;
-        const fin = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
-        if (!(r.entrada < fin && r.salida > inicio)) return false;
-      }
       if (busqueda) {
         const q = busqueda.toLowerCase();
         if (
@@ -52,6 +109,12 @@ const Reservas = (() => {
         )
           return false;
       }
+      if (aplicaClas && !fClas.has(clasDeReserva(r))) return false;
+      if (aplicaPortal && !fPortal.has(r.portal || '__sin__')) return false;
+      if (aplicaEstado && !fEstado.has(r.tipo_reserva || 'Confirmada')) return false;
+      if (aplicaCond && !fCond.has(r.condicion_cancelacion || '__sin__')) return false;
+      if (fDesde && (!r.entrada || r.entrada < fDesde)) return false;
+      if (fHasta && (!r.entrada || r.entrada > fHasta)) return false;
       return true;
     });
   }
@@ -330,17 +393,179 @@ const Reservas = (() => {
     }
   }
 
-  // ---- Selector de meses: últimos 24 meses + próximos 12 ----
-  function generarOpcionesMeses() {
-    const ahora = new Date();
-    const opts = ['<option value="">Todos los meses</option>'];
-    for (let i = -24; i <= 12; i++) {
-      const d = new Date(ahora.getFullYear(), ahora.getMonth() + i, 1);
-      const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const label = d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-      opts.push(`<option value="${v}">${label.charAt(0).toUpperCase() + label.slice(1)}</option>`);
+  // ==================== Filtros avanzados (panel desplegable) ====================
+  // Inyecta el botón "🔽 Filtros" + panel en la barra de controles, eliminando los
+  // filtros antiguos (botones TIH + select de mes) que viven en index.html.
+  function construirFiltros() {
+    const controles = document.querySelector('#vista-reservas .reservas-controles');
+    if (!controles || document.getElementById('rsv-filtros-btn')) return;
+
+    // Eliminar filtros antiguos.
+    controles.querySelector('.filtro-tih-btns')?.remove();
+    controles.querySelector('#reservas-filtro-mes')?.remove();
+
+    const grupoCheck = (titulo, contId, items) => `
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">${titulo}</div>
+        <div class="rsv-f-todos" data-todos="${contId}">Seleccionar / deseleccionar todos</div>
+        <div class="rsv-f-ops" id="${contId}">${items}</div>
+      </div>`;
+
+    const clasItems = CLASIFICACIONES.map((c) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="clas" value="${c.key}" checked>
+        ${c.key === '__sin__' ? '<span class="rsv-f-op-label">Sin clasificar</span>'
+          : `<span class="badge-clasif ${c.clase}">${c.key}</span>`}</label>`).join('');
+
+    const estadoItems = ESTADOS.map((e) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="estado" value="${e}" checked>
+        <span class="rsv-f-op-label">${e}</span></label>`).join('');
+
+    const condItems = CONDICIONES.map((c) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="cond" value="${c.key}" checked>
+        <span class="rsv-f-op-label">${c.label}</span></label>`).join('');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'rsv-filtros-wrap';
+    wrap.innerHTML = `
+      <button id="rsv-filtros-btn" class="btn-sec">🔽 Filtros <span id="rsv-filtros-badge" class="rsv-filtros-badge oculto"></span></button>
+      <div id="rsv-filtros-panel" class="rsv-filtros-panel oculto">
+        ${grupoCheck('Tipo de apartamento', 'rsv-f-clas', clasItems)}
+        ${grupoCheck('Portal', 'rsv-f-portales', '')}
+        ${grupoCheck('Estado de la reserva', 'rsv-f-estado', estadoItems)}
+        ${grupoCheck('Condición de cancelación', 'rsv-f-cond', condItems)}
+        <div class="rsv-f-grupo">
+          <div class="rsv-f-titulo">Rango de fechas (entrada)</div>
+          <div class="rsv-f-fechas">
+            <label>Desde<input type="date" id="rsv-f-desde"></label>
+            <label>Hasta<input type="date" id="rsv-f-hasta"></label>
+          </div>
+          <div class="rsv-f-pills">
+            <button class="rsv-f-pill" data-rango="mes">Este mes</button>
+            <button class="rsv-f-pill" data-rango="30">Próximos 30 días</button>
+            <button class="rsv-f-pill" data-rango="anio">Este año</button>
+            <button class="rsv-f-pill" data-rango="limpiar">Limpiar</button>
+          </div>
+        </div>
+      </div>`;
+    const limpiar = document.createElement('button');
+    limpiar.id = 'rsv-limpiar';
+    limpiar.className = 'btn-sec rsv-limpiar oculto';
+    limpiar.textContent = 'Limpiar filtros';
+
+    controles.appendChild(wrap);
+    controles.appendChild(limpiar);
+
+    conectarFiltros(wrap, limpiar);
+  }
+
+  // Rellena los checkboxes de portal (tras cargar la lista) respetando la selección actual.
+  function poblarPortalesFiltro() {
+    const cont = document.getElementById('rsv-f-portales');
+    if (!cont) return;
+    const items = [
+      ...portalesNombres.map((nm) => ({ key: nm, label: nm })),
+      { key: '__sin__', label: 'Sin portal' },
+    ];
+    cont.innerHTML = items.map((it) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="portal" value="${esc(it.key)}"${fPortal && fPortal.has(it.key) ? ' checked' : ''}>
+        <span class="rsv-f-op-label">${esc(it.label)}</span></label>`).join('');
+  }
+
+  function setDeGrupo(grupo) {
+    return grupo === 'clas' ? fClas : grupo === 'estado' ? fEstado : grupo === 'cond' ? fCond : fPortal;
+  }
+
+  function conectarFiltros(wrap, limpiar) {
+    const btn = wrap.querySelector('#rsv-filtros-btn');
+    const panel = wrap.querySelector('#rsv-filtros-panel');
+
+    const abrir = (v) => panel.classList.toggle('oculto', !v);
+    btn.addEventListener('click', (e) => { e.stopPropagation(); abrir(panel.classList.contains('oculto')); });
+    panel.addEventListener('click', (e) => e.stopPropagation());
+
+    // Cerrar al clic fuera o Escape.
+    document.addEventListener('click', () => abrir(false));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
+
+    // Checkboxes (delegación): actualizan el Set del grupo correspondiente.
+    panel.addEventListener('change', (e) => {
+      const chk = e.target.closest('input[type="checkbox"][data-grupo]');
+      if (!chk) return;
+      const set = setDeGrupo(chk.dataset.grupo);
+      if (chk.checked) set.add(chk.value); else set.delete(chk.value);
+      aplicarFiltros();
+    });
+
+    // "Seleccionar / deseleccionar todos" por grupo.
+    panel.querySelectorAll('.rsv-f-todos').forEach((el) =>
+      el.addEventListener('click', () => {
+        const cont = document.getElementById(el.dataset.todos);
+        const checks = [...cont.querySelectorAll('input[type="checkbox"]')];
+        const marcarTodos = !checks.every((c) => c.checked); // si todos marcados -> desmarca
+        const set = setDeGrupo(checks[0]?.dataset.grupo);
+        if (!set) return;
+        checks.forEach((c) => { c.checked = marcarTodos; if (marcarTodos) set.add(c.value); else set.delete(c.value); });
+        aplicarFiltros();
+      }));
+
+    // Fechas.
+    wrap.querySelector('#rsv-f-desde').addEventListener('change', (e) => { fDesde = e.target.value; aplicarFiltros(); });
+    wrap.querySelector('#rsv-f-hasta').addEventListener('change', (e) => { fHasta = e.target.value; aplicarFiltros(); });
+
+    wrap.querySelectorAll('.rsv-f-pill').forEach((p) =>
+      p.addEventListener('click', () => { aplicarRangoFecha(p.dataset.rango); }));
+
+    limpiar.addEventListener('click', resetFiltros);
+  }
+
+  // Atajos de rango de fecha.
+  function aplicarRangoFecha(rango) {
+    const hoy = new Date();
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (rango === 'mes') {
+      fDesde = iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+      fHasta = iso(new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0));
+    } else if (rango === '30') {
+      fDesde = iso(hoy);
+      fHasta = iso(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30));
+    } else if (rango === 'anio') {
+      fDesde = `${hoy.getFullYear()}-01-01`;
+      fHasta = `${hoy.getFullYear()}-12-31`;
+    } else { // limpiar
+      fDesde = '';
+      fHasta = '';
     }
-    return opts.join('');
+    const d = document.getElementById('rsv-f-desde');
+    const h = document.getElementById('rsv-f-hasta');
+    if (d) d.value = fDesde;
+    if (h) h.value = fHasta;
+    aplicarFiltros();
+  }
+
+  // Resetea todos los filtros a su valor por defecto (todo marcado, sin fechas).
+  function resetFiltros() {
+    fClas = new Set(CLASIFICACIONES.map((c) => c.key));
+    fEstado = new Set(ESTADOS);
+    fCond = new Set(CONDICIONES.map((c) => c.key));
+    fPortal = new Set([...portalesNombres, '__sin__']);
+    fDesde = '';
+    fHasta = '';
+    // Re-marcar todos los checkboxes del panel y limpiar fechas.
+    document.querySelectorAll('#rsv-filtros-panel input[type="checkbox"]').forEach((c) => { c.checked = true; });
+    const d = document.getElementById('rsv-f-desde');
+    const h = document.getElementById('rsv-f-hasta');
+    if (d) d.value = '';
+    if (h) h.value = '';
+    aplicarFiltros();
+  }
+
+  // Redibuja la tabla y actualiza el badge del botón + visibilidad de "Limpiar filtros".
+  function aplicarFiltros() {
+    renderTabla(filtrar());
+    const n = filtrosActivos();
+    const badge = document.getElementById('rsv-filtros-badge');
+    if (badge) { badge.textContent = n; badge.classList.toggle('oculto', n === 0); }
+    document.getElementById('rsv-limpiar')?.classList.toggle('oculto', n === 0);
   }
 
   // ==================== Panel lateral (ficha de reserva) ====================
@@ -446,6 +671,10 @@ const Reservas = (() => {
     try {
       fichaActual = await API.get('/api/reservas/' + id);
       await cargarPortalesMap();
+      [pagosData, extrasData] = await Promise.all([
+        API.get('/api/reservas/' + id + '/pagos'),
+        API.get('/api/reservas/' + id + '/extras'),
+      ]);
     } catch (e) {
       return toast(e.message, 'error');
     }
@@ -499,18 +728,6 @@ const Reservas = (() => {
       dato('Condición de cancelación', esc(r.condicion_cancelacion) || '—') +
       dato('Atendido por', esc(r.atendido_por) || '—');
 
-    const importes = `
-      <table class="rsv-importes">
-        <thead><tr><th>Item</th><th>Precio base (IVA incl.)</th><th>Cantidad</th><th>Precio IVA incl.</th></tr></thead>
-        <tbody>
-          <tr><td>Alojamiento</td><td>${euro(r.precio_base)}</td><td>${n} noche${n === 1 ? '' : 's'}</td><td>${euro(r.precio_total)}</td></tr>
-          <tr class="rsv-bold"><td>Subtotal de alojamiento</td><td></td><td></td><td>${euro(r.precio_total)}</td></tr>
-          <tr class="rsv-bold rsv-total"><td>TOTAL</td><td></td><td></td><td>${euro(r.precio_total)}</td></tr>
-          <tr><td>Pagado</td><td></td><td></td><td>${euro(r.pagado)}</td></tr>
-          <tr class="rsv-pendiente"><td>Pendiente</td><td></td><td></td><td>${euro(r.pendiente)}</td></tr>
-        </tbody>
-      </table>`;
-
     const proximamente = '<div class="rsv-proximamente">Próximamente</div>';
 
     document.getElementById('rsv-cuerpo').innerHTML = `
@@ -518,20 +735,461 @@ const Reservas = (() => {
         <div class="rsv-seccion-titulo">Datos</div>
         <div class="rsv-grid"><div>${izquierda}</div><div>${derecha}</div></div>
 
-        <div class="rsv-seccion-titulo">Check-in / Check-out</div>
+        <div class="rsv-seccion-titulo">Check-in</div>
         <div class="rsv-grid">
           <div>${dato('Check-in', esc(r.checkin_estado) || 'Pendiente')}</div>
-          <div>${dato('Check-out', esc(r.checkout_estado) || 'Pendiente')}</div>
+          <div></div>
         </div>
 
-        <div class="rsv-seccion-titulo">Importes</div>
-        ${importes}
+        <div id="rsv-extras-cont"></div>
+        <div id="rsv-pagos-cont"></div>
       </div>
       <div class="rsv-subpanel" data-rsubpanel="mensajes">${proximamente}</div>
       <div class="rsv-subpanel" data-rsubpanel="margen">${proximamente}</div>
       <div class="rsv-subpanel" data-rsubpanel="liquidacion">${proximamente}</div>`;
 
+    pintarExtras();
+    pintarPagos();
     activarSubtab('datos');
+  }
+
+  // ==================== Sección EXTRAS (dentro de la pestaña Datos) ====================
+  const TIPO_EXTRA = { unidad: 'unidad', noche: 'noche', persona: 'persona' };
+
+  function tipoExtraBadge(t) {
+    return `<span class="extra-tipo-badge">${TIPO_EXTRA[t] || esc(t || '—')}</span>`;
+  }
+
+  function htmlExtras() {
+    const total = Number(extrasData.total_extras) || 0;
+    const filas = (extrasData.extras || []).map((e) => `
+      <tr>
+        <td>${esc(e.nombre)}</td>
+        <td>${tipoExtraBadge(e.tipo_precio)}</td>
+        <td>${e.cantidad}</td>
+        <td>${euro(e.importe)}</td>
+        <td class="extra-acciones">
+          <button class="btn-icono extra-editar" data-id="${e.id}" title="Editar">✏️</button>
+          <button class="btn-icono extra-borrar" data-id="${e.id}" title="Eliminar">🗑️</button>
+        </td>
+      </tr>`).join('');
+    const cuerpo = filas || '<tr><td colspan="5" class="extra-vacio">Sin extras añadidos</td></tr>';
+
+    return `
+      <div class="rsv-seccion-titulo pago-cabecera">
+        <span>EXTRAS</span>
+        <span class="pago-resumen">Total extras: ${euro(total)}</span>
+      </div>
+      <table class="pago-tabla extra-tabla">
+        <thead><tr><th>Concepto</th><th>Tipo</th><th>Cantidad</th><th>Importe</th><th></th></tr></thead>
+        <tbody>${cuerpo}</tbody>
+      </table>
+      <div class="pago-botones">
+        <button class="btn-sec" id="extra-add">＋ Añadir extra</button>
+      </div>`;
+  }
+
+  function pintarExtras() {
+    const cont = document.getElementById('rsv-extras-cont');
+    if (!cont) return;
+    cont.innerHTML = htmlExtras();
+    cont.querySelector('#extra-add')?.addEventListener('click', modalAnadirExtra);
+    cont.querySelectorAll('.extra-editar').forEach((b) =>
+      b.addEventListener('click', () => modalEditarExtra(b.dataset.id)));
+    cont.querySelectorAll('.extra-borrar').forEach((b) =>
+      b.addEventListener('click', () => borrarExtra(b.dataset.id)));
+  }
+
+  // Refetch de extras + repintado de extras y pagos (el total de extras afecta al desfase).
+  async function recargarExtras() {
+    if (!fichaActual) return;
+    try {
+      extrasData = await API.get('/api/reservas/' + fichaActual.id + '/extras');
+    } catch (e) {
+      return toast(e.message, 'error');
+    }
+    pintarExtras();
+    pintarPagos();
+  }
+
+  async function borrarExtra(id) {
+    if (!confirm('¿Eliminar este extra?')) return;
+    try {
+      await API.del('/api/reservas/' + fichaActual.id + '/extras/' + id);
+      await recargarExtras();
+      toast('Extra eliminado', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Modal añadir extra: typeahead de catálogo (solo activos) + cantidad + resumen en vivo.
+  async function modalAnadirExtra() {
+    try {
+      catalogoExtras = (await API.get('/api/catalogo-extras')).filter((x) => x.activo);
+    } catch (e) { return toast(e.message, 'error'); }
+
+    const nNoches = noches(fichaActual.entrada, fichaActual.salida) || 1;
+    let seleccionado = null; // extra del catálogo elegido
+
+    abrirModal(`
+      <h3>Añadir extra</h3>
+      <div class="campo typeahead-campo">
+        <label>Extra *</label>
+        <input id="ex-buscar" autocomplete="off" placeholder="Escribe para buscar…">
+        <div id="ex-sugerencias" class="typeahead-lista oculto"></div>
+      </div>
+      <div id="ex-info" class="extra-info oculto"></div>
+      <div class="campo"><label>Cantidad</label><input type="number" id="ex-cantidad" min="1" step="1" value="1"></div>
+      <div id="ex-resumen" class="extra-resumen"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ex-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ex-guardar">Añadir</button>
+      </div>`);
+
+    const inp = document.getElementById('ex-buscar');
+    const lista = document.getElementById('ex-sugerencias');
+    const info = document.getElementById('ex-info');
+    const cantInp = document.getElementById('ex-cantidad');
+
+    const actualizarResumen = () => {
+      const res = document.getElementById('ex-resumen');
+      if (!seleccionado) { res.textContent = ''; return; }
+      const cant = parseInt(cantInp.value, 10) || 0;
+      const esNoche = seleccionado.tipo_precio === 'noche';
+      const importe = seleccionado.precio * cant * (esNoche ? nNoches : 1);
+      res.textContent =
+        `${cant} × ${euro(seleccionado.precio)}${esNoche ? ` × ${nNoches} noche${nNoches === 1 ? '' : 's'}` : ''} = ${euro(importe)}`;
+    };
+
+    const elegir = (ex) => {
+      seleccionado = ex;
+      inp.value = ex.nombre;
+      lista.classList.add('oculto');
+      info.classList.remove('oculto');
+      info.innerHTML = `Precio unitario: <strong>${euro(ex.precio)}</strong> · Tipo: ${tipoExtraBadge(ex.tipo_precio)}`;
+      actualizarResumen();
+    };
+
+    const renderSugerencias = () => {
+      const q = inp.value.trim().toLowerCase();
+      const matches = catalogoExtras.filter((x) => !q || (x.nombre || '').toLowerCase().includes(q)).slice(0, 8);
+      if (!matches.length) { lista.classList.add('oculto'); return; }
+      lista.innerHTML = matches
+        .map((x) => `<div class="typeahead-item" data-id="${x.id}">${esc(x.nombre)} <span class="typeahead-sub">${euro(x.precio)} · ${TIPO_EXTRA[x.tipo_precio] || ''}</span></div>`)
+        .join('');
+      lista.classList.remove('oculto');
+      lista.querySelectorAll('.typeahead-item').forEach((it) =>
+        it.addEventListener('mousedown', (e) => { e.preventDefault(); elegir(catalogoExtras.find((x) => x.id == it.dataset.id)); }));
+    };
+
+    inp.addEventListener('input', () => { seleccionado = null; info.classList.add('oculto'); document.getElementById('ex-resumen').textContent = ''; renderSugerencias(); });
+    inp.addEventListener('focus', renderSugerencias);
+    inp.addEventListener('blur', () => setTimeout(() => lista.classList.add('oculto'), 150));
+    cantInp.addEventListener('input', actualizarResumen);
+
+    document.getElementById('ex-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ex-guardar').addEventListener('click', async () => {
+      if (!seleccionado) return toast('Selecciona un extra del catálogo', 'error');
+      const cantidad = parseInt(cantInp.value, 10);
+      if (!cantidad || cantidad < 1) return toast('La cantidad debe ser al menos 1', 'error');
+      try {
+        await API.post('/api/reservas/' + fichaActual.id + '/extras', { catalogo_extra_id: seleccionado.id, cantidad });
+        cerrarModal();
+        await recargarExtras();
+        toast('Extra añadido', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // Modal editar extra: nombre en solo lectura (snapshot) + cantidad editable con recálculo.
+  function modalEditarExtra(id) {
+    const ex = (extrasData.extras || []).find((x) => x.id == id);
+    if (!ex) return;
+    const esNoche = ex.tipo_precio === 'noche';
+    const nNoches = ex.noches || 1;
+
+    abrirModal(`
+      <h3>Editar extra</h3>
+      <div class="campo"><label>Extra</label><input value="${esc(ex.nombre)}" readonly class="campo-readonly"></div>
+      <div id="ex-info" class="extra-info">Precio unitario: <strong>${euro(ex.precio_unitario)}</strong> · Tipo: ${tipoExtraBadge(ex.tipo_precio)}</div>
+      <div class="campo"><label>Cantidad</label><input type="number" id="ex-cantidad" min="1" step="1" value="${ex.cantidad}"></div>
+      <div id="ex-resumen" class="extra-resumen"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ex-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ex-guardar">Guardar</button>
+      </div>`);
+
+    const cantInp = document.getElementById('ex-cantidad');
+    const actualizarResumen = () => {
+      const cant = parseInt(cantInp.value, 10) || 0;
+      const importe = ex.precio_unitario * cant * (esNoche ? nNoches : 1);
+      document.getElementById('ex-resumen').textContent =
+        `${cant} × ${euro(ex.precio_unitario)}${esNoche ? ` × ${nNoches} noche${nNoches === 1 ? '' : 's'}` : ''} = ${euro(importe)}`;
+    };
+    actualizarResumen();
+    cantInp.addEventListener('input', actualizarResumen);
+
+    document.getElementById('ex-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ex-guardar').addEventListener('click', async () => {
+      const cantidad = parseInt(cantInp.value, 10);
+      if (!cantidad || cantidad < 1) return toast('La cantidad debe ser al menos 1', 'error');
+      try {
+        await API.put('/api/reservas/' + fichaActual.id + '/extras/' + id, { cantidad });
+        cerrarModal();
+        await recargarExtras();
+        toast('Extra actualizado', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ==================== Sección PAGOS (dentro de la pestaña Datos) ====================
+  const METODOS_PAGO = { caja: '💵 Caja', tpv: '💳 TPV', transferencia: '🏦 Transferencia' };
+
+  function metodoBadge(m) {
+    if (!m) return '<span class="pago-metodo-badge">—</span>';
+    return `<span class="pago-metodo-badge">${METODOS_PAGO[m] || esc(m)}</span>`;
+  }
+  function estadoPagoBadge(pagado) {
+    return pagado
+      ? '<span class="pago-estado pago-estado-ok">Pagado</span>'
+      : '<span class="pago-estado pago-estado-pend">Pendiente</span>';
+  }
+  function hoyISO() { return new Date().toISOString().slice(0, 10); }
+
+  // Construye el HTML completo de la sección PAGOS a partir de pagosData.
+  function htmlPagos() {
+    const precioReserva = Number(pagosData.precio_total_reserva) || 0;
+    const totalExtras = Number(extrasData.total_extras) || 0;
+    const total = precioReserva + totalExtras; // total a cobrar = precio reserva + extras
+    const cobrado = Number(pagosData.total_pagado) || 0;
+    const pct = total > 0 ? Math.min(100, Math.round((cobrado / total) * 100)) : 0;
+
+    // Aviso de desfase: suma de TODOS los importes (pagados + pendientes) vs total a cobrar.
+    const sumaPagos = (pagosData.pagos || []).reduce((s, p) => s + (Number(p.importe) || 0), 0);
+    const diff = sumaPagos - total;
+    let aviso = '';
+    if (diff > 0.01) {
+      aviso = `<div class="pago-aviso pago-aviso-warn">⚠️ Los pagos suman ${euro(diff)} más que el precio de la reserva (desfase: +${euro(diff)})</div>`;
+    } else if (diff < -0.01 && (pagosData.pagos || []).length >= 1) {
+      aviso = `<div class="pago-aviso pago-aviso-info">ℹ️ Falta planificar ${euro(-diff)} en pagos</div>`;
+    }
+
+    const filas = (pagosData.pagos || []).map((p) => `
+      <tr>
+        <td>${esc(p.concepto)}</td>
+        <td>${euro(p.importe)}</td>
+        <td>${metodoBadge(p.metodo_pago)}</td>
+        <td>${estadoPagoBadge(p.pagado)}</td>
+        <td>${p.pagado ? fechaES(p.fecha_pago) : '—'}</td>
+        <td class="pago-acciones">
+          ${p.pagado ? '' : `<button class="btn-mini pago-cobrar" data-id="${p.id}" title="Marcar pagado">✓ Marcar pagado</button>`}
+          <button class="btn-icono pago-editar" data-id="${p.id}" title="Editar">✏️</button>
+          <button class="btn-icono pago-borrar" data-id="${p.id}" title="Eliminar">🗑️</button>
+        </td>
+      </tr>`).join('');
+
+    const cuerpoTabla = filas || '<tr><td colspan="6" class="pago-vacio">Sin pagos registrados.</td></tr>';
+
+    return `
+      <div class="rsv-seccion-titulo pago-cabecera">
+        <span>PAGOS</span>
+        <span class="pago-resumen">${euro(cobrado)} / ${euro(total)}</span>
+      </div>
+      <div class="pago-barra"><div class="pago-barra-fill" style="width:${pct}%"></div></div>
+      ${aviso}
+
+      <div class="pago-precio-inline">
+        <span class="pago-precio-label">Precio:</span>
+        <span class="pago-precio-val">${euro(precioReserva)}</span>
+        ${totalExtras > 0 ? `<span class="pago-precio-label">+ Extras:</span><span class="pago-precio-val">${euro(totalExtras)}</span><span class="pago-precio-label">= Total a cobrar:</span><span class="pago-precio-val">${euro(total)}</span>` : ''}
+      </div>
+
+      <table class="pago-tabla">
+        <thead><tr>
+          <th>Concepto</th><th>Importe</th><th>Método</th><th>Estado</th><th>Fecha pago</th><th></th>
+        </tr></thead>
+        <tbody>${cuerpoTabla}</tbody>
+      </table>
+
+      <div class="pago-botones">
+        <button class="btn-sec" id="pago-add">＋ Añadir pago</button>
+        <button class="btn-sec" id="pago-plan">🔄 Generar plan 20% / 80%</button>
+        <button class="btn-sec" id="pago-autocompletar">💰 Autocompletar pago</button>
+      </div>`;
+  }
+
+  // Pinta la sección PAGOS en su contenedor y conecta los eventos.
+  function pintarPagos() {
+    const cont = document.getElementById('rsv-pagos-cont');
+    if (!cont) return;
+    cont.innerHTML = htmlPagos();
+    conectarPagos();
+  }
+
+  // Refetch de pagos + repintado (tras cualquier cambio).
+  async function recargarPagos() {
+    if (!fichaActual) return;
+    try {
+      pagosData = await API.get('/api/reservas/' + fichaActual.id + '/pagos');
+    } catch (e) {
+      return toast(e.message, 'error');
+    }
+    pintarPagos();
+  }
+
+  function conectarPagos() {
+    const cont = document.getElementById('rsv-pagos-cont');
+    if (!cont) return;
+
+    cont.querySelector('#pago-add')?.addEventListener('click', () => modalPago(null));
+    cont.querySelector('#pago-plan')?.addEventListener('click', generarPlan);
+    cont.querySelector('#pago-autocompletar')?.addEventListener('click', autocompletarPago);
+
+    cont.querySelectorAll('.pago-cobrar').forEach((b) =>
+      b.addEventListener('click', () => modalCobrar(b.dataset.id)));
+    cont.querySelectorAll('.pago-editar').forEach((b) =>
+      b.addEventListener('click', () => modalPago(b.dataset.id)));
+    cont.querySelectorAll('.pago-borrar').forEach((b) =>
+      b.addEventListener('click', () => borrarPago(b.dataset.id)));
+  }
+
+  // Generar plan 20/80 (con confirmación si hay pagos pendientes; guard de precio 0).
+  async function generarPlan() {
+    if ((Number(pagosData.precio_total_reserva) || 0) <= 0) {
+      return toast('Introduce primero el precio total de la reserva', 'error');
+    }
+    const hayPendientes = (pagosData.pagos || []).some((p) => !p.pagado);
+    if (hayPendientes &&
+      !confirm('Esto eliminará los pagos pendientes actuales y creará un nuevo plan 20%/80%. ¿Continuar?')) {
+      return;
+    }
+    try {
+      await API.post('/api/reservas/' + fichaActual.id + '/pagos/generar-plan', {});
+      await recargarPagos();
+      toast('Plan de pagos generado', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Crea un pago "complementario" por la diferencia entre el total a cobrar y la suma de pagos.
+  async function autocompletarPago() {
+    const totalACobrar = (Number(pagosData.precio_total_reserva) || 0) + (Number(extrasData.total_extras) || 0);
+    const sumaPagos = (pagosData.pagos || []).reduce((s, p) => s + (Number(p.importe) || 0), 0);
+    const diff = totalACobrar - sumaPagos;
+
+    if (diff < -0.01) return toast('Los pagos superan el total a cobrar', 'error');
+    if (diff <= 0.01) return toast('No hay desfase que ajustar', 'ok');
+
+    try {
+      await API.post('/api/reservas/' + fichaActual.id + '/pagos', {
+        concepto: 'Pago complementario',
+        importe: diff,
+        metodo_pago: null,
+        pagado: 0,
+        fecha_pago: null,
+      });
+      await recargarPagos();
+      toast('Pago de ' + euro(diff) + ' añadido', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function borrarPago(id) {
+    if (!confirm('¿Eliminar este pago?')) return;
+    try {
+      await API.del('/api/reservas/' + fichaActual.id + '/pagos/' + id);
+      await recargarPagos();
+      toast('Pago eliminado', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Mini modal "Marcar pagado": fecha (hoy por defecto) + método.
+  function modalCobrar(id) {
+    const optMet = Object.entries(METODOS_PAGO)
+      .map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+    abrirModal(`
+      <h3>Marcar pago como cobrado</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha de pago</label><input type="date" id="pc-fecha" value="${hoyISO()}"></div>
+        <div class="campo"><label>Método de pago</label><select id="pc-metodo">${optMet}</select></div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pc-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pc-guardar">Marcar pagado</button>
+      </div>`);
+    document.getElementById('pc-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pc-guardar').addEventListener('click', async () => {
+      const body = {
+        pagado: 1,
+        fecha_pago: document.getElementById('pc-fecha').value || hoyISO(),
+        metodo_pago: document.getElementById('pc-metodo').value,
+      };
+      try {
+        await API.put('/api/reservas/' + fichaActual.id + '/pagos/' + id, body);
+        cerrarModal();
+        await recargarPagos();
+        toast('Pago marcado como cobrado', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // Modal añadir/editar pago.
+  function modalPago(id) {
+    const p = id ? (pagosData.pagos || []).find((x) => x.id == id) : null;
+    const concepto = p ? p.concepto : 'Pago';
+    const importe = p ? p.importe : '';
+    const optMet = '<option value="">— Sin método —</option>' +
+      Object.entries(METODOS_PAGO)
+        .map(([v, t]) => `<option value="${v}"${p && p.metodo_pago === v ? ' selected' : ''}>${t}</option>`)
+        .join('');
+    const pagado = p ? !!p.pagado : false;
+
+    abrirModal(`
+      <h3>${id ? 'Editar' : 'Añadir'} pago</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Concepto *</label><input id="pm-concepto" value="${esc(concepto)}"></div>
+        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" id="pm-importe" value="${importe}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Método de pago</label><select id="pm-metodo">${optMet}</select></div>
+        <div class="campo pago-toggle-campo">
+          <label><input type="checkbox" id="pm-pagado"${pagado ? ' checked' : ''}> Marcar como pagado</label>
+        </div>
+      </div>
+      <div class="fila-campos" id="pm-fecha-fila"${pagado ? '' : ' style="display:none"'}>
+        <div class="campo"><label>Fecha de pago</label><input type="date" id="pm-fecha" value="${p && p.fecha_pago ? esc(p.fecha_pago) : hoyISO()}"></div>
+        <div class="campo"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="pm-notas">${esc(p ? p.notas : '')}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pm-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pm-guardar">Guardar</button>
+      </div>`);
+
+    const chk = document.getElementById('pm-pagado');
+    chk.addEventListener('change', () => {
+      document.getElementById('pm-fecha-fila').style.display = chk.checked ? '' : 'none';
+    });
+    document.getElementById('pm-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pm-guardar').addEventListener('click', async () => {
+      const concepto = (document.getElementById('pm-concepto').value || '').trim();
+      const importeVal = document.getElementById('pm-importe').value;
+      if (!concepto) return toast('El concepto es obligatorio', 'error');
+      if (importeVal === '' || isNaN(parseFloat(importeVal))) return toast('El importe es obligatorio', 'error');
+      const pagadoChk = document.getElementById('pm-pagado').checked;
+      const body = {
+        concepto,
+        importe: parseFloat(importeVal),
+        metodo_pago: document.getElementById('pm-metodo').value || null,
+        pagado: pagadoChk ? 1 : 0,
+        fecha_pago: pagadoChk ? (document.getElementById('pm-fecha').value || hoyISO()) : null,
+        notas: document.getElementById('pm-notas').value || null,
+      };
+      try {
+        if (id) await API.put('/api/reservas/' + fichaActual.id + '/pagos/' + id, body);
+        else await API.post('/api/reservas/' + fichaActual.id + '/pagos', body);
+        cerrarModal();
+        await recargarPagos();
+        toast(id ? 'Pago actualizado' : 'Pago añadido', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
   }
 
   // ---- Modal de edición de la ficha (campos de gestión) ----
@@ -565,20 +1223,8 @@ const Reservas = (() => {
         <div class="campo"><label>Ocupante</label><input id="fr-ocupante" value="${esc(r.ocupante)}"></div>
       </div>
       <div class="fila-campos">
-        <div class="campo"><label>Hora entrada</label><input type="time" id="fr-hora-entrada" value="${esc(r.hora_entrada) || '17:00'}"></div>
-        <div class="campo"><label>Hora salida</label><input type="time" id="fr-hora-salida" value="${esc(r.hora_salida) || '10:00'}"></div>
-      </div>
-      <div class="fila-campos">
         <div class="campo"><label>Check-in</label><select id="fr-checkin">${selOpts(['Pendiente', 'Asignado', 'Completado'], r.checkin_estado || 'Pendiente')}</select></div>
-        <div class="campo"><label>Check-out</label><select id="fr-checkout">${selOpts(['Pendiente', 'Asignado', 'Completado'], r.checkout_estado || 'Pendiente')}</select></div>
-      </div>
-      <div class="fila-campos">
-        <div class="campo"><label>Precio base (€)</label><input type="number" step="0.01" id="fr-precio-base" value="${r.precio_base ?? 0}"></div>
-        <div class="campo"><label>Precio total (€)</label><input type="number" step="0.01" id="fr-precio-total" value="${r.precio_total ?? 0}"></div>
-      </div>
-      <div class="fila-campos">
-        <div class="campo"><label>Pagado (€)</label><input type="number" step="0.01" id="fr-pagado" value="${r.pagado ?? 0}"></div>
-        <div class="campo"><label>Pendiente (€)</label><input id="fr-pendiente" class="campo-readonly" readonly></div>
+        <div class="campo"><label>Precio (€)</label><input type="number" step="0.01" id="fr-precio" value="${r.precio_total ?? 0}"></div>
       </div>
       <div class="campo"><label>Notas internas</label><textarea id="fr-notas">${esc(r.notas_internas)}</textarea></div>
       <div class="modal-acciones">
@@ -587,15 +1233,6 @@ const Reservas = (() => {
       </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
 
-    const recalcular = () => {
-      const tot = parseFloat(document.getElementById('fr-precio-total').value) || 0;
-      const pag = parseFloat(document.getElementById('fr-pagado').value) || 0;
-      document.getElementById('fr-pendiente').value = (tot - pag).toFixed(2);
-    };
-    recalcular();
-    document.getElementById('fr-precio-total').addEventListener('input', recalcular);
-    document.getElementById('fr-pagado').addEventListener('input', recalcular);
-
     document.getElementById('fr-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('fr-guardar').addEventListener('click', async () => {
       const body = {
@@ -603,13 +1240,8 @@ const Reservas = (() => {
         portal: document.getElementById('fr-portal').value,
         condicion_cancelacion: document.getElementById('fr-condicion').value,
         ocupante: document.getElementById('fr-ocupante').value,
-        hora_entrada: document.getElementById('fr-hora-entrada').value,
-        hora_salida: document.getElementById('fr-hora-salida').value,
         checkin_estado: document.getElementById('fr-checkin').value,
-        checkout_estado: document.getElementById('fr-checkout').value,
-        precio_base: document.getElementById('fr-precio-base').value,
-        precio_total: document.getElementById('fr-precio-total').value,
-        pagado: document.getElementById('fr-pagado').value,
+        precio_total: document.getElementById('fr-precio').value,
         notas_internas: document.getElementById('fr-notas').value,
       };
       try {
@@ -628,27 +1260,12 @@ const Reservas = (() => {
   function init() {
     crearPanel();
     asegurarColumnaPortal();
+    construirFiltros();
     document.getElementById('btn-nueva-reserva').addEventListener('click', () => formulario(null));
-
-    document.getElementById('reservas-filtro-mes').innerHTML = generarOpcionesMeses();
 
     document.getElementById('reservas-buscar').addEventListener('input', (e) => {
       busqueda = e.target.value;
-      renderTabla(filtrar());
-    });
-
-    document.querySelectorAll('.btn-filtro-tih-res').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.btn-filtro-tih-res').forEach((b) => b.classList.remove('activo'));
-        btn.classList.add('activo');
-        filtroTih = btn.dataset.val;
-        renderTabla(filtrar());
-      });
-    });
-
-    document.getElementById('reservas-filtro-mes').addEventListener('change', (e) => {
-      filtroMes = e.target.value;
-      renderTabla(filtrar());
+      aplicarFiltros();
     });
   }
 

@@ -26,6 +26,14 @@ const Ajustes = (() => {
   let portalesLista = [];
   let catalogoLista = [];
   let catBuscar = '';
+  let extrasLista = [];
+  let extraBuscar = '';
+
+  // Etiqueta legible del tipo de precio de un extra.
+  const TIPO_EXTRA_LABEL = { unidad: 'por unidad', noche: 'por noche', persona: 'por persona' };
+  function tipoExtraBadge(t) {
+    return `<span class="badge-tipo-extra">${TIPO_EXTRA_LABEL[t] || esc(t || '—')}</span>`;
+  }
 
   // ---- Utilidades ----
   function euro(n) {
@@ -61,6 +69,7 @@ const Ajustes = (() => {
     await cargarUsuarios();
     await cargarPortales();
     await cargarCatalogoGastos();
+    await cargarCatalogoExtras();
     if (Auth.esAdmin()) await cargarActividad();
   }
 
@@ -204,6 +213,142 @@ const Ajustes = (() => {
       toast('Concepto eliminado', 'ok');
     } catch (e) {
       if (e.status === 409) toast('Este concepto tiene gastos registrados y no puede eliminarse', 'error');
+      else toast(e.message, 'error');
+    }
+  }
+
+  // ==================== Catálogo de extras ====================
+  // La sub-pestaña y su panel se inyectan por JS (no se toca index.html).
+  function inyectarCatalogoExtras() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="extras"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.dataset.sub = 'extras';
+    btn.textContent = 'Catálogo de extras';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'extras';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Catálogo de extras</span>
+        <div class="cat-head-acciones">
+          <input type="text" id="extra-buscar" class="input-buscar" placeholder="Buscar extra…">
+          <button id="btn-nuevo-extra" class="btn-pri">＋ Nuevo extra</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-extras">
+          <thead>
+            <tr><th>Nombre</th><th>Precio</th><th>Tipo precio</th><th>Descripción</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+    document.getElementById('btn-nuevo-extra').addEventListener('click', () => formularioExtra(null));
+    document.getElementById('extra-buscar').addEventListener('input', (e) => { extraBuscar = e.target.value; renderCatalogoExtras(); });
+  }
+
+  async function cargarCatalogoExtras() {
+    try { extrasLista = await API.get('/api/catalogo-extras'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderCatalogoExtras();
+  }
+
+  function renderCatalogoExtras() {
+    const tbody = document.querySelector('#tabla-extras tbody');
+    if (!tbody) return;
+    const q = extraBuscar.trim().toLowerCase();
+    const lista = extrasLista.filter((c) => !q || (c.nombre || '').toLowerCase().includes(q));
+    tbody.innerHTML = '';
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#6b7280;text-align:center;padding:24px">Sin extras.</td></tr>';
+      return;
+    }
+    for (const c of lista) {
+      const estado = c.activo
+        ? '<span class="badge-estado activo">Activo</span>'
+        : '<span class="badge-estado neutro">Inactivo</span>';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(c.nombre)}</td>
+        <td>${euro(c.precio)}</td>
+        <td>${tipoExtraBadge(c.tipo_precio)}</td>
+        <td>${esc(c.descripcion) || '—'}</td>
+        <td>${estado}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-e="${c.id}" title="Editar">✏️</button>
+          <button class="btn-mini" data-borrar-e="${c.id}" title="Eliminar">🗑️</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('[data-editar-e]').forEach((b) =>
+      b.addEventListener('click', () => formularioExtra(extrasLista.find((x) => x.id == b.dataset.editarE))));
+    tbody.querySelectorAll('[data-borrar-e]').forEach((b) =>
+      b.addEventListener('click', () => borrarExtra(b.dataset.borrarE)));
+  }
+
+  function formularioExtra(c) {
+    c = c || {};
+    const esNuevo = !c.id;
+    const activoChecked = c.activo === undefined ? true : !!c.activo;
+    const tipo = c.tipo_precio || 'unidad';
+    const radio = (val, label) =>
+      `<label class="radio-campo"><input type="radio" name="e-tipo" value="${val}"${tipo === val ? ' checked' : ''}><span>${label}</span></label>`;
+    abrirModal(`
+      <h3>${esNuevo ? 'Nuevo' : 'Editar'} extra</h3>
+      <div class="campo"><label>Nombre *</label><input id="e-nombre" value="${esc(c.nombre)}"></div>
+      <div class="campo"><label>Precio (€) *</label><input id="e-precio" type="number" step="0.01" min="0" value="${c.precio != null ? c.precio : ''}"></div>
+      <div class="campo"><label>Tipo de precio</label>
+        <div class="radio-grupo">${radio('unidad', 'Por unidad')}${radio('noche', 'Por noche')}${radio('persona', 'Por persona')}</div>
+      </div>
+      <div class="campo"><label>Descripción</label><textarea id="e-desc">${esc(c.descripcion)}</textarea></div>
+      <div class="campo"><label>Estado</label>
+        <label class="toggle-campo"><input type="checkbox" id="e-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="e-cancelar">Cancelar</button>
+        <button class="btn-pri" id="e-guardar">Guardar</button>
+      </div>`);
+
+    document.getElementById('e-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('e-guardar').addEventListener('click', async () => {
+      const nombre = document.getElementById('e-nombre').value.trim();
+      if (!nombre) return toast('El nombre es obligatorio', 'error');
+      const precioRaw = document.getElementById('e-precio').value;
+      if (precioRaw === '' || isNaN(parseFloat(precioRaw))) return toast('El precio es obligatorio', 'error');
+      const body = {
+        nombre,
+        precio: parseFloat(precioRaw),
+        tipo_precio: (document.querySelector('input[name="e-tipo"]:checked') || {}).value || 'unidad',
+        descripcion: document.getElementById('e-desc').value,
+        activo: document.getElementById('e-activo').checked ? 1 : 0,
+      };
+      try {
+        if (esNuevo) await API.post('/api/catalogo-extras', body);
+        else await API.put('/api/catalogo-extras/' + c.id, body);
+        cerrarModal();
+        await cargarCatalogoExtras();
+        toast('Extra guardado', 'ok');
+      } catch (e) {
+        if (e.status === 409) toast('Ya existe un extra con ese nombre', 'error');
+        else toast(e.message, 'error');
+      }
+    });
+  }
+
+  async function borrarExtra(id) {
+    const c = extrasLista.find((x) => x.id == id);
+    if (!confirm(`¿Eliminar el extra "${c ? c.nombre : id}"?`)) return;
+    try {
+      await API.del('/api/catalogo-extras/' + id);
+      await cargarCatalogoExtras();
+      toast('Extra eliminado', 'ok');
+    } catch (e) {
+      if (e.status === 409) toast('Este extra tiene reservas asociadas y no puede eliminarse', 'error');
       else toast(e.message, 'error');
     }
   }
@@ -712,6 +857,7 @@ const Ajustes = (() => {
   function init() {
     inyectarPortales();        // 4ª sub-pestaña (antes de enlazar los clics)
     inyectarCatalogoGastos();  // 5ª sub-pestaña
+    inyectarCatalogoExtras();  // 6ª sub-pestaña
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));
