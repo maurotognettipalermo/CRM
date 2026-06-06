@@ -1823,6 +1823,24 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .trf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .trf-dc-preview { background: var(--border-soft); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 
+/* Reservas: desglose de tarifa en el modal de alta/edición */
+.rsv-trf { background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+.rsv-trf-cargando { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.rsv-trf-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: rsv-trf-girar 0.7s linear infinite; flex-shrink: 0; }
+@keyframes rsv-trf-girar { to { transform: rotate(360deg); } }
+.rsv-trf-aviso { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 500; margin-bottom: 10px; }
+.rsv-trf-tabla { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
+.rsv-trf-tabla th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.rsv-trf-tabla td { padding: 4px 8px; }
+.rsv-trf-mas td { color: var(--muted); cursor: pointer; text-align: center; font-style: italic; }
+.rsv-trf-mas td:hover { color: var(--text); }
+.rsv-trf-resumen { border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.rsv-trf-linea { display: flex; justify-content: space-between; font-size: 13px; }
+.rsv-trf-desc { color: var(--green); }
+.rsv-trf-extra { color: var(--muted); }
+.rsv-trf-total { border-top: 1px solid var(--border); margin-top: 5px; padding-top: 7px; font-size: 16px; font-weight: 700; }
+.badge-precio-manual { display: inline-block; background: #f3f4f6; color: var(--muted); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; margin-top: 6px; }
+
 /* Catálogo de extras: badge de extra obligatorio */
 .badge-obligatorio { background: #fef2f2; color: #b91c1c; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .e-obligatorio-aviso { font-size: 12px; color: var(--muted); margin-top: 6px; }

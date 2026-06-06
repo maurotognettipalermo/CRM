@@ -195,6 +195,7 @@ const Reservas = (() => {
     let r = {
       numero_reserva: '', nombre_cliente: '', contrato: '', edificio: '',
       tih: '1', apartamento_id: null, entrada: '', salida: '', personas: '', observaciones: '',
+      portal: '', precio_total: 0,
     };
     if (id) {
       try {
@@ -207,6 +208,14 @@ const Reservas = (() => {
     const tihOpts = ['1', '2']
       .map((v) => `<option value="${v}"${r.tih == v ? ' selected' : ''}>${tihTexto(v)}</option>`)
       .join('');
+
+    // Portales para el select (el cálculo de tarifa puede depender del portal).
+    let portales = [];
+    try { portales = (await API.getPortales()).filter((p) => p.activo); } catch (e) { portales = []; }
+    const nombresPortal = portales.map((p) => p.nombre);
+    if (r.portal && !nombresPortal.includes(r.portal)) nombresPortal.unshift(r.portal);
+    const portalOpts = '<option value="">— Sin portal —</option>' +
+      nombresPortal.map((nm) => `<option${r.portal === nm ? ' selected' : ''}>${esc(nm)}</option>`).join('');
 
     abrirModal(`
       <h3>${id ? 'Editar' : 'Nueva'} reserva</h3>
@@ -250,6 +259,18 @@ const Reservas = (() => {
           <input type="date" id="f-salida" value="${r.salida || ''}">
         </div>
       </div>
+      <div id="f-tarifa" class="rsv-trf oculto"></div>
+      <div class="fila-campos">
+        <div class="campo">
+          <label>Portal</label>
+          <select id="f-portal">${portalOpts}</select>
+        </div>
+        <div class="campo">
+          <label>Precio (€)</label>
+          <input type="number" step="0.01" min="0" id="f-precio" value="${r.precio_total != null && r.precio_total !== 0 ? r.precio_total : ''}">
+          <span id="f-precio-badge" class="badge-precio-manual oculto"></span>
+        </div>
+      </div>
       <div class="campo">
         <label>Personas</label>
         <input type="number" id="f-personas" min="1" value="${r.personas ?? ''}">
@@ -271,15 +292,33 @@ const Reservas = (() => {
     document.getElementById('f-tih').addEventListener('change', () => {
       actualizarSelectorApto(document.getElementById('f-tih').value, null);
       verificarDisponibilidad(id);
+      programarCalculoTarifa();
     });
 
     ['f-apartamento-id', 'f-entrada', 'f-salida'].forEach((fid) => {
-      document.getElementById(fid).addEventListener('change', () => verificarDisponibilidad(id));
+      document.getElementById(fid).addEventListener('change', () => {
+        verificarDisponibilidad(id);
+        programarCalculoTarifa();
+      });
+    });
+    document.getElementById('f-portal').addEventListener('change', programarCalculoTarifa);
+
+    // Precio editable siempre: si el usuario lo toca, pasa a "manual" y deja de autorrellenarse.
+    tarifaPrecioManual = id ? (Number(r.precio_total) || 0) > 0 : false;
+    tarifaCalc = null;
+    document.getElementById('f-precio').addEventListener('input', () => {
+      tarifaPrecioManual = document.getElementById('f-precio').value !== '';
+      if (!tarifaPrecioManual && tarifaCalc) {
+        document.getElementById('f-precio').value = tarifaCalc.precio_total;
+        tarifaPrecioManual = false;
+      }
+      actualizarBadgePrecio();
     });
 
-    // Al editar con apartamento y fechas ya asignados, mostrar disponibilidad inmediatamente.
+    // Al editar con apartamento y fechas ya asignados, mostrar disponibilidad y tarifa.
     if (id && r.apartamento_id && r.entrada && r.salida) {
       verificarDisponibilidad(id);
+      programarCalculoTarifa();
     }
 
     document.getElementById('f-guardar').addEventListener('click', () => guardar(id));
@@ -341,6 +380,154 @@ const Reservas = (() => {
     }
   }
 
+  // ==================== Cálculo automático de tarifa (modal alta/edición) ====================
+  let tarifaTimer = null;        // debounce
+  let tarifaToken = 0;           // descarta respuestas obsoletas
+  let tarifaCalc = null;         // último resultado de /api/tarifas/calcular
+  let tarifaPrecioManual = false; // el usuario ha puesto el precio a mano
+  let tarifaDesplegado = false;  // desglose largo expandido
+  let coloresTemporada = {};     // nombre temporada -> color (por años cargados)
+  let coloresAniosCargados = new Set();
+
+  function programarCalculoTarifa() {
+    clearTimeout(tarifaTimer);
+    tarifaTimer = setTimeout(calcularTarifa, 500);
+  }
+
+  // Carga los colores de las temporadas de los años implicados (para tintar las filas).
+  async function cargarColoresTemporada(entrada, salida) {
+    const anios = [...new Set([entrada.slice(0, 4), salida.slice(0, 4)])];
+    for (const a of anios) {
+      if (coloresAniosCargados.has(a)) continue;
+      try {
+        const ts = await API.get(`/api/tarifas/temporadas?anio=${a}`);
+        for (const t of ts) coloresTemporada[t.nombre] = t.color;
+        coloresAniosCargados.add(a);
+      } catch (e) { /* sin colores, filas sin tinte */ }
+    }
+  }
+
+  // Fondo sutil con el color de la temporada (alpha ~10%).
+  function tinteTemporada(nombre) {
+    const c = coloresTemporada[nombre];
+    return /^#[0-9a-fA-F]{6}$/.test(c || '') ? ` style="background:${c}1a"` : '';
+  }
+
+  async function calcularTarifa() {
+    const cont = document.getElementById('f-tarifa');
+    if (!cont) return;
+    const aptId = document.getElementById('f-apartamento-id')?.value;
+    const entrada = document.getElementById('f-entrada')?.value;
+    const salida = document.getElementById('f-salida')?.value;
+    const portal = document.getElementById('f-portal')?.value || '';
+
+    if (!aptId || !entrada || !salida || entrada >= salida) {
+      cont.classList.add('oculto');
+      cont.innerHTML = '';
+      tarifaCalc = null;
+      actualizarBadgePrecio();
+      return;
+    }
+
+    const token = ++tarifaToken;
+    cont.classList.remove('oculto');
+    cont.innerHTML = '<div class="rsv-trf-cargando"><span class="rsv-trf-spinner"></span> Calculando precio…</div>';
+
+    let data;
+    try {
+      let url = `/api/tarifas/calcular?apartamento_id=${encodeURIComponent(aptId)}&entrada=${encodeURIComponent(entrada)}&salida=${encodeURIComponent(salida)}`;
+      if (portal) url += `&portal=${encodeURIComponent(portal)}`;
+      data = await API.get(url);
+    } catch (e) {
+      if (token !== tarifaToken) return; // llegó tarde, hay otro cálculo en curso
+      tarifaCalc = null;
+      actualizarBadgePrecio();
+      cont.innerHTML = `
+        <div class="rsv-trf-aviso">⚠️ ${esc(e.message)}</div>
+        <button type="button" class="btn-sec" id="f-trf-reintentar">Calcular de nuevo</button>`;
+      document.getElementById('f-trf-reintentar').addEventListener('click', calcularTarifa);
+      return;
+    }
+    if (token !== tarifaToken) return;
+
+    tarifaCalc = data;
+    tarifaDesplegado = false;
+    await cargarColoresTemporada(entrada, salida);
+    if (token !== tarifaToken) return;
+    renderTarifa(cont);
+
+    // El cálculo es una sugerencia: solo autorrellena si el usuario no ha puesto precio a mano.
+    if (!tarifaPrecioManual) {
+      const inp = document.getElementById('f-precio');
+      if (inp) inp.value = data.precio_total;
+    }
+    actualizarBadgePrecio();
+  }
+
+  function filaNoche(n) {
+    const mod = (Number(n.modificador) || 0);
+    const modTxt = mod === 0 ? '—' : (mod > 0 ? '+' : '−') + Math.abs(mod) + '%';
+    return `
+      <tr${tinteTemporada(n.temporada)}>
+        <td>${fechaES(n.fecha)}</td>
+        <td>${esc(n.temporada)}</td>
+        <td style="text-align:right">${euro(n.precio_base)}</td>
+        <td style="text-align:right">${modTxt}</td>
+        <td style="text-align:right">${euro(n.precio_final)}</td>
+      </tr>`;
+  }
+
+  function renderTarifa(cont) {
+    const d = tarifaCalc;
+    if (!d) return;
+    const noches = d.desglose.length;
+
+    let filas;
+    if (noches > 7 && !tarifaDesplegado) {
+      const ocultas = noches - 5;
+      filas = d.desglose.slice(0, 3).map(filaNoche).join('') +
+        `<tr class="rsv-trf-mas"><td colspan="5" id="f-trf-mas">… y ${ocultas} noche${ocultas === 1 ? '' : 's'} más (pulsa para ver)</td></tr>` +
+        d.desglose.slice(-2).map(filaNoche).join('');
+    } else {
+      filas = d.desglose.map(filaNoche).join('');
+    }
+
+    const lineas = [];
+    lineas.push(`<div class="rsv-trf-linea"><span>Subtotal (${noches} noche${noches === 1 ? '' : 's'}):</span><span>${euro(d.subtotal)}</span></div>`);
+    for (const x of d.descuentos_aplicados || []) {
+      lineas.push(`<div class="rsv-trf-linea rsv-trf-desc"><span>Descuento "${esc(x.nombre)}" (−${x.porcentaje}%):</span><span>−${euro(x.importe)}</span></div>`);
+    }
+    for (const x of d.extras_obligatorios || []) {
+      lineas.push(`<div class="rsv-trf-linea rsv-trf-extra"><span>Extra obligatorio "${esc(x.nombre)}":</span><span>${euro(x.importe)}</span></div>`);
+    }
+
+    cont.innerHTML = `
+      <table class="rsv-trf-tabla">
+        <thead><tr><th>Fecha</th><th>Temporada</th><th style="text-align:right">Precio base</th><th style="text-align:right">Modif.</th><th style="text-align:right">Precio/noche</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div class="rsv-trf-resumen">
+        ${lineas.join('')}
+        <div class="rsv-trf-linea rsv-trf-total"><span>PRECIO TOTAL:</span><span>${euro(d.precio_total)}</span></div>
+      </div>`;
+
+    const mas = document.getElementById('f-trf-mas');
+    if (mas) mas.addEventListener('click', () => { tarifaDesplegado = true; renderTarifa(cont); });
+  }
+
+  // Badge "Precio manual" si el precio del campo difiere del calculado.
+  function actualizarBadgePrecio() {
+    const badge = document.getElementById('f-precio-badge');
+    const inp = document.getElementById('f-precio');
+    if (!badge || !inp) return;
+    const calculado = tarifaCalc ? Number(tarifaCalc.precio_total) : null;
+    const actual = inp.value === '' ? null : Number(inp.value);
+    const difiere = tarifaPrecioManual && calculado != null && actual != null &&
+      Math.abs(actual - calculado) > 0.009;
+    badge.classList.toggle('oculto', !difiere);
+    if (difiere) badge.textContent = `Precio manual (difiere del calculado: ${euro(calculado)})`;
+  }
+
   // ---- Guardar (crear o editar) ----
   async function guardar(id) {
     const numReserva   = (document.getElementById('f-num-reserva')?.value || '').trim();
@@ -354,6 +541,9 @@ const Reservas = (() => {
     if (!entrada)       return toast('La fecha de entrada es obligatoria', 'error');
     if (!salida)        return toast('La fecha de salida es obligatoria', 'error');
     if (entrada >= salida) return toast('La salida debe ser posterior a la entrada', 'error');
+
+    const portal = document.getElementById('f-portal')?.value || '';
+    const precio = document.getElementById('f-precio')?.value || '';
 
     const body = {
       numero_reserva: numReserva,
@@ -369,13 +559,37 @@ const Reservas = (() => {
     };
 
     try {
-      if (id) await API.put('/api/reservas/' + id, body);
-      else    await API.post('/api/reservas', body);
+      if (id) {
+        await API.put('/api/reservas/' + id, { ...body, portal, precio_total: precio });
+      } else {
+        // El POST de reservas solo acepta los campos básicos: portal y precio se fijan
+        // con un PUT posterior, y los extras obligatorios del catálogo se añaden uno a uno.
+        const creada = await API.post('/api/reservas', body);
+        if (portal || precio !== '') {
+          await API.put('/api/reservas/' + creada.id, { portal, precio_total: precio });
+        }
+        await anadirExtrasObligatorios(creada.id);
+      }
       cerrarModal();
       await cargar();
       toast(id ? 'Reserva actualizada' : 'Reserva creada', 'ok');
     } catch (e) {
       toast(e.message, 'error');
+    }
+  }
+
+  // Añade automáticamente a la reserva recién creada los extras marcados como
+  // obligatorios en el catálogo (cantidad 1). No rompe la creación si algo falla.
+  async function anadirExtrasObligatorios(reservaId) {
+    let catalogo = [];
+    try { catalogo = await API.get('/api/catalogo-extras'); } catch (e) { return; }
+    const obligatorios = catalogo.filter((c) => c.obligatorio && c.activo);
+    for (const c of obligatorios) {
+      try {
+        await API.post(`/api/reservas/${reservaId}/extras`, { catalogo_extra_id: c.id, cantidad: 1 });
+      } catch (e) {
+        toast(`No se pudo añadir el extra obligatorio "${c.nombre}"`, 'error');
+      }
     }
   }
 
