@@ -60,9 +60,25 @@ CREATE TABLE IF NOT EXISTS apartamentos (
   edificio       TEXT,
   tipo           TEXT,            -- '1' = 1ª Línea, '2' = 2ª Línea
   capacidad      INTEGER,
-  notas          TEXT,
-  propietario_id INTEGER REFERENCES propietarios(id) ON DELETE SET NULL
+  notas          TEXT
 );
+
+-- Relación N:M apartamento ↔ propietarios con porcentaje de propiedad e histórico.
+-- Sustituye a la antigua columna apartamentos.propietario_id (migrada en database.js).
+CREATE TABLE IF NOT EXISTS apartamento_propietarios (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  propietario_id INTEGER NOT NULL REFERENCES propietarios(id) ON DELETE CASCADE,
+  porcentaje REAL NOT NULL DEFAULT 100,    -- % de propiedad (todos deben sumar 100)
+  fecha_inicio TEXT NOT NULL,              -- ISO YYYY-MM-DD
+  fecha_fin TEXT,                          -- null = propietario actual
+  activo INTEGER DEFAULT 1,                -- 1=actual, 0=histórico
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(apartamento_id, propietario_id, fecha_inicio)
+);
+CREATE INDEX IF NOT EXISTS idx_ap_apartamento ON apartamento_propietarios(apartamento_id);
+CREATE INDEX IF NOT EXISTS idx_ap_propietario ON apartamento_propietarios(propietario_id);
 
 CREATE TABLE IF NOT EXISTS reservas (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

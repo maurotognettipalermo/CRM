@@ -129,16 +129,44 @@ const COLUMNAS_FACTURAS = {};
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
+  limpiarDatosPrueba();
   migrarPropietarios();
   migrarReservas();
   migrarPortales();
   migrarContratos();
   migrarApartamentos();
+  migrarRelacionPropietarios();
   migrarGastos();
   migrarRazones();
   migrarFacturas();
   seedAdmin();
   seedPortales();
+}
+
+// Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
+// actividad) previa a la puesta en producción. Se ejecuta una sola vez: deja un flag
+// en la tabla ajustes para no volver a borrar datos reales en arranques posteriores.
+// NO toca: apartamentos, propietarios, reservas, usuarios, portales, catálogos ni razones sociales.
+function limpiarDatosPrueba() {
+  const FLAG = 'limpieza_datos_prueba_v1';
+  const hecho = db.prepare('SELECT valor FROM ajustes WHERE clave = ?').get(FLAG);
+  if (hecho) return;
+  const tx = db.transaction(() => {
+    db.exec(`
+      DELETE FROM factura_lineas;
+      DELETE FROM facturas;
+      DELETE FROM factura_contador;
+      DELETE FROM contrato_cuotas;
+      DELETE FROM contratos;
+      DELETE FROM reserva_pagos;
+      DELETE FROM reserva_extras;
+      DELETE FROM apartamento_gastos;
+      DELETE FROM actividad_log;
+    `);
+    db.prepare('INSERT INTO ajustes (clave, valor) VALUES (?, ?)').run(FLAG, new Date().toISOString());
+  });
+  tx();
+  console.log('Datos de prueba eliminados (facturas, contratos, pagos, extras, gastos, actividad).');
 }
 
 // Añade con ALTER TABLE las columnas que falten en `tabla` (SQLite no admite
@@ -178,6 +206,60 @@ function migrarContratos() {
 // (los DEFAULT constantes 0 de en_garantia/quitar_planning se aplican a las filas existentes).
 function migrarApartamentos() {
   anadirColumnasFaltantes('apartamentos', COLUMNAS_APARTAMENTOS);
+}
+
+// Migración a la relación N:M apartamento ↔ propietarios:
+//  1) Copia las relaciones de la antigua columna apartamentos.propietario_id a la
+//     tabla apartamento_propietarios (porcentaje 100, inicio 2024-01-01, activo).
+//  2) Elimina la columna propietario_id recreando la tabla (SQLite antiguo no soporta
+//     DROP COLUMN): CREATE nueva → INSERT SELECT → DROP vieja → RENAME.
+// Idempotente: si la columna ya no existe, no hace nada. Debe ejecutarse DESPUÉS de
+// migrarApartamentos() para que la tabla vieja ya tenga todas las columnas ampliadas.
+function migrarRelacionPropietarios() {
+  const cols = db.prepare('PRAGMA table_info(apartamentos)').all().map((c) => c.name);
+  if (!cols.includes('propietario_id')) return;
+
+  // 1) Volcar las relaciones existentes (solo si no están ya en la tabla N:M).
+  db.prepare(`
+    INSERT INTO apartamento_propietarios (apartamento_id, propietario_id, porcentaje, fecha_inicio, activo)
+    SELECT a.id, a.propietario_id, 100, '2024-01-01', 1
+    FROM apartamentos a
+    WHERE a.propietario_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM apartamento_propietarios ap
+        WHERE ap.apartamento_id = a.id AND ap.propietario_id = a.propietario_id
+      )
+  `).run();
+
+  // 2) Recrear la tabla sin propietario_id. FKs desactivadas durante el rebuild para
+  //    que el DROP no afecte a las tablas que referencian apartamentos(id).
+  const restantes = cols.filter((n) => n !== 'propietario_id');
+  const lista = restantes.join(', ');
+  const extras = Object.entries(COLUMNAS_APARTAMENTOS)
+    .map(([nombre, def]) => `${nombre} ${def}`)
+    .join(',\n      ');
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(`CREATE TABLE apartamentos_nueva (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre         TEXT NOT NULL,
+      edificio       TEXT,
+      tipo           TEXT,
+      capacidad      INTEGER,
+      notas          TEXT,
+      ${extras}
+    )`);
+    db.exec(`INSERT INTO apartamentos_nueva (${lista}) SELECT ${lista} FROM apartamentos`);
+    db.exec('DROP TABLE apartamentos');
+    db.exec('ALTER TABLE apartamentos_nueva RENAME TO apartamentos');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_apartamentos_tipo ON apartamentos(tipo)');
+  })();
+  db.pragma('foreign_keys = ON');
+  const rotas = db.prepare('PRAGMA foreign_key_check').all();
+  if (rotas.length) {
+    console.error('AVISO: claves foráneas rotas tras la migración:', rotas);
+  }
+  console.log('Migración: apartamentos.propietario_id -> apartamento_propietarios completada.');
 }
 
 // Migración de la tabla catalogo_gastos: añade incluye_iva si falta.
