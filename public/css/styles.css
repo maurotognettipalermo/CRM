@@ -1814,6 +1814,19 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .trf-mod-controles { display: flex; align-items: center; gap: 8px; }
 .trf-mod-input { width: 90px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
 
+/* Tarifas → Descuentos */
+.trf-cond-badge { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; margin: 1px 0; }
+.trf-cond-badge.azul    { background: #eff6ff; color: #2563eb; }
+.trf-cond-badge.verde   { background: #ecfdf5; color: #047857; }
+.trf-cond-badge.naranja { background: #fff7ed; color: #c2410c; }
+.trf-cond-bloque { margin: -4px 0 14px 50px; display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.trf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.trf-dc-preview { background: var(--border-soft); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+
+/* Catálogo de extras: badge de extra obligatorio */
+.badge-obligatorio { background: #fef2f2; color: #b91c1c; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.e-obligatorio-aviso { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
 /* Estadísticas → Propietarios: barra de cashflow */
 .est-cashflow { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; background: #fff; }
 .est-cashflow-titulo { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }

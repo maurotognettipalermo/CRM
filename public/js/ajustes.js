@@ -272,9 +272,10 @@ const Ajustes = (() => {
       const estado = c.activo
         ? '<span class="badge-estado activo">Activo</span>'
         : '<span class="badge-estado neutro">Inactivo</span>';
+      const obligatorio = c.obligatorio ? ' <span class="badge-obligatorio">Obligatorio</span>' : '';
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${esc(c.nombre)}</td>
+        <td>${esc(c.nombre)}${obligatorio}</td>
         <td>${euro(c.precio)}</td>
         <td>${tipoExtraBadge(c.tipo_precio)}</td>
         <td>${esc(c.descripcion) || '—'}</td>
@@ -309,11 +310,17 @@ const Ajustes = (() => {
       <div class="campo"><label>Estado</label>
         <label class="toggle-campo"><input type="checkbox" id="e-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
       </div>
+      <div class="campo">
+        <label class="toggle-campo"><input type="checkbox" id="e-obligatorio"${c.obligatorio ? ' checked' : ''}><span>Extra obligatorio</span></label>
+        <div id="e-obligatorio-aviso" class="e-obligatorio-aviso${c.obligatorio ? '' : ' oculto'}">Este extra se añadirá automáticamente a todas las reservas nuevas</div>
+      </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="e-cancelar">Cancelar</button>
         <button class="btn-pri" id="e-guardar">Guardar</button>
       </div>`);
 
+    document.getElementById('e-obligatorio').addEventListener('change', (e) =>
+      document.getElementById('e-obligatorio-aviso').classList.toggle('oculto', !e.target.checked));
     document.getElementById('e-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('e-guardar').addEventListener('click', async () => {
       const nombre = document.getElementById('e-nombre').value.trim();
@@ -326,6 +333,7 @@ const Ajustes = (() => {
         tipo_precio: (document.querySelector('input[name="e-tipo"]:checked') || {}).value || 'unidad',
         descripcion: document.getElementById('e-desc').value,
         activo: document.getElementById('e-activo').checked ? 1 : 0,
+        obligatorio: document.getElementById('e-obligatorio').checked ? 1 : 0,
       };
       try {
         if (esNuevo) await API.post('/api/catalogo-extras', body);

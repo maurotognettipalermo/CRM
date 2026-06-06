@@ -10,10 +10,13 @@ const Tarifas = (() => {
   // Badges por tipo: mismas clases que las fichas de alojamiento (badge-clasif).
   const CLASE_TIPO = { 'A++': 'c-app', 'A+': 'c-ap', 'A': 'c-a', 'B+': 'c-bp', 'B': 'c-b', 'C': 'c-c' };
 
+  const TIPOS_CLASIF = ['A++', 'A+', 'A', 'B+', 'B', 'C'];
+
   let anio = new Date().getFullYear();
   let subActiva = 'temporadas';
   let temporadas = [];        // temporadas del año seleccionado
   let modificadores = [];     // tipo_modificadores (cache, no depende del año)
+  let descuentos = [];        // descuentos del año seleccionado
 
   // ---- Formato ----
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
@@ -340,10 +343,228 @@ const Tarifas = (() => {
     });
   }
 
-  // ==================== Sub-pestaña Descuentos (pendiente: tarea 3) ====================
+  // ==================== Sub-pestaña Descuentos ====================
+  // Parsea un campo JSON array (tipos/portales) a array o null (null = aplica a todos).
+  function parseArr(v) {
+    if (!v) return null;
+    try { const a = JSON.parse(v); return Array.isArray(a) && a.length ? a : null; }
+    catch (e) { return null; }
+  }
+
   async function cargarDescuentos() {
-    panel('descuentos').innerHTML =
-      '<div style="color:var(--muted);padding:8px 0">La gestión de descuentos estará disponible próximamente.</div>';
+    const cont = panel('descuentos');
+    cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">Cargando descuentos…</div>';
+    try {
+      descuentos = await API.get(`/api/tarifas/descuentos?anio=${anio}`);
+    } catch (e) {
+      cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar los descuentos.</div>';
+      return;
+    }
+    renderDescuentos(cont);
+  }
+
+  function condicionesHTML(d) {
+    const badges = [];
+    if (d.min_noches > 0) badges.push(`<span class="trf-cond-badge azul">Mín. ${d.min_noches} noches</span>`);
+    const tipos = parseArr(d.tipos);
+    if (tipos) badges.push(`<span class="trf-cond-badge verde">${tipos.map(esc).join(', ')}</span>`);
+    const portales = parseArr(d.portales);
+    if (portales) badges.push(`<span class="trf-cond-badge naranja">${portales.map(esc).join(', ')}</span>`);
+    return badges.length ? badges.join(' ') : '<span style="color:var(--muted)">Sin restricciones</span>';
+  }
+
+  function renderDescuentos(cont) {
+    const filas = descuentos.map((d) => `
+      <tr>
+        <td>${esc(d.nombre)}</td>
+        <td style="white-space:nowrap">${(Number(d.porcentaje) || 0).toLocaleString('es-ES')}%</td>
+        <td>${fechaES(d.fecha_inicio)}</td>
+        <td>${fechaES(d.fecha_fin)}</td>
+        <td>${condicionesHTML(d)}</td>
+        <td>${d.activo
+          ? '<span class="badge-estado activo">Activo</span>'
+          : '<span class="badge-estado neutro">Inactivo</span>'}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-d="${d.id}" title="Editar">✏️</button>
+          <button class="btn-mini" data-borrar-d="${d.id}" title="Eliminar">🗑️</button>
+        </td>
+      </tr>`).join('');
+
+    cont.innerHTML = `
+      <div class="trf-tabla-head">
+        <span class="sub-panel-titulo">Descuentos de ${anio}</span>
+        <button id="trf-nuevo-descuento" class="btn-pri">＋ Nuevo descuento</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Nombre</th><th>Descuento %</th><th>Fecha inicio</th><th>Fecha fin</th><th>Condiciones</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${filas || `<tr><td colspan="7" style="color:#6b7280">Sin descuentos definidos para ${anio}</td></tr>`}</tbody>
+        </table>
+      </div>`;
+
+    document.getElementById('trf-nuevo-descuento').addEventListener('click', () => modalDescuento(null));
+    cont.querySelectorAll('[data-editar-d]').forEach((b) =>
+      b.addEventListener('click', () => modalDescuento(descuentos.find((x) => x.id === Number(b.dataset.editarD)))));
+    cont.querySelectorAll('[data-borrar-d]').forEach((b) =>
+      b.addEventListener('click', () => borrarDescuento(Number(b.dataset.borrarD))));
+  }
+
+  // Lista en castellano: "A y A+" / "A, A+ y B".
+  function listaY(arr) {
+    if (arr.length <= 1) return arr.join('');
+    return arr.slice(0, -1).join(', ') + ' y ' + arr[arr.length - 1];
+  }
+
+  async function modalDescuento(d) {
+    d = d || {};
+    const esNuevo = !d.id;
+    let portalesAPI = [];
+    try { portalesAPI = (await API.getPortales()).filter((p) => p.activo); } catch (e) { portalesAPI = []; }
+
+    const tiposSel = parseArr(d.tipos);          // null = todos
+    const portalesSel = parseArr(d.portales);    // null = todos
+    const conMin = (d.min_noches || 0) > 0;
+    const activoChecked = d.activo === undefined ? true : !!d.activo;
+
+    const checksTipos = TIPOS_CLASIF.map((t) => `
+      <label class="trf-check"><input type="checkbox" name="dc-tipo" value="${esc(t)}"${!tiposSel || tiposSel.includes(t) ? ' checked' : ''}><span>${badgeTipo(t)}</span></label>`).join('');
+    const checksPortales = portalesAPI.length
+      ? portalesAPI.map((p) => `
+      <label class="trf-check"><input type="checkbox" name="dc-portal" value="${esc(p.nombre)}"${!portalesSel || portalesSel.includes(p.nombre) ? ' checked' : ''}><span>${esc(p.nombre)}</span></label>`).join('')
+      : '<span style="color:var(--muted);font-size:13px">No hay portales configurados</span>';
+
+    abrirModal(`
+      <h3>${esNuevo ? 'Nuevo' : 'Editar'} descuento</h3>
+
+      <div class="ficha-seccion-titulo">Datos del descuento</div>
+      <div class="campo"><label>Nombre *</label><input id="dc-nombre" placeholder="Early booking junio" value="${esc(d.nombre)}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Porcentaje de descuento (%) *</label><input type="number" id="dc-pct" step="0.5" min="0.5" max="100" value="${d.porcentaje != null ? d.porcentaje : ''}"></div>
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="dc-inicio" value="${d.fecha_inicio || ''}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="dc-fin" value="${d.fecha_fin || ''}"></div>
+      </div>
+      <label class="alo-switch"><input type="checkbox" id="dc-activo"${activoChecked ? ' checked' : ''}><span class="alo-switch-track"></span> Activo</label>
+      <div class="campo"><label>Notas</label><textarea id="dc-notas">${esc(d.notas)}</textarea></div>
+
+      <div class="ficha-seccion-titulo">Condiciones de aplicación</div>
+      <label class="alo-switch"><input type="checkbox" id="dc-min-toggle"${conMin ? ' checked' : ''}><span class="alo-switch-track"></span> Aplicar solo si estancia mínima</label>
+      <div class="campo trf-cond-bloque${conMin ? '' : ' oculto'}" id="dc-min-bloque">
+        <label>Mínimo de noches</label>
+        <input type="number" id="dc-min" min="1" step="1" value="${conMin ? d.min_noches : 7}">
+      </div>
+      <label class="alo-switch"><input type="checkbox" id="dc-tipos-toggle"${tiposSel ? ' checked' : ''}><span class="alo-switch-track"></span> Aplicar solo a ciertos tipos</label>
+      <div class="trf-cond-bloque${tiposSel ? '' : ' oculto'}" id="dc-tipos-bloque">${checksTipos}</div>
+      <label class="alo-switch"><input type="checkbox" id="dc-portales-toggle"${portalesSel ? ' checked' : ''}><span class="alo-switch-track"></span> Aplicar solo a ciertos portales</label>
+      <div class="trf-cond-bloque${portalesSel ? '' : ' oculto'}" id="dc-portales-bloque">${checksPortales}</div>
+
+      <div class="ficha-seccion-titulo">Preview del descuento</div>
+      <div class="campo"><label>Precio ejemplo (€)</label><input type="number" id="dc-ejemplo" step="0.01" min="0" value="1000"></div>
+      <div id="dc-preview" class="trf-dc-preview"></div>
+
+      <div class="modal-acciones">
+        <button class="btn-sec" id="dc-cancelar">Cancelar</button>
+        <button class="btn-pri" id="dc-guardar">Guardar</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+
+    const marcados = (name) => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value);
+
+    const actualizarPreview = () => {
+      const pct = Number(val('dc-pct')) || 0;
+      const ini = val('dc-inicio');
+      const fin = val('dc-fin');
+      const lineas = [];
+      lineas.push(`${pct ? pct.toLocaleString('es-ES') : '—'}% de descuento` +
+        (ini && fin ? ` del ${fechaES(ini)} al ${fechaES(fin)}` : ''));
+
+      const conds = [];
+      if (document.getElementById('dc-min-toggle').checked) {
+        const n = Number(val('dc-min')) || 0;
+        if (n > 0) conds.push(`estancia mínima ${n} noches`);
+      }
+      if (document.getElementById('dc-tipos-toggle').checked) {
+        const t = marcados('dc-tipo');
+        conds.push(t.length ? `solo tipos ${listaY(t)}` : 'ningún tipo seleccionado ⚠️');
+      }
+      if (document.getElementById('dc-portales-toggle').checked) {
+        const p = marcados('dc-portal');
+        conds.push(p.length ? `solo ${listaY(p)}` : 'ningún portal seleccionado ⚠️');
+      }
+      lineas.push(conds.length ? `Condiciones: ${conds.join(', ')}` : 'Sin condiciones (aplica a todo)');
+
+      const base = Number(val('dc-ejemplo')) || 0;
+      const imp = Math.round(base * pct) / 100;
+      lineas.push(`Ejemplo: reserva de ${euro(base)} → descuento ${euro(imp)} → total ${euro(base - imp)}`);
+      document.getElementById('dc-preview').innerHTML = lineas.map((l) => `<div>${l}</div>`).join('');
+    };
+
+    // Toggles que muestran/ocultan su bloque de condición.
+    const enlazarToggle = (toggleId, bloqueId) => {
+      document.getElementById(toggleId).addEventListener('change', (e) => {
+        document.getElementById(bloqueId).classList.toggle('oculto', !e.target.checked);
+        actualizarPreview();
+      });
+    };
+    enlazarToggle('dc-min-toggle', 'dc-min-bloque');
+    enlazarToggle('dc-tipos-toggle', 'dc-tipos-bloque');
+    enlazarToggle('dc-portales-toggle', 'dc-portales-bloque');
+    ['dc-nombre', 'dc-pct', 'dc-inicio', 'dc-fin', 'dc-min', 'dc-ejemplo'].forEach((id) =>
+      document.getElementById(id).addEventListener('input', actualizarPreview));
+    document.querySelectorAll('input[name="dc-tipo"], input[name="dc-portal"]').forEach((i) =>
+      i.addEventListener('change', actualizarPreview));
+    actualizarPreview();
+
+    document.getElementById('dc-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('dc-guardar').addEventListener('click', async () => {
+      const nombre = val('dc-nombre').trim();
+      if (!nombre) return toast('El nombre es obligatorio', 'error');
+      if (!val('dc-pct')) return toast('El porcentaje es obligatorio', 'error');
+      if (!val('dc-inicio') || !val('dc-fin')) return toast('Las fechas son obligatorias', 'error');
+
+      let tipos = null;
+      if (document.getElementById('dc-tipos-toggle').checked) {
+        tipos = marcados('dc-tipo');
+        if (!tipos.length) return toast('Selecciona al menos un tipo', 'error');
+      }
+      let portales = null;
+      if (document.getElementById('dc-portales-toggle').checked) {
+        portales = marcados('dc-portal');
+        if (!portales.length) return toast('Selecciona al menos un portal', 'error');
+      }
+      const body = {
+        nombre,
+        porcentaje: Number(val('dc-pct')),
+        fecha_inicio: val('dc-inicio'),
+        fecha_fin: val('dc-fin'),
+        anio,
+        min_noches: document.getElementById('dc-min-toggle').checked ? Number(val('dc-min')) || 0 : 0,
+        tipos,
+        portales,
+        activo: document.getElementById('dc-activo').checked ? 1 : 0,
+        notas: val('dc-notas'),
+      };
+      try {
+        if (esNuevo) await API.post('/api/tarifas/descuentos', body);
+        else await API.put(`/api/tarifas/descuentos/${d.id}`, body);
+        cerrarModal();
+        toast('Descuento guardado', 'ok');
+        await cargarDescuentos();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  async function borrarDescuento(id) {
+    const d = descuentos.find((x) => x.id === id);
+    if (!confirm(`¿Eliminar el descuento "${d ? d.nombre : ''}"?`)) return;
+    try {
+      await API.del(`/api/tarifas/descuentos/${id}`);
+      toast('Descuento eliminado', 'ok');
+      await cargarDescuentos();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   }
 
   function val(id) {
