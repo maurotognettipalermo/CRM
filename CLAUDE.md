@@ -55,6 +55,8 @@ public/                Frontend vanilla. Sin build, servido estático.
                        desde GET /api/dashboard. Skeleton, error+reintentar, paginación 5/5, auto-refresco 5 min.
   js/planning.js       Vista continua de N días (estilo Avantio) con drag&drop e import.
                        Barras coloreadas por portal (con logo) o por TIH si no hay portal.
+                       Filtro por clasificación (dropdown multiselección sobre tipo_clasificacion,
+                       en cliente; sin clasificar → '__sin__'). Sustituye a los botones TIH.
   js/alojamientos.js   Tabla + modal alta/edición (ficha ampliada con typeahead de propietario,
                        toggles En garantía / Quitar planning). Ficha en panel lateral con 3 pestañas:
                        Alojamiento (datos + "Recaudación del año"), Propietario (lazy load + link),
@@ -154,7 +156,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 ## Modelo de datos
 
 - **propietarios**: ~40 columnas (datos personales, contacto, domicilio, documentación, contables). `notas` = "Observaciones" en UI. `numero_documento` es el canónico (el campo `dni` es legado). `id_avantio` para upsert desde Avantio. `routes/propietarios.js` define `CAMPOS` como único punto de verdad para INSERT/UPDATE. Columnas nuevas: ALTER TABLE via `migrarPropietarios`.
-- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas, `propietario_id` (FK nullable). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta. Edificio/TIH/bloque ocultos en UI pero conservados en BD.
+- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas, `propietario_id` (FK nullable). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta. Edificio/TIH/bloque ocultos en UI pero conservados en BD.
 - **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante.
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url. Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
 - **ajustes**: almacén genérico clave/valor para uso futuro.
