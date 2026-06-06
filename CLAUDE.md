@@ -34,10 +34,11 @@ scripts/crear-usuario.js  Crear/actualizar usuario admin directamente en BD (nod
 db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietarios, reservas, ajustes,
                        razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas,
                        catalogo_gastos, apartamento_gastos, facturas, factura_lineas, factura_contador,
-                       reserva_pagos, catalogo_extras, reserva_extras.
+                       reserva_pagos, catalogo_extras, reserva_extras, temporadas, tipo_modificadores,
+                       descuentos.
 routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
-  portales · dashboard · estadisticas · contratos · gastos · facturas ·
+  portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
   reserva-pagos (/api/reservas/:id/pagos) · catalogo-extras (exporta catalogo + reservaExtras)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
@@ -46,7 +47,7 @@ services/
   asignacion.js        buscarPisoLibre(apartamentos, ocupaciones, tih, entrada, salida) + normalizaTih.
   dateUtils.js         parseFecha (DD/MM/AAAA, serial Excel, ISO), solapan (intervalos medio abiertos).
 public/                Frontend vanilla. Sin build, servido estático.
-  index.html           SPA de 9 pestañas + menú lateral plegable + modal genérico + panel lateral + toast.
+  index.html           SPA de 10 pestañas + menú lateral plegable + modal genérico + panel lateral + toast.
   css/styles.css       Tema claro (blanco / sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (header X-Auth-Token; 401→onNoAutorizado) +
                        API.getPortales() (caché en memoria, compartida por planning/reservas) +
@@ -75,9 +76,20 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Wizard 2 pasos: tipo+razón social → datos según tipo (typeahead propietario→
                        contrato→cuotas / apartamento→gastos / reserva→huésped manual).
                        PDF: /api/facturas/:id/pdf en nueva pestaña.
+  js/tarifas.js        Pestaña Tarifas (todos los roles): selector de año + botón copiar año +
+                       sub-pestañas Temporadas (calendario anual de 12 franjas × grid 31 columnas,
+                       días tintados con el color de su temporada, tabla CRUD, modal con preview de
+                       precios por tipo) · Modificadores por tipo (tabla inline, A bloqueado, precio
+                       ejemplo en vivo, solo PUTea los cambiados) · Descuentos (tabla con badges de
+                       condiciones, modal con toggles min_noches/tipos/portales y preview en vivo).
   js/propietarios.js   Lista con avatar/búsqueda/orden/paginación. Ficha en panel lateral editable.
                        Modal por pestañas e importación Excel.
-  js/reservas.js       Tabla + alta/edición manual + validación disponibilidad. Filtros avanzados
+  js/reservas.js       Tabla + alta/edición manual + validación disponibilidad. El modal de
+                       alta/edición incluye Portal y Precio con cálculo automático de tarifa
+                       (/api/tarifas/calcular, debounce 500ms, desglose por noche colapsable,
+                       precio editable con badge "Precio manual" si difiere; al crear añade los
+                       extras obligatorios del catálogo y fija portal/precio con PUT posterior).
+                       Filtros avanzados
                        (panel "🔽 Filtros" inyectado por JS: clasificación/portal/estado/condición
                        multiselección + rango de fechas; badge contador; los botones TIH y el select
                        de mes de index.html se eliminan del DOM en runtime). Estado de filtros en vars
@@ -85,7 +97,8 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Ficha en panel lateral (sub-pestañas Datos/Mensajes/Margen/Liquidación; solo Datos funcional).
                        Datos contiene secciones EXTRAS y PAGOS (ver más abajo). Panel creado por JS.
   js/ajustes.js        Sub-pestañas: Razón Social / Usuarios / Actividad (admin) / Portales
-                       (reordenar, color, logo) / Catálogo de gastos / Catálogo de extras.
+                       (reordenar, color, logo) / Catálogo de gastos / Catálogo de extras (con
+                       toggle "Extra obligatorio" + badge rojo en la tabla).
                        Portales, Catálogo de gastos y Catálogo de extras se inyectan por JS.
   js/estadisticas.js   Solo admin. Selector de año + 4 sub-pestañas con datos reales y anti-respuesta-obsoleta:
                        (1) Ingresos por portal · (2) Ingresos por apartamento (general + detalle por apto) ·
@@ -153,6 +166,11 @@ Patrones clave:
 | GET | /api/contratos/resumen-propietario | `?propietario_id=&anio=` (**declarar antes de /:id**) |
 | PUT | /api/contratos/:id/cuotas/:cuota_id | Marcar/desmarcar pago; sin fecha→usa hoy; desmarcar limpia fecha |
 | GET/POST/PUT/DELETE | /api/facturas[/:id] | CRUD facturas. POST numera correlativo F-{anio}-NNN en transacción |
+| GET/POST/PUT/DELETE | /api/tarifas/temporadas[/:id] | CRUD temporadas. `?anio=`. POST/PUT validan solape mismo año (409) |
+| POST | /api/tarifas/temporadas/copiar | `{anio_origen, anio_destino}`. 409 si destino ya tiene; 29-feb→28 si destino no bisiesto |
+| GET/PUT | /api/tarifas/modificadores[/:id] | Modificadores % por tipo. PUT solo porcentaje; tipo A bloqueado (400) |
+| GET/POST/PUT/DELETE | /api/tarifas/descuentos[/:id] | CRUD descuentos. `?anio=`. tipos/portales JSON array o null (= todos) |
+| GET | /api/tarifas/calcular | `?apartamento_id=&entrada=&salida=[&portal=]` → desglose por noche + descuentos + extras obligatorios + precio_total. 400 `{ok:false}` si falta tarifa en alguna fecha |
 | GET | /api/facturas/:id/pdf | PDF pdfkit; `Content-Disposition: attachment` |
 | PUT | /api/facturas/:id/anular | Marca estado='anulada' (no borra) |
 
@@ -181,10 +199,13 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **factura_lineas**: factura_id (FK, ON DELETE CASCADE), descripcion, cantidad, precio_unitario, importe, orden.
 - **factura_contador**: anio PK / ultimo_numero. Numeración correlativa sin huecos dentro de la transacción del INSERT de factura.
 - **reserva_pagos**: reserva_id (FK, ON DELETE CASCADE), concepto, importe, metodo_pago (CHECK caja/tpv/transferencia, nullable), pagado (0/1), fecha_pago (ISO, null hasta pagar), notas, orden, created_at. Plan de pagos del huésped. Sin migración en database.js (la tabla la crea schema.sql).
-- **catalogo_extras**: nombre (UNIQUE), precio, tipo_precio (CHECK unidad/noche/persona, def. 'unidad'), descripcion, activo. Catálogo reutilizable gestionado en Ajustes.
+- **catalogo_extras**: nombre (UNIQUE), precio, tipo_precio (CHECK unidad/noche/persona, def. 'unidad'), descripcion, activo, `obligatorio` (0/1, via migrarCatalogoExtras — el frontend lo añade automáticamente a las reservas nuevas; /api/tarifas/calcular lo suma al total). Catálogo reutilizable gestionado en Ajustes.
 - **reserva_extras**: reserva_id (FK, ON DELETE CASCADE), catalogo_extra_id (FK nullable, ON DELETE SET NULL), nombre/precio_unitario/tipo_precio (**snapshot**), cantidad, importe (calculado: precio×cant ×noches si tipo='noche'), noches (snapshot de noches de la reserva al añadir).
+- **temporadas**: nombre, anio, fecha_inicio/fin (ISO, UNIQUE anio+fechas, sin solapes dentro del año), `precio_base_noche` (precio del Tipo A, el que manda), color, orden. Módulo Tarifas.
+- **tipo_modificadores**: tipo (UNIQUE: A++/A+/A/B+/B/C), porcentaje (+/− sobre el precio base; A siempre 0, bloqueado en la API), orden. Seed en database.js si la tabla está vacía (A++ +20 … C −30).
+- **descuentos**: nombre, porcentaje, fecha_inicio/fin, anio, min_noches (0 = sin mínimo), `tipos`/`portales` (JSON array TEXT, null = aplica a todos), activo, notas. En /calcular solo aplican los que cubren TODAS las noches de la estancia y cumplen condiciones; cada % se aplica sobre el subtotal (no compuestos).
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 
