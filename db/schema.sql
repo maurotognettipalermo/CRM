@@ -352,6 +352,50 @@ CREATE INDEX IF NOT EXISTS idx_reserva_pagos_reserva ON reserva_pagos(reserva_id
 CREATE INDEX IF NOT EXISTS idx_reserva_extras_reserva ON reserva_extras(reserva_id);
 CREATE INDEX IF NOT EXISTS idx_reserva_extras_catalogo ON reserva_extras(catalogo_extra_id);
 
+-- ==================== Módulo de Tarifas ====================
+
+-- Temporadas de precios por año. precio_base_noche es el del Tipo A (referencia);
+-- el resto de tipos aplican su modificador porcentual (tipo_modificadores).
+CREATE TABLE IF NOT EXISTS temporadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,                  -- 'Temporada Alta', 'Temporada Media'...
+  anio INTEGER NOT NULL,
+  fecha_inicio TEXT NOT NULL,            -- ISO YYYY-MM-DD
+  fecha_fin TEXT NOT NULL,               -- ISO YYYY-MM-DD
+  precio_base_noche REAL NOT NULL,       -- precio por noche del Tipo A (el que manda)
+  color TEXT DEFAULT '#3b82f6',          -- para visualizar en calendario
+  orden INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(anio, fecha_inicio, fecha_fin)
+);
+
+-- Modificador porcentual de precio por tipo de clasificación (A es la base, 0%).
+CREATE TABLE IF NOT EXISTS tipo_modificadores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL UNIQUE,             -- 'A', 'A+', 'A++', 'B', 'B+', 'C'
+  porcentaje REAL NOT NULL DEFAULT 0,    -- +20, -20, etc (positivo=incremento, negativo=decremento)
+  orden INTEGER DEFAULT 0
+);
+
+-- Descuentos por intervalo de fechas con condiciones opcionales (mín. noches, tipos, portales).
+CREATE TABLE IF NOT EXISTS descuentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,                  -- 'Early booking', 'Larga estancia'...
+  porcentaje REAL NOT NULL,              -- % de descuento (ej: 10 = 10%)
+  fecha_inicio TEXT NOT NULL,            -- intervalo donde aplica
+  fecha_fin TEXT NOT NULL,
+  anio INTEGER NOT NULL,
+  min_noches INTEGER DEFAULT 0,          -- 0 = sin mínimo
+  tipos TEXT,                            -- JSON array de tipos donde aplica, null = todos. Ej: '["A","A+"]'
+  portales TEXT,                         -- JSON array de portales donde aplica, null = todos
+  activo INTEGER DEFAULT 1,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_temporadas_anio ON temporadas(anio);
+CREATE INDEX IF NOT EXISTS idx_descuentos_anio ON descuentos(anio);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

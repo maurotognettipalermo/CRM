@@ -121,6 +121,22 @@ const COLUMNAS_RAZONES = {
   logo_url: 'TEXT',
 };
 
+// Columnas extra de la tabla catalogo_extras.
+const COLUMNAS_CATALOGO_EXTRAS = {
+  obligatorio: 'INTEGER DEFAULT 0',         // 0/1 — se añade automáticamente a toda reserva
+};
+
+// Modificadores de precio por tipo de clasificación (se insertan si la tabla está vacía).
+// A es la referencia (0%); el resto suben o bajan respecto al precio base de la temporada.
+const MODIFICADORES_DEFECTO = [
+  { tipo: 'A++', porcentaje: 20, orden: 1 },
+  { tipo: 'A+', porcentaje: 10, orden: 2 },
+  { tipo: 'A', porcentaje: 0, orden: 3 },
+  { tipo: 'B+', porcentaje: -10, orden: 4 },
+  { tipo: 'B', porcentaje: -20, orden: 5 },
+  { tipo: 'C', porcentaje: -30, orden: 6 },
+];
+
 // Columnas extra de las tablas de facturación (forward-compat: se añaden si faltan).
 // Las tablas las crea schema.sql; aquí solo reservamos el punto para columnas futuras.
 const COLUMNAS_FACTURAS = {};
@@ -139,8 +155,10 @@ function init() {
   migrarGastos();
   migrarRazones();
   migrarFacturas();
+  migrarCatalogoExtras();
   seedAdmin();
   seedPortales();
+  seedModificadores();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -275,6 +293,21 @@ function migrarRazones() {
 // Migración de la tabla facturas (las tablas las crea schema.sql; reservado para columnas futuras).
 function migrarFacturas() {
   anadirColumnasFaltantes('facturas', COLUMNAS_FACTURAS);
+}
+
+// Migración de la tabla catalogo_extras: añade obligatorio si falta.
+function migrarCatalogoExtras() {
+  anadirColumnasFaltantes('catalogo_extras', COLUMNAS_CATALOGO_EXTRAS);
+}
+
+// Inserta los modificadores por tipo de clasificación si la tabla está vacía.
+function seedModificadores() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM tipo_modificadores').get().c;
+  if (n === 0) {
+    const insertar = db.prepare('INSERT INTO tipo_modificadores (tipo, porcentaje, orden) VALUES (?, ?, ?)');
+    for (const m of MODIFICADORES_DEFECTO) insertar.run(m.tipo, m.porcentaje, m.orden);
+    console.log('Modificadores de tarifa por tipo creados.');
+  }
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

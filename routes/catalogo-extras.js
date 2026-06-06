@@ -35,14 +35,15 @@ catalogo.post('/', (req, res) => {
     return res.status(409).json({ error: 'Ya existe un extra con ese nombre' });
   }
   const activo = (b.activo === undefined || b.activo === null) ? 1 : (b.activo ? 1 : 0);
+  const obligatorio = b.obligatorio ? 1 : 0;
   const info = db.prepare(
-    'INSERT INTO catalogo_extras (nombre, precio, tipo_precio, descripcion, activo) VALUES (?, ?, ?, ?, ?)'
-  ).run(nombre, num(b.precio), tipoPrecio(b.tipo_precio), txt(b.descripcion), activo);
+    'INSERT INTO catalogo_extras (nombre, precio, tipo_precio, descripcion, activo, obligatorio) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(nombre, num(b.precio), tipoPrecio(b.tipo_precio), txt(b.descripcion), activo, obligatorio);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'catalogo_extra', info.lastInsertRowid, nombre);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-// Editar nombre / precio / tipo_precio / descripcion / activo (solo campos presentes).
+// Editar nombre / precio / tipo_precio / descripcion / activo / obligatorio (solo campos presentes).
 catalogo.put('/:id', (req, res) => {
   const actual = db.prepare('SELECT * FROM catalogo_extras WHERE id = ?').get(req.params.id);
   if (!actual) return res.status(404).json({ error: 'Extra de catálogo no encontrado' });
@@ -59,9 +60,10 @@ catalogo.put('/:id', (req, res) => {
   const tipo_precio = b.tipo_precio !== undefined ? tipoPrecio(b.tipo_precio) : actual.tipo_precio;
   const descripcion = b.descripcion !== undefined ? txt(b.descripcion) : actual.descripcion;
   const activo = b.activo !== undefined ? (b.activo ? 1 : 0) : actual.activo;
+  const obligatorio = b.obligatorio !== undefined ? (b.obligatorio ? 1 : 0) : actual.obligatorio;
 
-  db.prepare('UPDATE catalogo_extras SET nombre = ?, precio = ?, tipo_precio = ?, descripcion = ?, activo = ? WHERE id = ?')
-    .run(nombre, precio, tipo_precio, descripcion, activo, req.params.id);
+  db.prepare('UPDATE catalogo_extras SET nombre = ?, precio = ?, tipo_precio = ?, descripcion = ?, activo = ?, obligatorio = ? WHERE id = ?')
+    .run(nombre, precio, tipo_precio, descripcion, activo, obligatorio, req.params.id);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'catalogo_extra', req.params.id, nombre);
   res.json({ ok: true });
 });
