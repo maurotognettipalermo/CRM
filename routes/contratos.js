@@ -85,11 +85,26 @@ function validarContrato(body) {
     }
   }
 
+  // Propietario: si no llega, se autorrellena con el propietario ACTIVO del apartamento
+  // (relación N:M). Con varios activos hay que especificarlo; sin ninguno queda null.
+  let propietario_id = intOrNull(b.propietario_id);
+  if (propietario_id === null) {
+    const activos = db.prepare(
+      `SELECT propietario_id FROM apartamento_propietarios
+       WHERE apartamento_id = ? AND activo = 1
+       ORDER BY porcentaje DESC, fecha_inicio ASC`
+    ).all(apartamento_id);
+    if (activos.length === 1) propietario_id = activos[0].propietario_id;
+    else if (activos.length > 1) {
+      return { error: 'El apartamento tiene varios propietarios activos: especifica el propietario del contrato' };
+    }
+  }
+
   return {
     ok: true,
     datos: {
       apartamento_id,
-      propietario_id: intOrNull(b.propietario_id),
+      propietario_id,
       tipo,
       temporada_inicio,
       temporada_fin,
@@ -181,6 +196,23 @@ router.get('/:id', (req, res) => {
   `).get(req.params.id);
 
   if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
+
+  // Contrato sin propietario propio: mostrar el propietario activo del apartamento
+  // (relación N:M, el de mayor porcentaje) como referencia.
+  if (!contrato.propietario_id) {
+    const activo = db.prepare(`
+      SELECT ap.propietario_id, p.nombre, p.apellidos
+      FROM apartamento_propietarios ap
+      JOIN propietarios p ON p.id = ap.propietario_id
+      WHERE ap.apartamento_id = ? AND ap.activo = 1
+      ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+      LIMIT 1
+    `).get(contrato.apartamento_id);
+    if (activo) {
+      contrato.propietario_nombre = activo.nombre;
+      contrato.propietario_apellidos = activo.apellidos;
+    }
+  }
 
   contrato.cuotas = db.prepare(
     'SELECT * FROM contrato_cuotas WHERE contrato_id = ? ORDER BY numero_cuota'

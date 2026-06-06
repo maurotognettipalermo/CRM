@@ -50,7 +50,7 @@ router.get('/', (req, res) => {
   const filas = db
     .prepare(
       `SELECT p.*,
-        (SELECT COUNT(*) FROM apartamentos a WHERE a.propietario_id = p.id) AS num_alojamientos
+        (SELECT COUNT(*) FROM apartamento_propietarios ap WHERE ap.propietario_id = p.id AND ap.activo = 1) AS num_alojamientos
        FROM propietarios p
        ORDER BY p.nombre, p.apellidos`
     )
@@ -77,7 +77,13 @@ router.get('/:id', (req, res) => {
   if (!propietario) return res.status(404).json({ error: 'Propietario no encontrado' });
 
   const apartamentos = db
-    .prepare('SELECT * FROM apartamentos WHERE propietario_id = ? ORDER BY nombre')
+    .prepare(`
+      SELECT a.*, ap.porcentaje, ap.fecha_inicio, ap.fecha_fin, ap.activo AS relacion_activa
+      FROM apartamento_propietarios ap
+      JOIN apartamentos a ON a.id = ap.apartamento_id
+      WHERE ap.propietario_id = ? AND ap.activo = 1
+      ORDER BY a.nombre
+    `)
     .all(req.params.id);
 
   res.json({ ...propietario, apartamentos });

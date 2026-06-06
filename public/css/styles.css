@@ -662,6 +662,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 }
 .toast.error { background: #fef2f2; color: var(--red);   border: 1px solid #fecaca; }
 .toast.ok    { background: #f0fdf4; color: var(--green); border: 1px solid #bbf7d0; }
+.toast.aviso { background: #fff7ed; color: #c2410c;      border: 1px solid #fed7aa; }
 
 /* ===== Resumen importación ===== */
 .resumen-import {
@@ -1748,6 +1749,31 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 
 /* Sin propietario asignado */
 .alo-sin-prop { text-align: center; padding: 32px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+/* Pestaña Propietario de la ficha: gestión N:M con histórico */
+.alo-prop-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.alo-prop-titulo { font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.alo-prop-count { background: var(--blue); color: #fff; border-radius: 999px; min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; padding: 0 6px; }
+.alo-prop-card { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: #fff; margin-bottom: 10px; }
+.alo-prop-card.hist { background: #f9fafb; opacity: 0.75; }
+.alo-prop-card.hist .alo-prop-nombre { color: var(--muted); }
+.alo-prop-info { flex: 1; min-width: 0; }
+.alo-prop-nombre { font-weight: 600; color: var(--text); }
+.alo-prop-sub { font-size: 12px; color: var(--muted); }
+.alo-prop-pct { border-radius: 999px; padding: 4px 10px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.alo-prop-pct.ok    { background: #ecfdf5; color: #047857; }
+.alo-prop-pct.aviso { background: #fff7ed; color: #c2410c; }
+.alo-prop-pct.error { background: #fef2f2; color: #b91c1c; }
+.alo-prop-pct.hist  { background: var(--border-soft); color: var(--muted); }
+.alo-prop-acciones { display: flex; gap: 6px; flex-wrap: wrap; }
+.alo-prop-aviso { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 500; margin-bottom: 12px; }
+.alo-prop-hist-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 500; padding: 4px 0; }
+.alo-prop-hist-btn:hover { color: var(--text); }
+.alo-prop-resumen { font-size: 13px; font-weight: 600; margin: 4px 0 12px; }
+.alo-prop-resumen.ok    { color: #047857; }
+.alo-prop-resumen.aviso { color: #c2410c; }
+.alo-prop-resumen.error { color: #b91c1c; }
+.alo-prop-info-modal { background: var(--border-soft); color: var(--muted); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
 
 /* Pestaña Gastos de la ficha de alojamiento */
 .alo-gastos-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }

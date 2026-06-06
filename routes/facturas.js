@@ -184,7 +184,15 @@ function construirGastos(body) {
   if (!apto) return { error: 'Apartamento no encontrado' };
   const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(body.razon_social_id));
   if (!rs) return { error: 'Razón social no válida' };
-  const propietario = apto.propietario_id ? db.prepare('SELECT * FROM propietarios WHERE id = ?').get(apto.propietario_id) : null;
+  // Receptor: propietario ACTIVO del apartamento (relación N:M). Con varios activos,
+  // el de mayor porcentaje (en empate, el de relación más antigua).
+  const propietario = db.prepare(`
+    SELECT p.* FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ? AND ap.activo = 1
+    ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC, ap.id ASC
+    LIMIT 1
+  `).get(apto.id) || null;
 
   const ids = Array.isArray(body.gasto_ids) ? body.gasto_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
   if (!ids.length) return { error: 'Selecciona al menos un gasto' };
@@ -202,7 +210,7 @@ function construirGastos(body) {
   const f = nuevaFactura();
   f.tipo = 'gastos';
   f.apartamento_id = apto.id;
-  f.propietario_id = apto.propietario_id || null;
+  f.propietario_id = propietario ? propietario.id : null;
   f.porcentaje_iva = gastos.some((g) => g.incluye_iva) ? 21 : 0; // si algún gasto lleva IVA, 21% al total
   f.porcentaje_retencion = 0;
   f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);

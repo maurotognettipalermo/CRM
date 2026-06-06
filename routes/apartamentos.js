@@ -6,47 +6,85 @@ const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 
-// Lista de apartamentos, con filtro opcional por TIH (?tih=1 | 2) y nombre del propietario.
-// Por defecto excluye los marcados como "quitar del planning"; con ?todos=1 los incluye
-// (lo usa el módulo de Alojamientos, que sí los necesita todos).
+// Lista de apartamentos, con filtro opcional por TIH (?tih=1 | 2) y sus propietarios
+// activos (relación N:M en apartamento_propietarios). Por defecto excluye los marcados
+// como "quitar del planning"; con ?todos=1 los incluye (lo usa el módulo de Alojamientos).
 router.get('/', (req, res) => {
   const tih = normalizaTih(req.query.tih);
   const todos = req.query.todos === '1' || req.query.todos === 'true';
-  let sql = `
-    SELECT a.*, p.nombre AS propietario_nombre, p.apellidos AS propietario_apellidos
-    FROM apartamentos a
-    LEFT JOIN propietarios p ON p.id = a.propietario_id
-  `;
+  let sql = 'SELECT a.* FROM apartamentos a';
   const cond = [];
   const params = [];
   if (tih) { cond.push('a.tipo = ?'); params.push(tih); }
   if (!todos) cond.push('(a.quitar_planning IS NULL OR a.quitar_planning = 0)');
   if (cond.length) sql += ' WHERE ' + cond.join(' AND ');
   sql += ' ORDER BY a.edificio, a.nombre';
-  res.json(db.prepare(sql).all(...params));
+  const apartamentos = db.prepare(sql).all(...params);
+
+  // Propietarios activos de TODOS los apartamentos en una sola query → map en JS.
+  const rels = db.prepare(`
+    SELECT ap.apartamento_id, ap.propietario_id, p.nombre, p.apellidos, ap.porcentaje, ap.fecha_inicio
+    FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.activo = 1
+    ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC, ap.id ASC
+  `).all();
+  const porApto = new Map();
+  for (const r of rels) {
+    if (!porApto.has(r.apartamento_id)) porApto.set(r.apartamento_id, []);
+    porApto.get(r.apartamento_id).push(r);
+  }
+
+  res.json(apartamentos.map((a) => {
+    const propietarios = porApto.get(a.id) || [];
+    const principal = propietarios[0] || null; // el de mayor porcentaje
+    return {
+      ...a,
+      propietarios,
+      // Compatibilidad con el frontend actual (hasta migrarlo a la relación N:M).
+      propietario_id: principal ? principal.propietario_id : null,
+      propietario_nombre: principal ? principal.nombre : null,
+      propietario_apellidos: principal ? principal.apellidos : null,
+    };
+  }));
 });
 
-// Ficha completa: datos + propietario + historial de reservas del apartamento.
+// Ficha completa: datos + propietarios (activos e históricos) + historial de reservas.
 router.get('/:id', (req, res) => {
   const apartamento = db
-    .prepare(
-      `SELECT a.*, p.nombre AS propietario_nombre, p.apellidos AS propietario_apellidos,
-              p.telefono AS propietario_telefono, p.email AS propietario_email
-       FROM apartamentos a
-       LEFT JOIN propietarios p ON p.id = a.propietario_id
-       WHERE a.id = ?`
-    )
+    .prepare('SELECT * FROM apartamentos WHERE id = ?')
     .get(req.params.id);
   if (!apartamento) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+
+  const propietarios = db.prepare(`
+    SELECT ap.*, p.nombre AS nombre, p.apellidos AS apellidos,
+           p.telefono AS telefono, p.email AS email
+    FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ?
+    ORDER BY ap.activo DESC, ap.porcentaje DESC, ap.fecha_inicio DESC
+  `).all(req.params.id);
 
   const reservas = db
     .prepare('SELECT * FROM reservas WHERE apartamento_id = ? ORDER BY entrada DESC')
     .all(req.params.id);
 
-  res.json({ ...apartamento, reservas });
+  // Compatibilidad con el frontend actual: campos planos del propietario principal activo.
+  const principal = propietarios.find((p) => p.activo === 1) || null;
+  res.json({
+    ...apartamento,
+    propietarios,
+    reservas,
+    propietario_id: principal ? principal.propietario_id : null,
+    propietario_nombre: principal ? principal.nombre : null,
+    propietario_apellidos: principal ? principal.apellidos : null,
+    propietario_telefono: principal ? principal.telefono : null,
+    propietario_email: principal ? principal.email : null,
+  });
 });
 
-// Crea un apartamento.
+// Crea un apartamento. Si llega propietario_id (compat con el frontend actual) se crea
+// la relación en apartamento_propietarios al 100% con fecha de inicio hoy.
 router.post('/', (req, res) => {
   const { nombre, edificio, tipo, capacidad, notas, propietario_id } = req.body;
   if (!nombre || !String(nombre).trim()) {
@@ -54,10 +92,16 @@ router.post('/', (req, res) => {
   }
   const info = db
     .prepare(
-      `INSERT INTO apartamentos (nombre, edificio, tipo, capacidad, notas, propietario_id)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO apartamentos (nombre, edificio, tipo, capacidad, notas)
+       VALUES (?, ?, ?, ?, ?)`
     )
-    .run(nombre, edificio, normalizaTih(tipo), aEntero(capacidad), notas, propietario_id || null);
+    .run(nombre, edificio, normalizaTih(tipo), aEntero(capacidad), notas);
+  if (propietario_id) {
+    db.prepare(`
+      INSERT INTO apartamento_propietarios (apartamento_id, propietario_id, porcentaje, fecha_inicio, activo)
+      VALUES (?, ?, 100, date('now'), 1)
+    `).run(info.lastInsertRowid, propietario_id);
+  }
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'alojamiento', info.lastInsertRowid, nombre);
   res.status(201).json({ id: info.lastInsertRowid });
 });
@@ -81,7 +125,8 @@ router.put('/:id', (req, res) => {
   if ('tipo' in b) add('tipo', normalizaTih(b.tipo));
   if ('capacidad' in b) add('capacidad', aEntero(b.capacidad));
   if ('notas' in b) add('notas', txt(b.notas));
-  if ('propietario_id' in b) add('propietario_id', b.propietario_id || null);
+  // propietario_id ya no es columna de apartamentos: las relaciones se gestionan en
+  // /api/apartamentos/:id/propietarios. Si llega en el body se ignora.
   for (const c of CAMPOS_TEXTO_APTO) if (c in b) add(c, txt(b[c]));
   if ('en_garantia' in b) add('en_garantia', b.en_garantia ? 1 : 0);
   if ('quitar_planning' in b) add('quitar_planning', b.quitar_planning ? 1 : 0);
@@ -104,6 +149,166 @@ router.delete('/:id', (req, res) => {
   if (info.changes === 0) return res.status(404).json({ error: 'Alojamiento no encontrado' });
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'eliminar', 'alojamiento', req.params.id, apto && apto.nombre);
   res.json({ ok: true });
+});
+
+// ==================== Propietarios del apartamento (relación N:M) ====================
+
+// Suma de porcentajes de las relaciones ACTIVAS de un apartamento, excluyendo opcionalmente
+// una relación (para validar ediciones sin contarse a sí misma).
+function sumaPorcentajesActivos(apartamentoId, excluirRelId) {
+  let sql = 'SELECT COALESCE(SUM(porcentaje), 0) AS s FROM apartamento_propietarios WHERE apartamento_id = ? AND activo = 1';
+  const params = [apartamentoId];
+  if (excluirRelId != null) { sql += ' AND id != ?'; params.push(excluirRelId); }
+  return db.prepare(sql).get(...params).s;
+}
+
+// GET /api/apartamentos/:id/propietarios — lista completa (activos e históricos).
+router.get('/:id/propietarios', (req, res) => {
+  const apto = db.prepare('SELECT id FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+  const filas = db.prepare(`
+    SELECT ap.*, p.nombre AS nombre, p.apellidos AS apellidos,
+           p.telefono AS telefono, p.email AS email
+    FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ?
+    ORDER BY ap.fecha_inicio DESC
+  `).all(req.params.id);
+  res.json(filas);
+});
+
+// POST /api/apartamentos/:id/propietarios — añade un propietario al apartamento.
+// Body: { propietario_id, porcentaje, fecha_inicio, notas }.
+router.post('/:id/propietarios', (req, res) => {
+  const apto = db.prepare('SELECT id, nombre FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+
+  const b = req.body || {};
+  const propietarioId = aEntero(b.propietario_id);
+  if (propietarioId === null) return res.status(400).json({ error: 'propietario_id es obligatorio' });
+  const prop = db.prepare('SELECT id, nombre, apellidos FROM propietarios WHERE id = ?').get(propietarioId);
+  if (!prop) return res.status(400).json({ error: 'El propietario indicado no existe' });
+
+  const yaActivo = db.prepare(
+    'SELECT id FROM apartamento_propietarios WHERE apartamento_id = ? AND propietario_id = ? AND activo = 1'
+  ).get(apto.id, propietarioId);
+  if (yaActivo) return res.status(409).json({ error: 'Ese propietario ya tiene una relación activa con este apartamento' });
+
+  const porcentaje = b.porcentaje === undefined || b.porcentaje === null || b.porcentaje === ''
+    ? 100 : parseFloat(b.porcentaje);
+  if (isNaN(porcentaje) || porcentaje <= 0 || porcentaje > 100) {
+    return res.status(400).json({ error: 'El porcentaje debe estar entre 0 y 100' });
+  }
+
+  const suma = sumaPorcentajesActivos(apto.id) + porcentaje;
+  if (suma > 100.01) {
+    return res.status(400).json({ error: `Los porcentajes activos sumarían ${suma.toFixed(2)}%, superan el 100%` });
+  }
+
+  const fechaInicio = String(b.fecha_inicio || '').trim() || new Date().toISOString().slice(0, 10);
+  const info = db.prepare(`
+    INSERT INTO apartamento_propietarios (apartamento_id, propietario_id, porcentaje, fecha_inicio, activo, notas)
+    VALUES (?, ?, ?, ?, 1, ?)
+  `).run(apto.id, propietarioId, porcentaje, fechaInicio, txt(b.notas));
+
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'crear', 'alojamiento-propietario', info.lastInsertRowid,
+    `${prop.nombre} ${prop.apellidos || ''} (${porcentaje}%) en ${apto.nombre}`);
+
+  const respuesta = { ok: true, id: info.lastInsertRowid };
+  if (suma < 99.99) respuesta.aviso = `Los porcentajes suman ${suma.toFixed(2)}%, no llegan al 100%`;
+  res.status(201).json(respuesta);
+});
+
+// PUT /api/apartamentos/:id/propietarios/:rel_id — edita porcentaje, fechas, notas o activo.
+router.put('/:id/propietarios/:rel_id', (req, res) => {
+  const rel = db.prepare(
+    'SELECT * FROM apartamento_propietarios WHERE id = ? AND apartamento_id = ?'
+  ).get(req.params.rel_id, req.params.id);
+  if (!rel) return res.status(404).json({ error: 'Relación no encontrada' });
+
+  const b = req.body || {};
+  const sets = [];
+  const vals = [];
+  const add = (col, val) => { sets.push(`${col} = ?`); vals.push(val); };
+
+  let porcentaje = rel.porcentaje;
+  if ('porcentaje' in b) {
+    porcentaje = parseFloat(b.porcentaje);
+    if (isNaN(porcentaje) || porcentaje <= 0 || porcentaje > 100) {
+      return res.status(400).json({ error: 'El porcentaje debe estar entre 0 y 100' });
+    }
+    add('porcentaje', porcentaje);
+  }
+  if ('fecha_inicio' in b) {
+    const fi = String(b.fecha_inicio || '').trim();
+    if (!fi) return res.status(400).json({ error: 'fecha_inicio no puede quedar vacía' });
+    add('fecha_inicio', fi);
+  }
+  if ('fecha_fin' in b) add('fecha_fin', String(b.fecha_fin || '').trim() || null);
+  if ('notas' in b) add('notas', txt(b.notas));
+  let activo = rel.activo;
+  if ('activo' in b) { activo = b.activo ? 1 : 0; add('activo', activo); }
+
+  if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+
+  // Si la relación queda activa, la suma de porcentajes activos no puede superar 100.
+  if (activo === 1) {
+    const suma = sumaPorcentajesActivos(rel.apartamento_id, rel.id) + porcentaje;
+    if (suma > 100.01) {
+      return res.status(400).json({ error: `Los porcentajes activos sumarían ${suma.toFixed(2)}%, superan el 100%` });
+    }
+  }
+
+  vals.push(rel.id);
+  db.prepare(`UPDATE apartamento_propietarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'editar', 'alojamiento-propietario', rel.id, null);
+  res.json({ ok: true });
+});
+
+// DELETE /api/apartamentos/:id/propietarios/:rel_id — elimina la relación.
+// Solo si ese propietario no tiene contratos ni facturas asociados a este apartamento.
+router.delete('/:id/propietarios/:rel_id', (req, res) => {
+  const rel = db.prepare(
+    'SELECT * FROM apartamento_propietarios WHERE id = ? AND apartamento_id = ?'
+  ).get(req.params.rel_id, req.params.id);
+  if (!rel) return res.status(404).json({ error: 'Relación no encontrada' });
+
+  const contratos = db.prepare(
+    'SELECT COUNT(*) AS c FROM contratos WHERE apartamento_id = ? AND propietario_id = ?'
+  ).get(rel.apartamento_id, rel.propietario_id).c;
+  if (contratos > 0) {
+    return res.status(409).json({ error: 'No se puede eliminar: el propietario tiene contratos en este apartamento. Cierra la relación en su lugar.' });
+  }
+  const facturas = db.prepare(
+    'SELECT COUNT(*) AS c FROM facturas WHERE apartamento_id = ? AND propietario_id = ?'
+  ).get(rel.apartamento_id, rel.propietario_id).c;
+  if (facturas > 0) {
+    return res.status(409).json({ error: 'No se puede eliminar: el propietario tiene facturas en este apartamento. Cierra la relación en su lugar.' });
+  }
+
+  db.prepare('DELETE FROM apartamento_propietarios WHERE id = ?').run(rel.id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'eliminar', 'alojamiento-propietario', rel.id, null);
+  res.json({ ok: true });
+});
+
+// POST /api/apartamentos/:id/propietarios/:rel_id/cerrar — cierra la relación
+// (activo=0 + fecha_fin). Útil para un cambio de propietario conservando el histórico.
+router.post('/:id/propietarios/:rel_id/cerrar', (req, res) => {
+  const rel = db.prepare(
+    'SELECT * FROM apartamento_propietarios WHERE id = ? AND apartamento_id = ?'
+  ).get(req.params.rel_id, req.params.id);
+  if (!rel) return res.status(404).json({ error: 'Relación no encontrada' });
+  if (!rel.activo) return res.status(409).json({ error: 'La relación ya está cerrada' });
+
+  const fechaFin = String((req.body || {}).fecha_fin || '').trim() || new Date().toISOString().slice(0, 10);
+  db.prepare('UPDATE apartamento_propietarios SET activo = 0, fecha_fin = ? WHERE id = ?')
+    .run(fechaFin, rel.id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'editar', 'alojamiento-propietario', rel.id, `Relación cerrada el ${fechaFin}`);
+  res.json({ ok: true, fecha_fin: fechaFin });
 });
 
 function aEntero(v) {

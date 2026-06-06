@@ -25,11 +25,14 @@ npm start     # equivale a: node C:\CRM\server.js
 
 ```
 server.js              Express: json + static(public) + /api/* + listen 3000.
-db/database.js         better-sqlite3, WAL + foreign_keys. Ejecuta schema + migraciones ALTER
-                       (anadirColumnasFaltantes) + seeds (admin por defecto, portales por defecto).
+db/database.js         better-sqlite3, WAL + foreign_keys. Ejecuta schema + limpiarDatosPrueba()
+                       (borrado ÚNICO de datos de prueba, guardado con flag 'limpieza_datos_prueba_v1'
+                       en ajustes) + migraciones ALTER (anadirColumnasFaltantes) +
+                       migrarRelacionPropietarios() (volcó apartamentos.propietario_id a la tabla N:M
+                       y eliminó la columna recreando la tabla) + seeds (admin, portales).
 scripts/crear-usuario.js  Crear/actualizar usuario admin directamente en BD (node scripts/crear-usuario.js).
-db/schema.sql          Tablas: propietarios, apartamentos, reservas, ajustes, razones_sociales,
-                       usuarios, actividad_log, portales, contratos, contrato_cuotas,
+db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietarios, reservas, ajustes,
+                       razones_sociales, usuarios, actividad_log, portales, contratos, contrato_cuotas,
                        catalogo_gastos, apartamento_gastos, facturas, factura_lineas, factura_contador,
                        reserva_pagos, catalogo_extras, reserva_extras.
 routes/                Un router Express por recurso:
@@ -57,9 +60,12 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Barras coloreadas por portal (con logo) o por TIH si no hay portal.
                        Filtro por clasificación (dropdown multiselección sobre tipo_clasificacion,
                        en cliente; sin clasificar → '__sin__'). Sustituye a los botones TIH.
-  js/alojamientos.js   Tabla + modal alta/edición (ficha ampliada con typeahead de propietario,
-                       toggles En garantía / Quitar planning). Ficha en panel lateral con 3 pestañas:
-                       Alojamiento (datos + "Recaudación del año"), Propietario (lazy load + link),
+  js/alojamientos.js   Tabla (columna Propietario = activos separados por coma) + modal alta/edición
+                       (ficha ampliada, toggles En garantía / Quitar planning; SIN typeahead de
+                       propietario — texto informativo). Ficha en panel lateral con 3 pestañas:
+                       Alojamiento (datos + "Recaudación del año"), Propietario (gestión N:M: cards de
+                       activos con badge % verde/naranja/rojo según suma=100, histórico colapsable,
+                       modales Añadir/Editar %/Cerrar relación con resumen de suma en vivo),
                        Gastos (por año, tabla con marcar cobrado/borrar + modal Añadir gasto con typeahead).
                        Expone abrirFicha(id).
   js/contratos.js      Contratos propietario: precio_cerrado o comision. Filtros año/tipo/propietario.
@@ -110,8 +116,11 @@ Patrones clave:
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | /api/apartamentos | Lista; `?todos=1` incluye `quitar_planning=1`; `?tih=` filtra |
-| GET/PUT/DELETE | /api/apartamentos/:id | Ficha (campos ampliados + propietario + historial) / Editar (merge) / Borrar (reservas→Sin asignar) |
+| GET | /api/apartamentos | Lista; `?todos=1` incluye `quitar_planning=1`; `?tih=` filtra. Cada apto lleva `propietarios[]` (activos) + campos planos compat del principal |
+| GET/PUT/DELETE | /api/apartamentos/:id | Ficha (campos ampliados + `propietarios[]` activos+históricos + historial) / Editar (merge; ignora propietario_id) / Borrar (reservas→Sin asignar) |
+| GET/POST | /api/apartamentos/:id/propietarios | Relaciones N:M. POST `{propietario_id, porcentaje, fecha_inicio, notas}`: valida existencia, sin activa duplicada (409), suma % ≤ 100 (400); suma < 100 → `{ok, aviso}` |
+| PUT/DELETE | /api/apartamentos/:id/propietarios/:rel_id | Editar (porcentaje/fechas/notas/activo; valida suma ≤ 100) / Borrar (409 si el propietario tiene contratos o facturas en ese apto) |
+| POST | /api/apartamentos/:id/propietarios/:rel_id/cerrar | Cierra relación: activo=0 + fecha_fin (body o hoy). 409 si ya cerrada |
 | GET/POST/PUT/DELETE | /api/apartamentos/:id/gastos[/:gasto_id] | Gastos del apto por año. POST: snapshot nombre+precio del catálogo |
 | GET/POST/PUT/DELETE | /api/catalogo-gastos[/:id] | Catálogo de gastos. DELETE→409 si tiene gastos asociados |
 | GET/POST/PUT/DELETE | /api/propietarios[/:id] | CRUD propietarios |
@@ -156,10 +165,11 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 ## Modelo de datos
 
 - **propietarios**: ~40 columnas (datos personales, contacto, domicilio, documentación, contables). `notas` = "Observaciones" en UI. `numero_documento` es el canónico (el campo `dni` es legado). `id_avantio` para upsert desde Avantio. `routes/propietarios.js` define `CAMPOS` como único punto de verdad para INSERT/UPDATE. Columnas nuevas: ALTER TABLE via `migrarPropietarios`.
-- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas, `propietario_id` (FK nullable). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta. Edificio/TIH/bloque ocultos en UI pero conservados en BD.
+- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta. Edificio/TIH/bloque ocultos en UI pero conservados en BD.
+- **apartamento_propietarios**: relación N:M apartamento ↔ propietarios con histórico. apartamento_id/propietario_id (FK, ON DELETE CASCADE), porcentaje (REAL, los activos deben sumar 100), fecha_inicio (NOT NULL), fecha_fin (null = actual), activo (1=actual, 0=histórico), notas, UNIQUE(apartamento_id, propietario_id, fecha_inicio). El "principal" para compat/facturas = mayor porcentaje (empate → fecha_inicio más antigua). Contratos: con 1 propietario activo se autorrellena `propietario_id`; con varios el POST/PUT exige especificarlo.
 - **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante.
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url. Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
-- **ajustes**: almacén genérico clave/valor para uso futuro.
+- **ajustes**: almacén genérico clave/valor. En uso: flag `limpieza_datos_prueba_v1` (marca la limpieza única de datos de prueba ya ejecutada — no borrar, o re-borraría facturas/contratos/pagos reales en el siguiente arranque).
 - **razones_sociales**: datos de facturación (razon_social, CIF, dirección, IBAN, logo_url). `RS_CAMPOS` en `routes/ajustes.js` como punto de verdad.
 - **usuarios**: nombre, username (UNIQUE), password_hash (sha256 sin bcrypt), rol ('administrador'|'usuario'), activo, ultimo_acceso, token (sesión activa). Admin por defecto: `admin` / `admin1234`.
 - **actividad_log**: usuario_id (FK sin ON DELETE — borrar usuario con registros requiere vaciar el log primero), usuario_nombre, accion, entidad, entidad_id, detalle, fecha.
@@ -174,7 +184,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **catalogo_extras**: nombre (UNIQUE), precio, tipo_precio (CHECK unidad/noche/persona, def. 'unidad'), descripcion, activo. Catálogo reutilizable gestionado en Ajustes.
 - **reserva_extras**: reserva_id (FK, ON DELETE CASCADE), catalogo_extra_id (FK nullable, ON DELETE SET NULL), nombre/precio_unitario/tipo_precio (**snapshot**), cantidad, importe (calculado: precio×cant ×noches si tipo='noche'), noches (snapshot de noches de la reserva al añadir).
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER.
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 

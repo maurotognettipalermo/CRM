@@ -91,7 +91,12 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check \"public\\\\js\\\\reservas.js\"; if \\($?\\) { \"OK reservas.js\" }; node --check \"public\\\\js\\\\ajustes.js\"; if \\($?\\) { \"OK ajustes.js\" })",
       "PowerShell(Get-ChildItem *)",
       "PowerShell(Out-Null *)",
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node C:\\\\CRM\\\\_verif.js)",
+      "PowerShell($t = @{ 'X-Auth-Token' = '8fbca88958afb99ddf9bd4382b672789a99c43396122524ddba0450d8b9847a2' }; foreach \\($u in 'dashboard','estadisticas/propietarios?anio=2026','estadisticas/apartamentos?anio=2026','facturas','contratos','reservas/todas'\\) { try { $r = Invoke-RestMethod \"http://localhost:3000/api/$u\" -Headers $t; \"OK $u\" } catch { \"FALLO $u : $\\($_.ErrorDetails.Message\\)\" } })",
+      "PowerShell(\\(Get-Content C:\\\\CRM\\\\public\\\\css\\\\styles.css | Measure-Object -Line\\).Lines)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\alojamientos.js; if \\($?\\) { \"OK alojamientos.js\" })"
     ]
   }
 }

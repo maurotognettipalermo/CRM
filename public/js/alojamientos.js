@@ -3,11 +3,12 @@
 
 const Alojamientos = (() => {
   let fichaActual = null;      // apartamento abierto en el panel
-  let propietarios = [];       // lista para el typeahead del modal
-  let propSelId = null;        // propietario seleccionado en el modal
+  let propietarios = [];       // lista para el typeahead del modal "Añadir propietario"
+  let propSelId = null;        // propietario seleccionado en ese modal
   let taMatches = [];          // resultados del typeahead
   let taIndex = -1;            // opción resaltada
   let propTabCargada = false;  // pestaña Propietario ya renderizada para esta ficha
+  let relaciones = [];         // relaciones propietario (activas+históricas) de la ficha abierta
 
   // ---- Estado de la pestaña Gastos ----
   const ANIOS_GASTO = [2024, 2025, 2026];
@@ -17,41 +18,6 @@ const Alojamientos = (() => {
   let gastoCatSel = null;      // concepto seleccionado en el modal
   let gtaMatches = [];         // resultados typeahead de concepto
   let gtaIndex = -1;
-
-  // Secciones de la ficha de propietario (espejo de propietarios.js, modo lectura).
-  const SECCIONES_PROP = [
-    { titulo: 'Datos personales', campos: [
-      ['fecha_alta', 'Fecha de alta', 'date'], ['nombre', 'Nombre', 'text'],
-      ['tratamiento', 'Tratamiento', 'text'], ['apellidos', 'Primer apellido', 'text'],
-      ['idioma', 'Idioma', 'text'], ['segundo_apellido', 'Segundo apellido', 'text'],
-      ['fecha_nacimiento', 'Fecha de nacimiento', 'date'], ['tags', 'Tags', 'text'],
-      ['notas', 'Observaciones', 'text'],
-    ] },
-    { titulo: 'Contacto', campos: [
-      ['telefono', 'Teléfono móvil', 'text'], ['email', 'Email', 'text'],
-      ['telefono2', 'Teléfono alternativo 1', 'text'], ['email2', 'Email alternativo', 'text'],
-      ['telefono3', 'Teléfono alternativo 2', 'text'], ['fax', 'Fax', 'text'],
-    ] },
-    { titulo: 'Domicilio', campos: [
-      ['direccion', 'Dirección', 'text'], ['direccion_numero', 'Número', 'text'],
-      ['bloque_portal', 'Bloque o portal', 'text'], ['planta_puerta', 'Planta y puerta', 'text'],
-      ['codigo_postal', 'Código postal', 'text'], ['ciudad', 'Ciudad', 'text'],
-      ['provincia', 'Provincia', 'text'], ['region', 'Región', 'text'],
-      ['pais', 'País', 'text'], ['tipo_direccion', 'Tipo de dirección', 'text'],
-    ] },
-    { titulo: 'Documentación', campos: [
-      ['tipo_documento', 'Tipo documento', 'text'], ['numero_documento', 'Número documento', 'text'],
-      ['expedido_fecha', 'Expedido fecha', 'date'], ['lugar_expedicion', 'Lugar de expedición', 'text'],
-      ['ciudad_nacimiento', 'Ciudad de nacimiento', 'text'], ['provincia_nacimiento', 'Provincia de nacimiento', 'text'],
-      ['pais_nacimiento', 'País de nacimiento', 'text'], ['tipo_identificacion', 'Tipo de identificación', 'text'],
-    ] },
-    { titulo: 'Datos contables', campos: [
-      ['metodo_pago', 'Método de pago', 'text'], ['retencion', 'Retención', 'text'],
-      ['tipo_cuenta', 'Tipo de cuenta', 'text'], ['titular_cuenta', 'Titular de la cuenta', 'text'],
-      ['numero_cuenta', 'Nº cuenta (IBAN)', 'text'], ['cuenta_contable', 'Cuenta contable', 'text'],
-      ['codigo_fiscal', 'Código fiscal', 'text'],
-    ] },
-  ];
 
   const ORIENTACIONES = ['Norte', 'Sur', 'Este', 'Oeste', 'Sureste', 'Suroeste', 'Noreste', 'Noroeste'];
   const SITUACIONES = ['Frontal', 'Lateral Principio', 'Lateral Medio', 'Lateral Final'];
@@ -92,7 +58,10 @@ const Alojamientos = (() => {
       return;
     }
     for (const a of lista) {
-      const propietario = [a.propietario_nombre, a.propietario_apellidos].filter(Boolean).join(' ');
+      // Propietarios activos (relación N:M) separados por coma.
+      const propietario = (a.propietarios || [])
+        .map((p) => [p.nombre, p.apellidos].filter(Boolean).join(' '))
+        .join(', ');
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="enlace-fila" data-ficha="${a.id}">${esc(a.nombre)}</span></td>
@@ -287,49 +256,303 @@ const Alojamientos = (() => {
       </div>`;
   }
 
-  // ---- Pestaña Propietario (lazy) ----
+  // ==================== Pestaña Propietario: gestión N:M con histórico ====================
+  function nombreRel(r) { return [r.nombre, r.apellidos].filter(Boolean).join(' '); }
+  function inicialRel(r) { return (r.nombre || r.apellidos || '?').trim().charAt(0).toUpperCase(); }
+  // Color estable a partir del nombre (hash -> matiz HSL, igual que en propietarios.js).
+  function colorAvatarRel(r) {
+    const s = (r.nombre || '') + (r.apellidos || '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
+    return `hsl(${Math.abs(h) % 360}, 52%, 52%)`;
+  }
+  function pctTxt(n) { return (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 }) + '%'; }
+  function sumaActivos() {
+    return relaciones.filter((r) => r.activo === 1).reduce((s, r) => s + (Number(r.porcentaje) || 0), 0);
+  }
+  // Clase de color según la suma de porcentajes: ok (=100) / aviso (<100) / error (>100).
+  function clasePorSuma(suma) {
+    if (Math.abs(suma - 100) <= 0.01) return 'ok';
+    return suma < 100 ? 'aviso' : 'error';
+  }
+
   async function renderPropietario() {
     const cont = document.getElementById('alo-prop-cont');
     if (!cont) return;
-    const pid = fichaActual && fichaActual.propietario_id;
-    if (!pid) {
-      cont.innerHTML = `
-        <div class="alo-sin-prop">
-          <p style="color:var(--muted)">Sin propietario asignado</p>
-          <button class="btn-pri" id="alo-asignar-prop">Asignar propietario</button>
-        </div>`;
-      const b = document.getElementById('alo-asignar-prop');
-      if (b) b.addEventListener('click', () => formulario(fichaActual.id));
-      propTabCargada = true;
-      return;
-    }
-    cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">Cargando propietario…</div>';
-    let p;
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">Cargando propietarios…</div>';
     try {
-      p = await API.get('/api/propietarios/' + pid);
+      relaciones = await API.get(`/api/apartamentos/${id}/propietarios`);
     } catch (e) {
-      cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudo cargar el propietario.</div>';
+      cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar los propietarios.</div>';
       return;
     }
-    if (!fichaActual || String(fichaActual.propietario_id) !== String(pid)) return;
+    if (!fichaActual || String(fichaActual.id) !== String(id)) return; // la ficha cambió
     propTabCargada = true;
 
-    let html = '<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn-sec" id="alo-abrir-prop">Abrir ficha completa</button></div>';
-    for (const sec of SECCIONES_PROP) {
-      const items = sec.campos.map(([key, label, tipo]) => {
-        let valor = p[key];
-        if (tipo === 'date') valor = valor ? fechaES(valor) : '';
-        return dato(label, esc(valor) || '—');
-      }).join('');
-      html += `<div class="ficha-seccion-titulo">${sec.titulo}</div><div class="ficha-grid">${items}</div>`;
-    }
-    cont.innerHTML = html;
-    const b = document.getElementById('alo-abrir-prop');
-    if (b) b.addEventListener('click', () => {
-      cerrarPanel();
-      if (typeof activarTab === 'function') activarTab('propietarios');
-      if (typeof Propietarios !== 'undefined' && Propietarios.abrirFicha) Propietarios.abrirFicha(pid);
+    const activos = relaciones.filter((r) => r.activo === 1);
+    const historico = relaciones.filter((r) => r.activo !== 1)
+      .sort((a, b) => String(b.fecha_fin || '').localeCompare(String(a.fecha_fin || '')));
+    const suma = sumaActivos();
+    const clase = clasePorSuma(suma);
+
+    const cards = activos.map((r) => `
+      <div class="alo-prop-card">
+        <span class="avatar" style="background:${colorAvatarRel(r)}">${esc(inicialRel(r))}</span>
+        <div class="alo-prop-info">
+          <div class="alo-prop-nombre">${esc(nombreRel(r))}</div>
+          <div class="alo-prop-sub">${[r.email, r.telefono].filter(Boolean).map(esc).join(' · ') || '—'}</div>
+          <div class="alo-prop-sub">Desde ${fechaES(r.fecha_inicio)}</div>
+        </div>
+        <span class="alo-prop-pct ${clase}">${pctTxt(r.porcentaje)}</span>
+        <div class="alo-prop-acciones">
+          <button class="btn-mini" data-ver-prop="${r.propietario_id}">Ver ficha</button>
+          <button class="btn-mini" data-editar-rel="${r.id}" title="Editar porcentaje">✏️</button>
+          <button class="btn-mini" data-cerrar-rel="${r.id}" title="Cerrar relación">🔒</button>
+        </div>
+      </div>`).join('');
+
+    const aviso = (activos.length && clase !== 'ok')
+      ? `<div class="alo-prop-aviso">⚠️ Los porcentajes actuales suman ${pctTxt(suma).replace('%', '')}%, deben sumar 100%</div>`
+      : '';
+
+    const histCards = historico.map((r) => `
+      <div class="alo-prop-card hist">
+        <span class="avatar" style="background:${colorAvatarRel(r)}">${esc(inicialRel(r))}</span>
+        <div class="alo-prop-info">
+          <div class="alo-prop-nombre">${esc(nombreRel(r))}</div>
+          <div class="alo-prop-sub">Desde ${fechaES(r.fecha_inicio)}${r.fecha_fin ? ' hasta ' + fechaES(r.fecha_fin) : ''}</div>
+        </div>
+        <span class="alo-prop-pct hist">${pctTxt(r.porcentaje)}</span>
+        <div class="alo-prop-acciones">
+          <button class="btn-mini" data-ver-prop="${r.propietario_id}">Ver ficha</button>
+        </div>
+      </div>`).join('');
+
+    const histHTML = historico.length ? `
+      <button class="alo-prop-hist-btn" id="alo-hist-toggle">▶ Ver histórico (${historico.length} anterior${historico.length === 1 ? '' : 'es'})</button>
+      <div id="alo-hist-lista" class="oculto">${histCards}</div>` : '';
+
+    cont.innerHTML = `
+      <div class="alo-prop-head">
+        <div class="alo-prop-titulo">Propietarios <span class="alo-prop-count">${activos.length}</span></div>
+        <button class="btn-pri" id="alo-prop-add">＋ Añadir propietario</button>
+      </div>
+      <div class="ficha-seccion-titulo">Propietarios actuales</div>
+      ${aviso}
+      ${cards || '<div style="color:var(--muted);padding:8px 0">Sin propietarios asignados</div>'}
+      ${histHTML ? '<div class="ficha-seccion-titulo">Histórico</div>' + histHTML : ''}`;
+
+    document.getElementById('alo-prop-add').addEventListener('click', modalAnadirPropietario);
+    const ht = document.getElementById('alo-hist-toggle');
+    if (ht) ht.addEventListener('click', () => {
+      const lista = document.getElementById('alo-hist-lista');
+      const abierto = !lista.classList.toggle('oculto');
+      ht.textContent = `${abierto ? '▼ Ocultar' : '▶ Ver'} histórico (${historico.length} anterior${historico.length === 1 ? '' : 'es'})`;
     });
+    cont.querySelectorAll('[data-ver-prop]').forEach((b) =>
+      b.addEventListener('click', () => {
+        cerrarPanel();
+        if (typeof activarTab === 'function') activarTab('propietarios');
+        if (typeof Propietarios !== 'undefined' && Propietarios.abrirFicha) Propietarios.abrirFicha(b.dataset.verProp);
+      }));
+    cont.querySelectorAll('[data-editar-rel]').forEach((b) =>
+      b.addEventListener('click', () => modalEditarPorcentaje(Number(b.dataset.editarRel))));
+    cont.querySelectorAll('[data-cerrar-rel]').forEach((b) =>
+      b.addEventListener('click', () => modalCerrarRelacion(Number(b.dataset.cerrarRel))));
+  }
+
+  // Tras cambiar relaciones: repinta la pestaña y refresca la tabla (columna Propietario).
+  async function refrescarRelaciones() {
+    await renderPropietario();
+    cargar();
+  }
+
+  // ---- Modal "Añadir propietario" ----
+  async function modalAnadirPropietario() {
+    const apto = fichaActual;
+    try { propietarios = await API.get('/api/propietarios'); } catch (e) { propietarios = []; }
+    propSelId = null;
+    const suma = sumaActivos();
+    const hayActivos = relaciones.some((r) => r.activo === 1);
+    const sugerido = hayActivos ? Math.max(0, Math.round((100 - suma) * 100) / 100) : 100;
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    abrirModal(`
+      <h3>Añadir propietario</h3>
+      <div class="campo cnt-typeahead">
+        <label>Propietario *</label>
+        <input id="ap-buscar" placeholder="Buscar propietario..." autocomplete="off">
+        <div class="cnt-ta-dropdown oculto" id="ap-dropdown"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Porcentaje (%)</label><input type="number" id="ap-pct" step="0.01" min="0.01" max="100" value="${sugerido}"></div>
+        <div class="campo"><label>Fecha inicio</label><input type="date" id="ap-fecha" value="${hoy}"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="ap-notas"></textarea></div>
+      <div id="ap-resumen" class="alo-prop-resumen"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ap-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ap-guardar">Guardar</button>
+      </div>`);
+
+    initRelTypeahead();
+    const actualizarResumen = () => {
+      const el = document.getElementById('ap-resumen');
+      const pct = parseFloat(document.getElementById('ap-pct').value) || 0;
+      const nueva = suma + pct;
+      el.className = 'alo-prop-resumen ' + clasePorSuma(nueva);
+      el.textContent = `Con este propietario la suma quedará en ${pctTxt(nueva).replace('%', '')}%`;
+    };
+    document.getElementById('ap-pct').addEventListener('input', actualizarResumen);
+    actualizarResumen();
+    document.getElementById('ap-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ap-guardar').addEventListener('click', async () => {
+      if (!propSelId) return toast('Selecciona un propietario', 'error');
+      const body = {
+        propietario_id: propSelId,
+        porcentaje: val('ap-pct'),
+        fecha_inicio: val('ap-fecha'),
+        notas: val('ap-notas'),
+      };
+      try {
+        const r = await API.post(`/api/apartamentos/${apto.id}/propietarios`, body);
+        cerrarModal();
+        if (r && r.aviso) toast(r.aviso, 'aviso');
+        else toast('Propietario añadido', 'ok');
+        await refrescarRelaciones();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // ---- Modal "Editar %" ----
+  function modalEditarPorcentaje(relId) {
+    const rel = relaciones.find((r) => r.id === relId);
+    if (!rel) return;
+    const sumaOtros = sumaActivos() - (Number(rel.porcentaje) || 0);
+
+    abrirModal(`
+      <h3>Editar porcentaje</h3>
+      <div class="campo"><label>Propietario</label><input value="${esc(nombreRel(rel))}" disabled></div>
+      <div class="campo"><label>Porcentaje (%)</label><input type="number" id="ep-pct" step="0.01" min="0.01" max="100" value="${rel.porcentaje}"></div>
+      <div class="campo"><label>Notas</label><textarea id="ep-notas">${esc(rel.notas)}</textarea></div>
+      <div id="ep-resumen" class="alo-prop-resumen"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ep-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ep-guardar">Guardar</button>
+      </div>`);
+
+    const actualizarResumen = () => {
+      const el = document.getElementById('ep-resumen');
+      const pct = parseFloat(document.getElementById('ep-pct').value) || 0;
+      const nueva = sumaOtros + pct;
+      el.className = 'alo-prop-resumen ' + clasePorSuma(nueva);
+      el.textContent = `Con este cambio la suma quedará en ${pctTxt(nueva).replace('%', '')}%`;
+    };
+    document.getElementById('ep-pct').addEventListener('input', actualizarResumen);
+    actualizarResumen();
+    document.getElementById('ep-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ep-guardar').addEventListener('click', async () => {
+      try {
+        await API.put(`/api/apartamentos/${fichaActual.id}/propietarios/${relId}`, {
+          porcentaje: val('ep-pct'),
+          notas: val('ep-notas'),
+        });
+        cerrarModal();
+        toast('Relación actualizada', 'ok');
+        await refrescarRelaciones();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // ---- Modal "Cerrar relación" ----
+  function modalCerrarRelacion(relId) {
+    const rel = relaciones.find((r) => r.id === relId);
+    if (!rel) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    abrirModal(`
+      <h3>Cerrar relación</h3>
+      <p>Vas a cerrar la relación de <strong>${esc(nombreRel(rel))}</strong> con este apartamento.</p>
+      <div class="campo"><label>Fecha fin</label><input type="date" id="cr-fecha" value="${hoy}"></div>
+      <div class="alo-prop-aviso">⚠️ Esta acción moverá al propietario al histórico. Si es el único propietario activo, el apartamento quedará sin propietario.</div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="cr-cancelar">Cancelar</button>
+        <button class="btn-peligro" id="cr-confirmar">Confirmar cierre</button>
+      </div>`);
+
+    document.getElementById('cr-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('cr-confirmar').addEventListener('click', async () => {
+      try {
+        await API.post(`/api/apartamentos/${fichaActual.id}/propietarios/${relId}/cerrar`, {
+          fecha_fin: val('cr-fecha'),
+        });
+        cerrarModal();
+        toast('Relación cerrada', 'ok');
+        await refrescarRelaciones();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // ---- Typeahead de propietario (modal "Añadir propietario") ----
+  function initRelTypeahead() {
+    const input = document.getElementById('ap-buscar');
+    input.addEventListener('input', () => {
+      propSelId = null;
+      const q = input.value.trim();
+      if (q.length < 2) { cerrarRelDrop(); return; }
+      taMatches = buscarProp(q);
+      taIndex = -1;
+      renderRelDrop();
+    });
+    input.addEventListener('keydown', (e) => {
+      const dd = document.getElementById('ap-dropdown');
+      const abierto = dd && !dd.classList.contains('oculto');
+      if (e.key === 'ArrowDown') { if (!abierto) return; e.preventDefault(); taIndex = Math.min(taIndex + 1, taMatches.length - 1); renderRelDrop(); scrollRel(); }
+      else if (e.key === 'ArrowUp') { if (!abierto) return; e.preventDefault(); taIndex = Math.max(taIndex - 1, 0); renderRelDrop(); scrollRel(); }
+      else if (e.key === 'Enter') { if (abierto && taIndex >= 0 && taMatches[taIndex]) { e.preventDefault(); seleccionarRelProp(taMatches[taIndex].id); } }
+      else if (e.key === 'Escape') { if (abierto) { e.preventDefault(); e.stopPropagation(); cerrarRelDrop(); } }
+    });
+    input.addEventListener('blur', () => setTimeout(cerrarRelDrop, 120));
+  }
+  function buscarProp(q) {
+    const s = q.toLowerCase();
+    return propietarios.filter((p) =>
+      nombrePropFull(p).toLowerCase().includes(s) || (p.email || '').toLowerCase().includes(s));
+  }
+  function renderRelDrop() {
+    const dd = document.getElementById('ap-dropdown');
+    if (!dd) return;
+    if (!taMatches.length) { dd.innerHTML = '<div class="cnt-ta-vacio">Sin resultados</div>'; dd.classList.remove('oculto'); return; }
+    dd.innerHTML = taMatches.map((p, i) => `
+      <div class="cnt-ta-op${i === taIndex ? ' activo' : ''}" data-id="${p.id}">
+        <span class="cnt-ta-nombre">${esc(nombrePropFull(p))}${p.email ? ` <span class="cnt-ta-edif">${esc(p.email)}</span>` : ''}</span>
+      </div>`).join('');
+    dd.classList.remove('oculto');
+    dd.querySelectorAll('.cnt-ta-op').forEach((op) =>
+      op.addEventListener('mousedown', (e) => { e.preventDefault(); seleccionarRelProp(Number(op.dataset.id)); }));
+  }
+  function scrollRel() {
+    const act = document.querySelector('#ap-dropdown .cnt-ta-op.activo');
+    if (act) act.scrollIntoView({ block: 'nearest' });
+  }
+  function seleccionarRelProp(pid) {
+    propSelId = pid;
+    const p = propietarios.find((x) => x.id === pid);
+    document.getElementById('ap-buscar').value = p ? nombrePropFull(p) : '';
+    cerrarRelDrop();
+  }
+  function cerrarRelDrop() {
+    const dd = document.getElementById('ap-dropdown');
+    if (dd) dd.classList.add('oculto');
+    taIndex = -1;
   }
 
   // ==================== Pestaña Gastos ====================
@@ -550,10 +773,8 @@ const Alojamientos = (() => {
   }
 
   async function formulario(id) {
-    try { propietarios = await API.get('/api/propietarios'); } catch (e) { propietarios = []; }
-
     let a = {
-      nombre: '', edificio: '', tipo: '', capacidad: '', notas: '', propietario_id: '',
+      nombre: '', edificio: '', tipo: '', capacidad: '', notas: '',
       tipo_clasificacion: '', orientacion: '', situacion: '', bloque: '', escalera: '', piso: '', puerta: '',
       parking: '', ref_catastral: '', licencia_turistica: '', nra: '', pwd_wifi: '',
       en_garantia: 0, quitar_planning: 0,
@@ -562,7 +783,6 @@ const Alojamientos = (() => {
       try { a = await API.get('/api/apartamentos/' + id); }
       catch (e) { return toast(e.message, 'error'); }
     }
-    propSelId = a.propietario_id != null && a.propietario_id !== '' ? Number(a.propietario_id) : null;
 
     abrirModal(`
       <h3>${id ? 'Editar' : 'Nuevo'} alojamiento</h3>
@@ -591,11 +811,7 @@ const Alojamientos = (() => {
         <div class="campo"><label>NRA</label><input id="f-nra" value="${esc(a.nra)}"></div>
         <div class="campo"><label>Pwd Wifi</label><input id="f-pwd-wifi" value="${esc(a.pwd_wifi)}"></div>
       </div>
-      <div class="campo cnt-typeahead">
-        <label>Propietario</label>
-        <input id="f-prop-buscar" placeholder="Buscar propietario..." autocomplete="off">
-        <div class="cnt-ta-dropdown oculto" id="f-prop-dropdown"></div>
-      </div>
+      <div class="alo-prop-info-modal">ℹ️ Los propietarios se gestionan desde la ficha del alojamiento → pestaña Propietario</div>
       <div class="campo"><label>Notas</label><textarea id="f-notas">${esc(a.notas)}</textarea></div>
 
       <div class="ficha-seccion-titulo">Configuración</div>
@@ -609,7 +825,6 @@ const Alojamientos = (() => {
       </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
 
-    initPropTypeahead();
     document.getElementById('f-quitar-planning').addEventListener('change', (e) =>
       document.getElementById('f-qp-aviso').classList.toggle('oculto', !e.target.checked));
     document.getElementById('f-cancelar').addEventListener('click', cerrarModal);
@@ -623,7 +838,6 @@ const Alojamientos = (() => {
       nombre,
       capacidad: val('f-capacidad'),
       notas: val('f-notas'),
-      propietario_id: propSelId || null,
       tipo_clasificacion: val('f-clasif'),
       orientacion: val('f-orientacion'),
       situacion: val('f-situacion'),
@@ -649,63 +863,6 @@ const Alojamientos = (() => {
     } catch (e) {
       toast(e.message, 'error');
     }
-  }
-
-  // ---- Typeahead de propietario (modal) ----
-  function initPropTypeahead() {
-    const input = document.getElementById('f-prop-buscar');
-    const pre = propietarios.find((p) => p.id === propSelId);
-    input.value = pre ? nombrePropFull(pre) : '';
-
-    input.addEventListener('input', () => {
-      propSelId = null;
-      const q = input.value.trim();
-      if (q.length < 2) { cerrarPropDrop(); return; }
-      taMatches = buscarProp(q);
-      taIndex = -1;
-      renderPropDrop();
-    });
-    input.addEventListener('keydown', (e) => {
-      const dd = document.getElementById('f-prop-dropdown');
-      const abierto = dd && !dd.classList.contains('oculto');
-      if (e.key === 'ArrowDown') { if (!abierto) return; e.preventDefault(); taIndex = Math.min(taIndex + 1, taMatches.length - 1); renderPropDrop(); scrollProp(); }
-      else if (e.key === 'ArrowUp') { if (!abierto) return; e.preventDefault(); taIndex = Math.max(taIndex - 1, 0); renderPropDrop(); scrollProp(); }
-      else if (e.key === 'Enter') { if (abierto && taIndex >= 0 && taMatches[taIndex]) { e.preventDefault(); seleccionarProp(taMatches[taIndex].id); } }
-      else if (e.key === 'Escape') { if (abierto) { e.preventDefault(); e.stopPropagation(); cerrarPropDrop(); } }
-    });
-    input.addEventListener('blur', () => setTimeout(cerrarPropDrop, 120));
-  }
-  function buscarProp(q) {
-    const s = q.toLowerCase();
-    return propietarios.filter((p) =>
-      nombrePropFull(p).toLowerCase().includes(s) || (p.email || '').toLowerCase().includes(s));
-  }
-  function renderPropDrop() {
-    const dd = document.getElementById('f-prop-dropdown');
-    if (!dd) return;
-    if (!taMatches.length) { dd.innerHTML = '<div class="cnt-ta-vacio">Sin resultados</div>'; dd.classList.remove('oculto'); return; }
-    dd.innerHTML = taMatches.map((p, i) => `
-      <div class="cnt-ta-op${i === taIndex ? ' activo' : ''}" data-id="${p.id}">
-        <span class="cnt-ta-nombre">${esc(nombrePropFull(p))}${p.email ? ` <span class="cnt-ta-edif">${esc(p.email)}</span>` : ''}</span>
-      </div>`).join('');
-    dd.classList.remove('oculto');
-    dd.querySelectorAll('.cnt-ta-op').forEach((op) =>
-      op.addEventListener('mousedown', (e) => { e.preventDefault(); seleccionarProp(Number(op.dataset.id)); }));
-  }
-  function scrollProp() {
-    const act = document.querySelector('#f-prop-dropdown .cnt-ta-op.activo');
-    if (act) act.scrollIntoView({ block: 'nearest' });
-  }
-  function seleccionarProp(pid) {
-    propSelId = pid;
-    const p = propietarios.find((x) => x.id === pid);
-    document.getElementById('f-prop-buscar').value = p ? nombrePropFull(p) : '';
-    cerrarPropDrop();
-  }
-  function cerrarPropDrop() {
-    const dd = document.getElementById('f-prop-dropdown');
-    if (dd) dd.classList.add('oculto');
-    taIndex = -1;
   }
 
   // ---- Borrar ----
