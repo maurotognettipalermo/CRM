@@ -1793,6 +1793,27 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .alo-switch input:checked + .alo-switch-track::after { transform: translateX(18px); }
 .alo-qp-aviso { color: var(--red); font-size: 13px; font-weight: 500; margin: -4px 0 12px; }
 
+/* ==================== Tarifas ==================== */
+.trf-controles { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.trf-subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.trf-subtabs .subtab { margin-bottom: -1px; }
+.trf-scroll { min-width: 0; }
+
+/* Calendario anual: 12 franjas (una por mes) con un día por celda */
+.trf-cal { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; }
+.trf-cal-mes { display: flex; align-items: center; gap: 10px; }
+.trf-cal-mes-label { width: 80px; font-size: 12px; color: var(--muted); text-align: right; flex-shrink: 0; }
+.trf-cal-dias { display: grid; grid-template-columns: repeat(31, 1fr); gap: 1px; flex: 1; }
+.trf-cal-dia { height: 20px; background: #f3f4f6; border-radius: 2px; min-width: 0; }
+.trf-cal-dia.cubierto { cursor: default; }
+
+/* Cabecera de tabla de temporadas / modificadores */
+.trf-tabla-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.trf-color-sq { width: 16px; height: 16px; border-radius: 4px; display: inline-block; vertical-align: middle; }
+.trf-preview-tabla td, .trf-preview-tabla th { padding: 6px 10px; }
+.trf-mod-controles { display: flex; align-items: center; gap: 8px; }
+.trf-mod-input { width: 90px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+
 /* Estadísticas → Propietarios: barra de cashflow */
 .est-cashflow { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; background: #fff; }
 .est-cashflow-titulo { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }

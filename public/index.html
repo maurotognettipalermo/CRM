@@ -49,6 +49,9 @@
       <button class="nav-item" data-tab="facturacion" title="Facturación">
         <span class="nav-icono">🧾</span><span class="nav-texto">Facturación</span>
       </button>
+      <button class="nav-item" data-tab="tarifas" title="Tarifas">
+        <span class="nav-icono">💲</span><span class="nav-texto">Tarifas</span>
+      </button>
       <button class="nav-item" data-tab="propietarios" title="Propietarios">
         <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
       </button>
@@ -202,6 +205,27 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ============ TARIFAS ============ -->
+    <section id="vista-tarifas" class="vista">
+      <div class="barra-herramientas">
+        <div class="trf-controles">
+          <h2>Tarifas</h2>
+          <select id="trf-anio" class="select-filtro"></select>
+        </div>
+        <button id="trf-copiar" class="btn-sec">📋 Copiar de otro año</button>
+      </div>
+      <div class="trf-subtabs" id="trf-subtabs">
+        <button class="subtab activo" data-sub="temporadas">Temporadas</button>
+        <button class="subtab" data-sub="modificadores">Modificadores por tipo</button>
+        <button class="subtab" data-sub="descuentos">Descuentos</button>
+      </div>
+      <div class="trf-scroll">
+        <div class="sub-panel activo" data-panel-sub="temporadas"></div>
+        <div class="sub-panel" data-panel-sub="modificadores"></div>
+        <div class="sub-panel" data-panel-sub="descuentos"></div>
       </div>
     </section>
 
@@ -400,6 +424,7 @@
   <script src="js/alojamientos.js"></script>
   <script src="js/contratos.js"></script>
   <script src="js/facturas.js"></script>
+  <script src="js/tarifas.js"></script>
   <script src="js/propietarios.js"></script>
   <script src="js/reservas.js"></script>
   <script src="js/ajustes.js"></script>
