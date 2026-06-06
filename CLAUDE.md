@@ -18,6 +18,8 @@ npm start     # equivale a: node C:\CRM\server.js
 - BD SQLite se crea sola en `db/crm.db` al arrancar (modo WAL).
 - Scripts en raíz: `iniciar-crm.bat` (arranca), `backup.bat` (copia BD a `backups\AAAA-MM-DD_HH-MM-SS\`).
 - Para reiniciar: `Get-Process node | Stop-Process -Force` y volver a lanzar (sin hot-reload).
+- **Sin tests, sin linter, sin paso de build.** `npm start` es el único script de `package.json`. Verificación = arrancar servidor + probar la API a mano (ver "Cómo probar la API").
+- `README.md` es la guía de instalación para el usuario final (instalar Node, abrir puerto 3000 en el firewall con `New-NetFirewallRule`, acceso desde otros equipos por IP). Mantenerlo en ese tono no técnico si se actualiza.
 
 ## Arquitectura
 
