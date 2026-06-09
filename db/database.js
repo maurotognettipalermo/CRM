@@ -168,6 +168,7 @@ function init() {
   migrarRazones();
   migrarFacturas();
   migrarCatalogoExtras();
+  migrarUsuariosRol();
   seedAdmin();
   seedPortales();
   seedModificadores();
@@ -311,6 +312,38 @@ function migrarFacturas() {
 // Migración de la tabla catalogo_extras: añade obligatorio si falta.
 function migrarCatalogoExtras() {
   anadirColumnasFaltantes('catalogo_extras', COLUMNAS_CATALOGO_EXTRAS);
+}
+
+// Amplía el CHECK de usuarios.rol para permitir 'limpieza'. SQLite no permite alterar
+// un CHECK, así que se recrea la tabla (CREATE temp → INSERT → DROP → RENAME) solo si el
+// CHECK actual aún no incluye 'limpieza'. Idempotente. FKs desactivadas durante el rebuild
+// para que el DROP no afecte a las tablas que referencian usuarios(id).
+function migrarUsuariosRol() {
+  const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='usuarios'").get();
+  if (!def || /'limpieza'/.test(def.sql)) return; // ya admite limpieza (o tabla no creada aún)
+
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(`CREATE TABLE usuarios_nueva (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre        TEXT NOT NULL,
+      username      TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      rol           TEXT NOT NULL CHECK(rol IN ('administrador','usuario','limpieza')),
+      activo        INTEGER DEFAULT 1,
+      created_at    TEXT DEFAULT (datetime('now')),
+      ultimo_acceso TEXT,
+      token         TEXT
+    )`);
+    db.exec(`INSERT INTO usuarios_nueva (id, nombre, username, password_hash, rol, activo, created_at, ultimo_acceso, token)
+             SELECT id, nombre, username, password_hash, rol, activo, created_at, ultimo_acceso, token FROM usuarios`);
+    db.exec('DROP TABLE usuarios');
+    db.exec('ALTER TABLE usuarios_nueva RENAME TO usuarios');
+  })();
+  db.pragma('foreign_keys = ON');
+  const rotas = db.prepare('PRAGMA foreign_key_check').all();
+  if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar usuarios.rol:', rotas);
+  console.log("Migración: usuarios.rol ahora admite 'limpieza'.");
 }
 
 // Inserta los modificadores por tipo de clasificación si la tabla está vacía.

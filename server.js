@@ -41,6 +41,7 @@ app.use('/api/contratos', require('./routes/contratos'));
 app.use('/api/facturas', require('./routes/facturas'));
 app.use('/api/tarifas', require('./routes/tarifas'));
 app.use('/api/email', require('./routes/email'));
+app.use('/api/limpieza', require('./routes/limpieza'));
 
 // Manejador de errores genérico.
 app.use((err, req, res, next) => {

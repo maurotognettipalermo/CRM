@@ -1002,7 +1002,9 @@ const Ajustes = (() => {
           <select id="u-rol">
             <option value="usuario"${u.rol === 'usuario' ? ' selected' : ''}>Usuario</option>
             <option value="administrador"${u.rol === 'administrador' ? ' selected' : ''}>Administrador</option>
+            <option value="limpieza"${u.rol === 'limpieza' ? ' selected' : ''}>Limpieza</option>
           </select>
+          <div id="u-rol-desc" class="u-rol-desc${u.rol === 'limpieza' ? '' : ' oculto'}">Solo acceso al módulo de limpieza</div>
         </div>
         <div class="campo"><label>Estado</label>
           <label class="toggle-campo">
@@ -1019,6 +1021,8 @@ const Ajustes = (() => {
       const inp = document.getElementById('u-password');
       inp.type = inp.type === 'password' ? 'text' : 'password';
     });
+    document.getElementById('u-rol').addEventListener('change', (e) =>
+      document.getElementById('u-rol-desc').classList.toggle('oculto', e.target.value !== 'limpieza'));
     document.getElementById('u-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('u-guardar').addEventListener('click', async () => {
       const body = {

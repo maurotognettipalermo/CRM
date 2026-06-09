@@ -12,3 +12,6 @@ public/uploads/razones-sociales/*
 # Fotos de apartamentos subidas por el usuario (datos, como la BD)
 public/uploads/apartamentos/*
 !public/uploads/apartamentos/.gitkeep
+# Fotos de reportes de limpieza subidas por el usuario (datos, como la BD)
+public/uploads/limpieza/*
+!public/uploads/limpieza/.gitkeep

@@ -6,6 +6,7 @@ const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const ROLES_VALIDOS = ['administrador', 'usuario', 'limpieza'];
 
 // Lista (sin exponer password_hash ni token).
 router.get('/', (req, res) => {
@@ -22,7 +23,7 @@ router.post('/', (req, res) => {
   if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
   if (!username || !String(username).trim()) return res.status(400).json({ error: 'El usuario es obligatorio' });
   if (!password) return res.status(400).json({ error: 'La contraseña es obligatoria' });
-  if (rol !== 'administrador' && rol !== 'usuario') return res.status(400).json({ error: 'Rol no válido' });
+  if (!ROLES_VALIDOS.includes(rol)) return res.status(400).json({ error: 'Rol no válido' });
 
   const existe = db.prepare('SELECT id FROM usuarios WHERE username = ?').get(String(username).trim());
   if (existe) return res.status(409).json({ error: 'Ya existe un usuario con ese nombre de usuario' });
@@ -41,7 +42,7 @@ router.put('/:id', (req, res) => {
   if (!actual) return res.status(404).json({ error: 'Usuario no encontrado' });
 
   const { nombre, username, password, rol, activo } = req.body || {};
-  if (rol && rol !== 'administrador' && rol !== 'usuario') return res.status(400).json({ error: 'Rol no válido' });
+  if (rol && !ROLES_VALIDOS.includes(rol)) return res.status(400).json({ error: 'Rol no válido' });
 
   // Un usuario no puede desactivarse a sí mismo.
   if (req.usuario && req.usuario.id === id && activo !== undefined && !activo) {

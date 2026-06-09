@@ -433,6 +433,41 @@ CREATE TABLE IF NOT EXISTS limpieza_log (
 );
 CREATE INDEX IF NOT EXISTS idx_limpieza_log_apartamento ON limpieza_log(apartamento_id);
 
+-- ==================== Módulo de Limpieza ====================
+
+-- Tareas de limpieza programadas por día (checkout/turnover automáticos o manuales).
+CREATE TABLE IF NOT EXISTS limpieza_tareas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  fecha TEXT NOT NULL,                    -- ISO YYYY-MM-DD, día para el que se programa
+  tipo TEXT DEFAULT 'checkout' CHECK(tipo IN ('checkout','manual','turnover')),
+  prioridad INTEGER DEFAULT 0,           -- 0=normal, 1=urgente (turnover mismo día)
+  estado TEXT DEFAULT 'pendiente' CHECK(estado IN ('pendiente','en_proceso','completada')),
+  reserva_checkout_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  reserva_checkin_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  asignado_a INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  asignado_nombre TEXT,
+  completado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  completado_nombre TEXT,
+  completado_fecha TEXT,
+  notas_limpieza TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_limpieza_tareas_fecha ON limpieza_tareas(fecha);
+CREATE INDEX IF NOT EXISTS idx_limpieza_tareas_apartamento ON limpieza_tareas(apartamento_id);
+
+-- Fotos de reporte de una tarea de limpieza. Archivos en public/uploads/limpieza/{tarea_id}/.
+CREATE TABLE IF NOT EXISTS limpieza_fotos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tarea_id INTEGER NOT NULL REFERENCES limpieza_tareas(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  nombre_archivo TEXT NOT NULL,
+  descripcion TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_limpieza_fotos_tarea ON limpieza_fotos(tarea_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

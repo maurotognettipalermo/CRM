@@ -61,6 +61,9 @@
       <button class="nav-item oculto" id="nav-estadisticas" data-tab="estadisticas" title="Estadísticas">
         <span class="nav-icono">📈</span><span class="nav-texto">Estadísticas</span>
       </button>
+      <button class="nav-item" data-tab="limpieza" title="Limpieza">
+        <span class="nav-icono">🧹</span><span class="nav-texto">Limpieza</span>
+      </button>
       <button class="nav-item" data-tab="ajustes" title="Ajustes">
         <span class="nav-icono">⚙️</span><span class="nav-texto">Ajustes</span>
       </button>
@@ -321,6 +324,35 @@
       </div>
     </section>
 
+    <!-- ============ LIMPIEZA ============ -->
+    <section id="vista-limpieza" class="vista">
+      <div class="barra-herramientas">
+        <h2>Limpieza</h2>
+        <div class="limp-subtabs" id="limp-subtabs">
+          <button class="subtab activo" data-sub="tareas">Tareas del día</button>
+          <button class="subtab" data-sub="reportes">Reportes</button>
+        </div>
+      </div>
+      <div class="limp-scroll">
+        <div class="sub-panel activo" data-panel-sub="tareas">
+          <div class="limp-cab">
+            <div class="limp-cab-fecha">
+              <input type="date" id="limp-fecha" class="input-fecha">
+              <button class="btn-sec" id="limp-hoy">Hoy</button>
+              <button class="btn-sec" id="limp-manana">Mañana</button>
+            </div>
+            <button class="btn-pri" id="limp-add">＋ Añadir piso</button>
+          </div>
+          <div class="limp-resumen" id="limp-resumen"></div>
+          <input type="search" id="limp-buscar" class="input-buscar limp-buscar" placeholder="Buscar apartamento...">
+          <div class="limp-lista" id="limp-lista"></div>
+        </div>
+        <div class="sub-panel" data-panel-sub="reportes">
+          <div class="limp-reportes-placeholder">Los reportes se añadirán en la próxima tarea.</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ AJUSTES ============ -->
     <section id="vista-ajustes" class="vista">
       <div class="barra-herramientas">
@@ -430,6 +462,7 @@
   <script src="js/ajustes.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/estadisticas.js"></script>
+  <script src="js/limpieza.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
