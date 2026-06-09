@@ -109,6 +109,7 @@ const COLUMNAS_APARTAMENTOS = {
   escalera:           'TEXT',
   piso:               'TEXT',
   puerta:             'TEXT',
+  estado_limpieza:    "TEXT DEFAULT 'limpio' CHECK(estado_limpieza IN ('limpio','sucio'))",
 };
 
 // Columnas extra de la tabla catalogo_gastos.
@@ -137,6 +138,17 @@ const MODIFICADORES_DEFECTO = [
   { tipo: 'C', porcentaje: -30, orden: 6 },
 ];
 
+// Estados de reserva por defecto (se insertan si la tabla está vacía).
+// es_sistema=1 → no se pueden eliminar desde Ajustes.
+const ESTADOS_RESERVA_DEFECTO = [
+  { nombre: 'Confirmada', color: '#10b981', orden: 1, es_sistema: 1 },
+  { nombre: 'Pendiente', color: '#f59e0b', orden: 2, es_sistema: 1 },
+  { nombre: 'Cancelada', color: '#ef4444', orden: 3, es_sistema: 1 },
+  { nombre: 'Pagada', color: '#6b7280', orden: 4, es_sistema: 0 },
+  { nombre: 'De propietario', color: '#8b5cf6', orden: 5, es_sistema: 0 },
+  { nombre: 'Bloqueado', color: '#dc2626', orden: 6, es_sistema: 0 },
+];
+
 // Columnas extra de las tablas de facturación (forward-compat: se añaden si faltan).
 // Las tablas las crea schema.sql; aquí solo reservamos el punto para columnas futuras.
 const COLUMNAS_FACTURAS = {};
@@ -159,6 +171,7 @@ function init() {
   seedAdmin();
   seedPortales();
   seedModificadores();
+  seedEstadosReserva();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -307,6 +320,18 @@ function seedModificadores() {
     const insertar = db.prepare('INSERT INTO tipo_modificadores (tipo, porcentaje, orden) VALUES (?, ?, ?)');
     for (const m of MODIFICADORES_DEFECTO) insertar.run(m.tipo, m.porcentaje, m.orden);
     console.log('Modificadores de tarifa por tipo creados.');
+  }
+}
+
+// Inserta los estados de reserva por defecto si la tabla está vacía.
+function seedEstadosReserva() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM estados_reserva').get().c;
+  if (n === 0) {
+    const insertar = db.prepare(
+      'INSERT INTO estados_reserva (nombre, color, orden, es_sistema) VALUES (?, ?, ?, ?)'
+    );
+    for (const e of ESTADOS_RESERVA_DEFECTO) insertar.run(e.nombre, e.color, e.orden, e.es_sistema);
+    console.log('Estados de reserva por defecto creados.');
   }
 }
 

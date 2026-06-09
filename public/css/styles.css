@@ -2153,5 +2153,165 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 }
 .rsv-f-pill:hover { background: #e5e7eb; }
 
+/* ===== Barra de filtros de Alojamientos ===== */
+.alo-controles { margin: 12px 0; }
+.alo-contador { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+.alo-controles .select-filtro { width: 100%; }
+
+/* ===== Galería de fotos (ficha de alojamiento) ===== */
+.alo-gal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.alo-gal-titulo { font-weight: 600; }
+.alo-gal-acciones { display: flex; gap: 8px; }
+.alo-gal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.alo-gal-celda { display: flex; flex-direction: column; gap: 4px; }
+.alo-gal-item { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; cursor: pointer; background: #f3f4f6; }
+.alo-gal-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block; }
+.alo-gal-item.arrastrando { opacity: 0.4; }
+.alo-gal-item.drop-target { outline: 2px dashed var(--blue); outline-offset: -2px; }
+.alo-gal-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  opacity: 0; transition: opacity 150ms ease;
+}
+.alo-gal-item:hover .alo-gal-overlay { opacity: 1; }
+.alo-gal-ov-btn {
+  background: rgba(255, 255, 255, 0.9); border: none; border-radius: 6px;
+  width: 34px; height: 34px; font-size: 16px; cursor: pointer; line-height: 1;
+}
+.alo-gal-ov-btn:hover { background: #fff; }
+.alo-gal-desc { font-size: 12px; color: var(--muted); line-height: 1.3; }
+
+.alo-gal-vacio {
+  border: 2px dashed #d1d5db; border-radius: 8px;
+  padding: 40px 16px; text-align: center; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.alo-gal-vacio.arrastrando { border-color: var(--blue); background: #eff6ff; }
+.alo-gal-vacio-icono { font-size: 42px; }
+
+/* Dropzone del modal de subida */
+.alo-dropzone {
+  border: 2px dashed #d1d5db; border-radius: 8px;
+  padding: 28px 16px; text-align: center; color: var(--muted);
+  cursor: pointer; transition: border-color 150ms ease, background 150ms ease;
+}
+.alo-dropzone:hover, .alo-dropzone.arrastrando { border-color: var(--blue); background: #eff6ff; }
+.alo-dropzone-icono { font-size: 36px; margin-bottom: 6px; }
+.alo-dropzone-sub { font-size: 12px; margin-top: 4px; }
+.alo-preview { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 12px 0; }
+.alo-preview-item { position: relative; aspect-ratio: 1; }
+.alo-preview-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block; background: #f3f4f6; }
+.alo-preview-quitar {
+  position: absolute; top: 2px; right: 2px;
+  background: rgba(0, 0, 0, 0.6); color: #fff; border: none; border-radius: 50%;
+  width: 20px; height: 20px; font-size: 11px; cursor: pointer; line-height: 1;
+}
+.alo-progreso { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin: 10px 0; }
+.alo-progreso-barra { height: 100%; width: 0; background: var(--green); transition: width 120ms ease; }
+
+/* Modal enviar por email */
+.alo-em-radios { display: flex; gap: 16px; margin-bottom: 8px; font-size: 14px; }
+.alo-em-radios label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.alo-em-thumbs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.alo-em-thumb { position: relative; cursor: pointer; }
+.alo-em-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; }
+.alo-em-thumb input { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; }
+.alo-em-aviso {
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+  border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.4; margin: 12px 0;
+}
+
+/* Lightbox */
+.alo-lightbox {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0, 0, 0, 0.9);
+  display: none; align-items: center; justify-content: center;
+}
+.alo-lightbox.abierto { display: flex; }
+.alo-lb-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 90vw; }
+.alo-lb-fig img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 4px; }
+.alo-lb-fig figcaption { color: #e5e7eb; font-size: 14px; text-align: center; }
+.alo-lb-cerrar {
+  position: absolute; top: 16px; right: 20px;
+  background: rgba(255, 255, 255, 0.15); color: #fff; border: none;
+  width: 40px; height: 40px; border-radius: 50%; font-size: 18px; cursor: pointer;
+}
+.alo-lb-cerrar:hover { background: rgba(255, 255, 255, 0.3); }
+.alo-lb-nav {
+  background: rgba(255, 255, 255, 0.15); color: #fff; border: none;
+  width: 48px; height: 48px; border-radius: 50%; font-size: 20px; cursor: pointer;
+  margin: 0 14px; flex-shrink: 0;
+}
+.alo-lb-nav:hover { background: rgba(255, 255, 255, 0.3); }
+
+/* ===== Calendario anual (ficha de alojamiento) ===== */
+.alo-cal-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.alo-cal-leyenda { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.alo-cal-ley-item { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text); }
+.alo-cal-ley-color { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.alo-cal-meses { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.alo-cal-mes-titulo { text-align: center; font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.alo-cal-tabla { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.alo-cal-tabla th {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-align: center; padding: 2px 0;
+}
+.alo-cal-dia {
+  text-align: center; font-size: 11px; padding: 3px 0;
+  border: 1px solid var(--border-soft); color: var(--text);
+  height: 22px;
+}
+.alo-cal-dia.vacio { border: none; }
+.alo-cal-dia.ocupado { color: #fff; cursor: pointer; font-weight: 600; }
+.alo-cal-dia.ocupado:hover { filter: brightness(0.92); }
+.alo-cal-dia.hoy { outline: 2px solid var(--blue); outline-offset: -2px; }
+
+.alo-cal-resumen { margin-top: 16px; }
+.alo-cal-resumen-fila { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; margin-bottom: 6px; }
+.alo-cal-resumen-pct { font-weight: 700; }
+.alo-cal-barra { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+.alo-cal-barra-fill { height: 100%; background: var(--green); border-radius: 999px; }
+
+/* Cuadro de color en la tabla de Estados de reserva (Ajustes) */
+.estado-color-cuadro { width: 20px; height: 20px; border-radius: 4px; display: inline-block; border: 1px solid var(--border); }
+
+/* ===== Indicador de estado de limpieza ===== */
+.ficha-seccion-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.alo-limp-wrap { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.alo-limp-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--text);
+  padding: 2px 4px; border-radius: 6px;
+}
+.alo-limp-punto {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  transition: background-color 150ms ease;
+}
+.alo-limp-badge.limpio .alo-limp-punto { background: #10b981; }
+.alo-limp-badge.sucio .alo-limp-punto { background: #ef4444; }
+.alo-limp-clic, .alo-limp-clic-cont { cursor: pointer; }
+.alo-limp-clic:hover, .alo-limp-clic-cont:hover { opacity: 0.8; }
+.alo-limp-hist-btn {
+  background: none; border: none; cursor: pointer; font-size: 12px;
+  padding: 2px; line-height: 1; color: var(--muted);
+}
+.alo-limp-hist-btn:hover { color: var(--text); }
+
+.alo-limp-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 90;
+  width: 300px; max-height: 60vh; overflow-y: auto;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14); padding: 8px;
+}
+.alo-limp-pop-item { font-size: 13px; padding: 5px 6px; border-bottom: 1px solid var(--border-soft); }
+.alo-limp-pop-item:last-of-type { border-bottom: none; }
+.alo-limp-pop-vacio, .alo-limp-pop-cargando { font-size: 13px; color: var(--muted); padding: 8px 6px; }
+.alo-limp-pop-aviso {
+  margin-top: 8px; font-size: 12px; line-height: 1.4;
+  background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+  border-radius: 6px; padding: 8px 10px;
+}
+
 /* ===== Utilidades ===== */
 .oculto { display: none !important; }

@@ -19,9 +19,48 @@ const Alojamientos = (() => {
   let gtaMatches = [];         // resultados typeahead de concepto
   let gtaIndex = -1;
 
+  // ---- Estado de la pestaña Galería ----
+  let galeriaFotos = [];       // fotos del apartamento abierto
+  let galeriaCargada = false;  // ya cargada la galería para esta ficha
+  let lightboxIdx = -1;        // índice de la foto abierta en el lightbox
+  let dragFotoId = null;       // foto que se está arrastrando (reordenar)
+  // Typeahead de cliente del modal "Enviar por email".
+  let emailReservas = [];
+  let emClientes = [];         // candidatos {nombre, email} únicos
+  let emtaMatches = [];
+  let emtaIndex = -1;
+
+  // ---- Estado de la pestaña Calendario ----
+  const ANIOS_CAL = [2024, 2025, 2026, 2027];
+  let calAnio = new Date().getFullYear();
+  let calCargado = false;      // ya cargado el calendario para esta ficha
+  let calEstados = {};         // { nombreEstado: color }
+  let calEstadosActivos = [];  // estados activos (para la leyenda)
+  const CAL_COLOR_DEFECTO = '#9ca3af';
+  const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const DIAS_CAB = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
   const ORIENTACIONES = ['Norte', 'Sur', 'Este', 'Oeste', 'Sureste', 'Suroeste', 'Noreste', 'Noroeste'];
   const SITUACIONES = ['Frontal', 'Lateral Principio', 'Lateral Medio', 'Lateral Final'];
   const CLASIFICACIONES = ['A', 'A+', 'A++', 'B', 'B+', 'C'];
+
+  // ---- Estado de filtros (módulo: se mantiene al cambiar de pestaña) ----
+  let todos = [];          // caché de todos los apartamentos para filtrar en cliente
+  let busqueda = '';
+  // Tipo de apartamento (orden de presentación) con su clase de badge.
+  const CLASIF_FILTRO = [
+    { key: 'A++', clase: 'c-app' }, { key: 'A+', clase: 'c-ap' }, { key: 'A', clase: 'c-a' },
+    { key: 'B+', clase: 'c-bp' }, { key: 'B', clase: 'c-b' }, { key: 'C', clase: 'c-c' },
+    { key: '__sin__', clase: null }, // Sin clasificar
+  ];
+  const LIMPIEZA_FILTRO = [
+    { key: 'limpio', label: '🟢 Limpio' },
+    { key: 'sucio', label: '🔴 Sucio' },
+  ];
+  let fClas = new Set(CLASIF_FILTRO.map((c) => c.key)); // todas marcadas
+  let fLimp = new Set(LIMPIEZA_FILTRO.map((c) => c.key)); // todas marcadas
+  let fProp = 'todos';     // todos / con / sin
+  let fPlanning = 'todos'; // todos / visible / excluido
 
   // ---- Formato ----
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
@@ -50,11 +89,99 @@ const Alojamientos = (() => {
   // ==================== Tabla ====================
   async function cargar() {
     // ?todos=1: el módulo de Alojamientos necesita TODOS (incluidos los fuera del planning).
-    const lista = await API.get('/api/apartamentos?todos=1');
+    todos = await API.get('/api/apartamentos?todos=1');
+    construirFiltros();
+    asegurarColumnaLimpieza();
+    aplicarFiltros();
+  }
+
+  // Inserta el <th>Limpieza</th> en la cabecera (la tabla vive en index.html, que no tocamos).
+  function asegurarColumnaLimpieza() {
+    const tr = document.querySelector('#tabla-alojamientos thead tr');
+    if (!tr || tr.querySelector('.th-limpieza')) return;
+    const ths = Array.from(tr.querySelectorAll('th'));
+    const th = document.createElement('th');
+    th.className = 'th-limpieza';
+    th.textContent = 'Limpieza';
+    tr.insertBefore(th, ths[ths.length - 1]); // antes de la columna de acciones
+  }
+
+  // ---- Indicador de limpieza (compartido ficha + tabla) ----
+  function limpiezaBadgeHTML(estado, clic) {
+    const sucio = estado === 'sucio';
+    const cls = `alo-limp-badge ${sucio ? 'sucio' : 'limpio'}${clic ? ' alo-limp-clic' : ''}`;
+    return `<span class="${cls}"${clic ? ' title="Clic para cambiar estado de limpieza"' : ''}><span class="alo-limp-punto"></span>${sucio ? 'Sucio' : 'Limpio'}</span>`;
+  }
+
+  // Celda de limpieza para la tabla (badge clicable que alterna el estado).
+  function limpiezaCelda(a) {
+    const estado = limpDeApto(a);
+    const sucio = estado === 'sucio';
+    return `<span class="alo-limp-badge alo-limp-clic ${sucio ? 'sucio' : 'limpio'}" data-limp="${a.id}" data-limp-estado="${estado}" title="Clic para cambiar estado de limpieza"><span class="alo-limp-punto"></span>${sucio ? 'Sucio' : 'Limpio'}</span>`;
+  }
+
+  // Alterna el estado de limpieza. limpio→sucio pide confirmación; sucio→limpio no.
+  async function cambiarLimpieza(id, estadoActual) {
+    const nuevo = estadoActual === 'sucio' ? 'limpio' : 'sucio';
+    if (nuevo === 'sucio' && !confirm('¿Marcar como sucio?')) return;
+    try {
+      await API.put(`/api/apartamentos/${id}/limpieza`, { estado_limpieza: nuevo });
+    } catch (e) { return toast(e.message, 'error'); }
+    // Actualiza la caché de la tabla y repinta.
+    const apt = todos.find((a) => String(a.id) === String(id));
+    if (apt) apt.estado_limpieza = nuevo;
+    aplicarFiltros();
+    // Actualiza el indicador de la ficha si está abierta para ese apartamento.
+    if (fichaActual && String(fichaActual.id) === String(id)) {
+      fichaActual.estado_limpieza = nuevo;
+      const ind = document.getElementById('alo-limp-indicador');
+      if (ind) ind.innerHTML = limpiezaBadgeHTML(nuevo, true);
+    }
+    toast(nuevo === 'sucio' ? 'Marcado como sucio' : 'Marcado como limpio', 'ok');
+  }
+
+  // Clasificación de un apartamento ('__sin__' si no tiene).
+  function clasDeApto(a) { return a.tipo_clasificacion || '__sin__'; }
+  // Estado de limpieza ('limpio' por defecto si está vacío).
+  function limpDeApto(a) { return a.estado_limpieza === 'sucio' ? 'sucio' : 'limpio'; }
+  function tieneProp(a) { return (a.propietarios || []).length > 0; }
+
+  // ---- ¿Cada grupo está en su valor por defecto? ----
+  function clasDefault() { return fClas.size === CLASIF_FILTRO.length; }
+  function limpDefault() { return fLimp.size === LIMPIEZA_FILTRO.length; }
+
+  // Número de grupos de filtros activos (distintos al default) — para el badge.
+  function filtrosActivos() {
+    return [!clasDefault(), !limpDefault(), fProp !== 'todos', fPlanning !== 'todos']
+      .filter(Boolean).length;
+  }
+
+  // ---- Filtrado en cliente (búsqueda + filtros, combinados) ----
+  function filtrar() {
+    const aplicaClas = !clasDefault();
+    const aplicaLimp = !limpDefault();
+    const q = busqueda.toLowerCase();
+    return todos.filter((a) => {
+      if (q && !(a.nombre || '').toLowerCase().includes(q)) return false;
+      if (aplicaClas && !fClas.has(clasDeApto(a))) return false;
+      if (aplicaLimp && !fLimp.has(limpDeApto(a))) return false;
+      if (fProp === 'con' && !tieneProp(a)) return false;
+      if (fProp === 'sin' && tieneProp(a)) return false;
+      if (fPlanning === 'visible' && a.quitar_planning) return false;
+      if (fPlanning === 'excluido' && !a.quitar_planning) return false;
+      return true;
+    });
+  }
+
+  function renderTabla(lista) {
     const tbody = document.querySelector('#tabla-alojamientos tbody');
     tbody.innerHTML = '';
-    if (lista.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
+    if (!todos.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
+      return;
+    }
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
       return;
     }
     for (const a of lista) {
@@ -70,18 +197,155 @@ const Alojamientos = (() => {
         <td>${a.capacidad ?? '—'}</td>
         <td>${esc(propietario) || '—'}</td>
         <td>${esc(a.notas)}</td>
+        <td>${limpiezaCelda(a)}</td>
         <td class="acciones">
           <button class="btn-mini" data-editar="${a.id}">Editar</button>
           <button class="btn-mini" data-borrar="${a.id}">Eliminar</button>
         </td>`;
       tbody.appendChild(tr);
     }
+    tbody.querySelectorAll('[data-limp]').forEach((el) =>
+      el.addEventListener('click', (e) => { e.stopPropagation(); cambiarLimpieza(el.dataset.limp, el.dataset.limpEstado); }));
     tbody.querySelectorAll('[data-ficha]').forEach((el) =>
       el.addEventListener('click', () => abrirFicha(el.dataset.ficha)));
     tbody.querySelectorAll('[data-editar]').forEach((el) =>
       el.addEventListener('click', () => formulario(el.dataset.editar)));
     tbody.querySelectorAll('[data-borrar]').forEach((el) =>
       el.addEventListener('click', () => borrar(el.dataset.borrar)));
+  }
+
+  // Redibuja la tabla + actualiza badge, "Limpiar filtros" y contador "Mostrando X de Y".
+  function aplicarFiltros() {
+    const lista = filtrar();
+    renderTabla(lista);
+    const n = filtrosActivos();
+    const badge = document.getElementById('alo-filtros-badge');
+    if (badge) { badge.textContent = n; badge.classList.toggle('oculto', n === 0); }
+    document.getElementById('alo-limpiar')?.classList.toggle('oculto', n === 0 && !busqueda);
+    const cont = document.getElementById('alo-contador');
+    if (cont) cont.textContent = `Mostrando ${lista.length} de ${todos.length} alojamientos`;
+  }
+
+  // ==================== Barra de filtros (inyectada por JS) ====================
+  function construirFiltros() {
+    const vista = document.getElementById('vista-alojamientos');
+    if (!vista || document.getElementById('alo-filtros-btn')) return;
+    const barraHerr = vista.querySelector('.barra-herramientas');
+    const tablaScroll = vista.querySelector('.tabla-scroll');
+    if (!barraHerr || !tablaScroll) return;
+
+    const grupoCheck = (titulo, contId, items) => `
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">${titulo}</div>
+        <div class="rsv-f-todos" data-todos="${contId}">Seleccionar / deseleccionar todos</div>
+        <div class="rsv-f-ops" id="${contId}">${items}</div>
+      </div>`;
+
+    const clasItems = CLASIF_FILTRO.map((c) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="clas" value="${c.key}" checked>
+        ${c.key === '__sin__' ? '<span class="rsv-f-op-label">Sin clasificar</span>'
+          : `<span class="badge-clasif ${c.clase}">${c.key}</span>`}</label>`).join('');
+
+    const limpItems = LIMPIEZA_FILTRO.map((c) => `
+      <label class="rsv-f-op"><input type="checkbox" data-grupo="limp" value="${c.key}" checked>
+        <span class="rsv-f-op-label">${c.label}</span></label>`).join('');
+
+    const barra = document.createElement('div');
+    barra.className = 'reservas-controles alo-controles';
+    barra.innerHTML = `
+      <input type="search" id="alo-buscar" class="input-buscar" placeholder="Buscar por nombre..." autocomplete="off">
+      <div class="rsv-filtros-wrap">
+        <button id="alo-filtros-btn" class="btn-sec">🔽 Filtros <span id="alo-filtros-badge" class="rsv-filtros-badge oculto"></span></button>
+        <div id="alo-filtros-panel" class="rsv-filtros-panel oculto">
+          ${grupoCheck('Tipo de apartamento', 'alo-f-clas', clasItems)}
+          ${grupoCheck('Estado de limpieza', 'alo-f-limp', limpItems)}
+          <div class="rsv-f-grupo">
+            <div class="rsv-f-titulo">Tiene propietario</div>
+            <select id="alo-f-prop" class="select-filtro">
+              <option value="todos">Todos</option>
+              <option value="con">Con propietario</option>
+              <option value="sin">Sin propietario</option>
+            </select>
+          </div>
+          <div class="rsv-f-grupo">
+            <div class="rsv-f-titulo">Visible en planning</div>
+            <select id="alo-f-planning" class="select-filtro">
+              <option value="todos">Todos</option>
+              <option value="visible">Visible</option>
+              <option value="excluido">Excluido</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <button id="alo-limpiar" class="btn-sec rsv-limpiar oculto">Limpiar filtros</button>`;
+
+    const contador = document.createElement('div');
+    contador.id = 'alo-contador';
+    contador.className = 'alo-contador';
+
+    vista.insertBefore(barra, tablaScroll);
+    vista.insertBefore(contador, tablaScroll);
+
+    conectarFiltros(barra);
+  }
+
+  function setDeGrupo(grupo) { return grupo === 'clas' ? fClas : fLimp; }
+
+  function conectarFiltros(barra) {
+    const btn = barra.querySelector('#alo-filtros-btn');
+    const panel = barra.querySelector('#alo-filtros-panel');
+
+    const abrir = (v) => panel.classList.toggle('oculto', !v);
+    btn.addEventListener('click', (e) => { e.stopPropagation(); abrir(panel.classList.contains('oculto')); });
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => abrir(false));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
+
+    // Buscador en tiempo real.
+    barra.querySelector('#alo-buscar').addEventListener('input', (e) => {
+      busqueda = e.target.value.trim();
+      aplicarFiltros();
+    });
+
+    // Checkboxes (delegación): actualizan el Set del grupo correspondiente.
+    panel.addEventListener('change', (e) => {
+      const chk = e.target.closest('input[type="checkbox"][data-grupo]');
+      if (!chk) return;
+      const set = setDeGrupo(chk.dataset.grupo);
+      if (chk.checked) set.add(chk.value); else set.delete(chk.value);
+      aplicarFiltros();
+    });
+
+    // "Seleccionar / deseleccionar todos" por grupo.
+    panel.querySelectorAll('.rsv-f-todos').forEach((el) =>
+      el.addEventListener('click', () => {
+        const cont = document.getElementById(el.dataset.todos);
+        const checks = [...cont.querySelectorAll('input[type="checkbox"]')];
+        const marcarTodos = !checks.every((c) => c.checked);
+        const set = setDeGrupo(checks[0]?.dataset.grupo);
+        if (!set) return;
+        checks.forEach((c) => { c.checked = marcarTodos; if (marcarTodos) set.add(c.value); else set.delete(c.value); });
+        aplicarFiltros();
+      }));
+
+    // Single selects.
+    panel.querySelector('#alo-f-prop').addEventListener('change', (e) => { fProp = e.target.value; aplicarFiltros(); });
+    panel.querySelector('#alo-f-planning').addEventListener('change', (e) => { fPlanning = e.target.value; aplicarFiltros(); });
+
+    barra.querySelector('#alo-limpiar').addEventListener('click', resetFiltros);
+  }
+
+  function resetFiltros() {
+    fClas = new Set(CLASIF_FILTRO.map((c) => c.key));
+    fLimp = new Set(LIMPIEZA_FILTRO.map((c) => c.key));
+    fProp = 'todos';
+    fPlanning = 'todos';
+    busqueda = '';
+    document.querySelectorAll('#alo-filtros-panel input[type="checkbox"]').forEach((c) => { c.checked = true; });
+    const selProp = document.getElementById('alo-f-prop'); if (selProp) selProp.value = 'todos';
+    const selPlan = document.getElementById('alo-f-planning'); if (selPlan) selPlan.value = 'todos';
+    const buscar = document.getElementById('alo-buscar'); if (buscar) buscar.value = '';
+    aplicarFiltros();
   }
 
   // ==================== Panel lateral ====================
@@ -109,6 +373,8 @@ const Alojamientos = (() => {
         <button class="rsv-subtab activo" data-asub="alojamiento">Alojamiento</button>
         <button class="rsv-subtab" data-asub="propietario">Propietario</button>
         <button class="rsv-subtab" data-asub="gastos">Gastos</button>
+        <button class="rsv-subtab" data-asub="galeria">Galería</button>
+        <button class="rsv-subtab" data-asub="calendario">Calendario</button>
       </div>
       <div id="alo-cuerpo" class="panel-cuerpo"></div>`;
     document.body.appendChild(fondo);
@@ -122,7 +388,11 @@ const Alojamientos = (() => {
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
-      if (!modalAbierto && panel.classList.contains('abierto')) cerrarPanel();
+      const lightboxAbierto = document.getElementById('alo-lightbox')?.classList.contains('abierto');
+      const popLimp = document.getElementById('alo-limp-pop');
+      const popAbierto = popLimp && !popLimp.classList.contains('oculto');
+      if (popAbierto) { e.stopPropagation(); cerrarHistLimpieza(); return; }
+      if (!modalAbierto && !lightboxAbierto && panel.classList.contains('abierto')) cerrarPanel();
     }, true);
   }
   function abrirPanel() {
@@ -141,6 +411,8 @@ const Alojamientos = (() => {
       p.classList.toggle('activo', p.dataset.asubpanel === sub));
     if (sub === 'propietario' && !propTabCargada) renderPropietario();
     if (sub === 'gastos' && !gastosCargados) cargarGastos();
+    if (sub === 'galeria' && !galeriaCargada) cargarGaleria();
+    if (sub === 'calendario' && !calCargado) cargarCalendario();
   }
 
   async function abrirFicha(id) {
@@ -152,6 +424,8 @@ const Alojamientos = (() => {
     }
     propTabCargada = false;
     gastosCargados = false;
+    galeriaCargada = false;
+    calCargado = false;
     if (!ANIOS_GASTO.includes(gastoAnio)) gastoAnio = ANIOS_GASTO[ANIOS_GASTO.length - 1];
     document.getElementById('alo-titulo').textContent = fichaActual.nombre || 'Alojamiento';
     document.getElementById('alo-badges').innerHTML = badgesCabecera(fichaActual);
@@ -169,7 +443,9 @@ const Alojamientos = (() => {
     document.getElementById('alo-cuerpo').innerHTML = `
       <div class="rsv-subpanel activo" data-asubpanel="alojamiento">${alojamientoHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="propietario"><div id="alo-prop-cont"></div></div>
-      <div class="rsv-subpanel" data-asubpanel="gastos">${gastosShellHTML()}</div>`;
+      <div class="rsv-subpanel" data-asubpanel="gastos">${gastosShellHTML()}</div>
+      <div class="rsv-subpanel" data-asubpanel="galeria">${galeriaShellHTML()}</div>
+      <div class="rsv-subpanel" data-asubpanel="calendario">${calendarioShellHTML()}</div>`;
 
     const wt = document.querySelector('#alo-cuerpo [data-wifi-toggle]');
     if (wt) wt.addEventListener('click', () => {
@@ -183,6 +459,56 @@ const Alojamientos = (() => {
     if (selAnio) selAnio.addEventListener('change', (e) => { gastoAnio = Number(e.target.value); cargarGastos(); });
     const btnAdd = document.getElementById('alo-gasto-add');
     if (btnAdd) btnAdd.addEventListener('click', modalAnadirGasto);
+
+    const calSelAnio = document.getElementById('alo-cal-anio');
+    if (calSelAnio) calSelAnio.addEventListener('change', (e) => { calAnio = Number(e.target.value); cargarCalendario(); });
+
+    const limpInd = document.getElementById('alo-limp-indicador');
+    if (limpInd) limpInd.addEventListener('click', () => { if (fichaActual) cambiarLimpieza(fichaActual.id, limpDeApto(fichaActual)); });
+    const limpHist = document.getElementById('alo-limp-hist-btn');
+    if (limpHist) limpHist.addEventListener('click', (e) => { e.stopPropagation(); toggleHistLimpieza(); });
+  }
+
+  // ---- Historial de limpieza (popover) ----
+  function fechaHoraLog(s) {
+    if (!s) return '—';
+    const [d, t] = String(s).split(' ');
+    const p = d.split('-');
+    if (p.length !== 3) return s;
+    return `${p[2]}/${p[1]}/${p[0]}${t ? ' ' + t.slice(0, 5) : ''}`;
+  }
+  async function toggleHistLimpieza() {
+    const pop = document.getElementById('alo-limp-pop');
+    if (!pop) return;
+    if (!pop.classList.contains('oculto')) { cerrarHistLimpieza(); return; }
+    pop.innerHTML = '<div class="alo-limp-pop-cargando">Cargando…</div>';
+    pop.classList.remove('oculto');
+    setTimeout(() => document.addEventListener('click', cerrarHistFuera), 0);
+    let log = [];
+    try { log = await API.get(`/api/apartamentos/${fichaActual.id}/limpieza-log`); }
+    catch (e) { log = []; }
+    if (pop.classList.contains('oculto')) return; // se cerró mientras cargaba
+    renderHistLimpieza(log);
+  }
+  function renderHistLimpieza(log) {
+    const pop = document.getElementById('alo-limp-pop');
+    if (!pop) return;
+    const aviso = `<div class="alo-limp-pop-aviso">ℹ️ El estado se pondrá automáticamente en 'Sucio' con los checkouts cuando se integre el módulo de limpieza</div>`;
+    if (!log.length) { pop.innerHTML = '<div class="alo-limp-pop-vacio">Sin cambios registrados</div>' + aviso; return; }
+    const items = log.slice(0, 20).map((l) => {
+      const sucio = l.estado_nuevo === 'sucio';
+      return `<div class="alo-limp-pop-item">${sucio ? '🔴' : '🟢'} ${sucio ? 'Sucio' : 'Limpio'} — ${esc(l.usuario_nombre) || '—'} — ${fechaHoraLog(l.fecha)}</div>`;
+    }).join('');
+    pop.innerHTML = items + aviso;
+  }
+  function cerrarHistLimpieza() {
+    const pop = document.getElementById('alo-limp-pop');
+    if (pop) pop.classList.add('oculto');
+    document.removeEventListener('click', cerrarHistFuera);
+  }
+  function cerrarHistFuera(e) {
+    const wrap = document.querySelector('.alo-limp-wrap');
+    if (wrap && !wrap.contains(e.target)) cerrarHistLimpieza();
   }
 
   function wifiDato(a) {
@@ -209,8 +535,16 @@ const Alojamientos = (() => {
       ? '<span class="badge-estado inactivo">Excluido del planning</span>'
       : '<span class="badge-estado activo">Visible en planning</span>';
 
+    const estadoLimp = limpDeApto(a);
     return `
-      <div class="ficha-seccion-titulo">Datos generales</div>
+      <div class="ficha-seccion-head">
+        <div class="ficha-seccion-titulo">Datos generales</div>
+        <div class="alo-limp-wrap">
+          <span id="alo-limp-indicador" class="alo-limp-clic-cont">${limpiezaBadgeHTML(estadoLimp, true)}</span>
+          <button id="alo-limp-hist-btn" class="alo-limp-hist-btn" title="Ver historial">🕐</button>
+          <div id="alo-limp-pop" class="alo-limp-pop oculto"></div>
+        </div>
+      </div>
       <div class="ficha-grid">${generales}</div>
 
       <div class="ficha-seccion-titulo">Configuración</div>
@@ -764,6 +1098,612 @@ const Alojamientos = (() => {
     const dd = document.getElementById('ag-concepto-dropdown');
     if (dd) dd.classList.add('oculto');
     gtaIndex = -1;
+  }
+
+  // ==================== Pestaña Galería ====================
+  function galeriaShellHTML() {
+    return `
+      <div class="alo-gal-head">
+        <div class="alo-gal-titulo">Galería de fotos <span id="alo-gal-count" class="alo-prop-count">0</span></div>
+        <div class="alo-gal-acciones">
+          <button id="alo-gal-subir" class="btn-pri">＋ Subir fotos</button>
+          <button id="alo-gal-email" class="btn-sec" disabled>📧 Enviar por email</button>
+        </div>
+      </div>
+      <div id="alo-gal-grid"></div>`;
+  }
+
+  function skeletonGaleria() {
+    return '<div class="alo-gal-grid">' +
+      '<div class="alo-gal-item"><span class="skeleton" style="display:block;aspect-ratio:1;border-radius:6px"></span></div>'.repeat(6) +
+      '</div>';
+  }
+
+  async function cargarGaleria() {
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    galeriaCargada = true;
+    const grid = document.getElementById('alo-gal-grid');
+    if (grid) grid.innerHTML = skeletonGaleria();
+    try {
+      galeriaFotos = await API.get(`/api/apartamentos/${id}/fotos`);
+    } catch (e) {
+      if (grid) grid.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar las fotos.</div>';
+      return;
+    }
+    if (!fichaActual || String(fichaActual.id) !== String(id)) return; // la ficha cambió
+    renderGaleria();
+    // Enlazar botones de cabecera (existen siempre en el shell).
+    const bSubir = document.getElementById('alo-gal-subir');
+    const bEmail = document.getElementById('alo-gal-email');
+    if (bSubir) bSubir.onclick = modalSubirFotos;
+    if (bEmail) bEmail.onclick = modalEnviarEmail;
+  }
+
+  function renderGaleria() {
+    const grid = document.getElementById('alo-gal-grid');
+    const count = document.getElementById('alo-gal-count');
+    const bEmail = document.getElementById('alo-gal-email');
+    if (count) count.textContent = galeriaFotos.length;
+    if (bEmail) bEmail.disabled = galeriaFotos.length === 0;
+    if (!grid) return;
+
+    if (!galeriaFotos.length) {
+      grid.innerHTML = `
+        <div class="alo-gal-vacio" id="alo-gal-dropvacio">
+          <div class="alo-gal-vacio-icono">📷</div>
+          <div>Arrastra fotos aquí o pulsa <strong>Subir fotos</strong></div>
+        </div>`;
+      const dz = document.getElementById('alo-gal-dropvacio');
+      if (dz) conectarDropEnZona(dz);
+      return;
+    }
+
+    grid.innerHTML = '<div class="alo-gal-grid">' + galeriaFotos.map((f, i) => `
+      <div class="alo-gal-celda">
+        <div class="alo-gal-item" draggable="true" data-foto="${f.id}" data-idx="${i}">
+          <img src="${esc(f.url)}" alt="${esc(f.descripcion || '')}" loading="lazy">
+          <div class="alo-gal-overlay">
+            <button class="alo-gal-ov-btn" data-borrar-foto="${f.id}" title="Eliminar">🗑</button>
+            <button class="alo-gal-ov-btn" data-editar-foto="${f.id}" title="Editar descripción">✏️</button>
+          </div>
+        </div>
+        ${f.descripcion ? `<div class="alo-gal-desc">${esc(f.descripcion)}</div>` : ''}
+      </div>`).join('') + '</div>';
+
+    // Clic en imagen → lightbox (ignora clics en botones del overlay).
+    grid.querySelectorAll('.alo-gal-item').forEach((it) => {
+      it.querySelector('img').addEventListener('click', () => abrirLightbox(Number(it.dataset.idx)));
+      conectarDragItem(it);
+    });
+    grid.querySelectorAll('[data-borrar-foto]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); eliminarFoto(Number(b.dataset.borrarFoto)); }));
+    grid.querySelectorAll('[data-editar-foto]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalEditarDescripcion(Number(b.dataset.editarFoto)); }));
+  }
+
+  // ---- Drag & drop para reordenar ----
+  function conectarDragItem(it) {
+    it.addEventListener('dragstart', (e) => { dragFotoId = Number(it.dataset.foto); it.classList.add('arrastrando'); e.dataTransfer.effectAllowed = 'move'; });
+    it.addEventListener('dragend', () => { dragFotoId = null; it.classList.remove('arrastrando'); document.querySelectorAll('.alo-gal-item.drop-target').forEach((x) => x.classList.remove('drop-target')); });
+    it.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; it.classList.add('drop-target'); });
+    it.addEventListener('dragleave', () => it.classList.remove('drop-target'));
+    it.addEventListener('drop', (e) => {
+      e.preventDefault();
+      it.classList.remove('drop-target');
+      const destinoId = Number(it.dataset.foto);
+      if (dragFotoId == null || dragFotoId === destinoId) return;
+      reordenarFotos(dragFotoId, destinoId);
+    });
+  }
+
+  async function reordenarFotos(origenId, destinoId) {
+    const arr = galeriaFotos.slice();
+    const iO = arr.findIndex((f) => f.id === origenId);
+    const iD = arr.findIndex((f) => f.id === destinoId);
+    if (iO < 0 || iD < 0) return;
+    const [movida] = arr.splice(iO, 1);
+    arr.splice(iD, 0, movida);
+    galeriaFotos = arr;
+    renderGaleria(); // feedback inmediato
+    try {
+      await API.post(`/api/apartamentos/${fichaActual.id}/fotos/reordenar`, { orden: arr.map((f) => f.id) });
+    } catch (e) {
+      toast(e.message, 'error');
+      cargarGaleria(); // revertir desde servidor
+    }
+  }
+
+  // ---- Lightbox ----
+  function abrirLightbox(idx) {
+    lightboxIdx = idx;
+    let box = document.getElementById('alo-lightbox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'alo-lightbox';
+      box.className = 'alo-lightbox';
+      box.innerHTML = `
+        <button class="alo-lb-cerrar" data-lb="cerrar" title="Cerrar">✕</button>
+        <button class="alo-lb-nav alo-lb-prev" data-lb="prev" title="Anterior">◀</button>
+        <figure class="alo-lb-fig"><img id="alo-lb-img" src="" alt=""><figcaption id="alo-lb-cap"></figcaption></figure>
+        <button class="alo-lb-nav alo-lb-next" data-lb="next" title="Siguiente">▶</button>`;
+      document.body.appendChild(box);
+      box.addEventListener('click', (e) => {
+        const acc = e.target.closest('[data-lb]');
+        if (acc) { const a = acc.dataset.lb; if (a === 'cerrar') cerrarLightbox(); else navLightbox(a === 'next' ? 1 : -1); return; }
+        if (e.target === box) cerrarLightbox(); // clic en el fondo cierra
+      });
+      document.addEventListener('keydown', lightboxKeys, true);
+    }
+    pintarLightbox();
+    box.classList.add('abierto');
+  }
+  function pintarLightbox() {
+    const f = galeriaFotos[lightboxIdx];
+    if (!f) return cerrarLightbox();
+    const img = document.getElementById('alo-lb-img');
+    const cap = document.getElementById('alo-lb-cap');
+    if (img) img.src = f.url;
+    if (cap) cap.textContent = f.descripcion || '';
+    const box = document.getElementById('alo-lightbox');
+    if (box) {
+      box.querySelector('.alo-lb-prev').style.visibility = galeriaFotos.length > 1 ? 'visible' : 'hidden';
+      box.querySelector('.alo-lb-next').style.visibility = galeriaFotos.length > 1 ? 'visible' : 'hidden';
+    }
+  }
+  function navLightbox(delta) {
+    if (!galeriaFotos.length) return;
+    lightboxIdx = (lightboxIdx + delta + galeriaFotos.length) % galeriaFotos.length;
+    pintarLightbox();
+  }
+  function cerrarLightbox() {
+    const box = document.getElementById('alo-lightbox');
+    if (box) box.classList.remove('abierto');
+    lightboxIdx = -1;
+  }
+  function lightboxKeys(e) {
+    const box = document.getElementById('alo-lightbox');
+    if (!box || !box.classList.contains('abierto')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrarLightbox(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); navLightbox(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); navLightbox(-1); }
+  }
+
+  // ---- Eliminar / editar descripción ----
+  async function eliminarFoto(id) {
+    if (!confirm('¿Eliminar esta foto?')) return;
+    try {
+      await API.del(`/api/apartamentos/${fichaActual.id}/fotos/${id}`);
+      toast('Foto eliminada', 'ok');
+      await cargarGaleria();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function modalEditarDescripcion(id) {
+    const f = galeriaFotos.find((x) => x.id === id);
+    if (!f) return;
+    abrirModal(`
+      <h3>Editar descripción</h3>
+      <div class="campo"><label>Descripción</label><textarea id="ed-desc">${esc(f.descripcion)}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ed-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ed-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('ed-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ed-guardar').addEventListener('click', async () => {
+      try {
+        await API.put(`/api/apartamentos/${fichaActual.id}/fotos/${id}`, { descripcion: val('ed-desc') });
+        cerrarModal();
+        await cargarGaleria();
+        toast('Descripción guardada', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ---- Subir fotos (dropzone + preview + barra de progreso) ----
+  let subirSeleccion = []; // File[] pendientes
+  function modalSubirFotos() {
+    subirSeleccion = [];
+    abrirModal(`
+      <h3>Subir fotos</h3>
+      <div class="alo-dropzone" id="alo-dropzone">
+        <div class="alo-dropzone-icono">📷</div>
+        <div>Arrastra fotos aquí o <strong>haz clic para seleccionar</strong></div>
+        <div class="alo-dropzone-sub">Hasta 10 a la vez · JPG, PNG, WEBP</div>
+        <input type="file" id="alo-file-input" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
+      </div>
+      <div id="alo-preview" class="alo-preview"></div>
+      <div id="alo-progreso" class="alo-progreso oculto"><div class="alo-progreso-barra" id="alo-progreso-barra"></div></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="alo-sub-cancelar">Cancelar</button>
+        <button class="btn-pri" id="alo-sub-guardar" disabled>Subir</button>
+      </div>`);
+
+    const dz = document.getElementById('alo-dropzone');
+    const input = document.getElementById('alo-file-input');
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('arrastrando'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('arrastrando'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('arrastrando'); anadirArchivos(e.dataTransfer.files); });
+    input.addEventListener('change', () => anadirArchivos(input.files));
+
+    document.getElementById('alo-sub-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('alo-sub-guardar').addEventListener('click', subirFotos);
+  }
+
+  const EXT_FOTO = ['jpg', 'jpeg', 'png', 'webp'];
+  function anadirArchivos(fileList) {
+    const nuevos = Array.from(fileList).filter((f) => EXT_FOTO.includes((f.name.split('.').pop() || '').toLowerCase()));
+    if (Array.from(fileList).length && !nuevos.length) toast('Formato no admitido (solo JPG, PNG, WEBP)', 'error');
+    for (const f of nuevos) {
+      if (subirSeleccion.length >= 10) { toast('Máximo 10 fotos a la vez', 'aviso'); break; }
+      subirSeleccion.push(f);
+    }
+    renderPreview();
+  }
+  function renderPreview() {
+    const cont = document.getElementById('alo-preview');
+    const btn = document.getElementById('alo-sub-guardar');
+    if (!cont) return;
+    if (btn) { btn.disabled = subirSeleccion.length === 0; btn.textContent = subirSeleccion.length ? `Subir ${subirSeleccion.length}` : 'Subir'; }
+    cont.innerHTML = '';
+    subirSeleccion.forEach((file, i) => {
+      const div = document.createElement('div');
+      div.className = 'alo-preview-item';
+      div.innerHTML = `<img alt=""><button class="alo-preview-quitar" title="Quitar">✕</button>`;
+      const reader = new FileReader();
+      reader.onload = (e) => { div.querySelector('img').src = e.target.result; };
+      reader.readAsDataURL(file);
+      div.querySelector('.alo-preview-quitar').addEventListener('click', () => { subirSeleccion.splice(i, 1); renderPreview(); });
+      cont.appendChild(div);
+    });
+  }
+  function subirFotos() {
+    if (!subirSeleccion.length) return;
+    const fd = new FormData();
+    subirSeleccion.forEach((f) => fd.append('fotos', f));
+    const barraCont = document.getElementById('alo-progreso');
+    const barra = document.getElementById('alo-progreso-barra');
+    if (barraCont) barraCont.classList.remove('oculto');
+    document.getElementById('alo-sub-guardar').disabled = true;
+    document.getElementById('alo-sub-cancelar').disabled = true;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/apartamentos/${fichaActual.id}/fotos`);
+    const h = authHeaders();
+    for (const k in h) xhr.setRequestHeader(k, h[k]);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && barra) barra.style.width = Math.round((e.loaded / e.total) * 100) + '%'; };
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const n = subirSeleccion.length;
+        cerrarModal();
+        await cargarGaleria();
+        toast(`${n} foto${n === 1 ? '' : 's'} subida${n === 1 ? '' : 's'}`, 'ok');
+      } else {
+        let msg = 'Error al subir';
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+        toast(msg, 'error');
+        document.getElementById('alo-sub-guardar').disabled = false;
+        document.getElementById('alo-sub-cancelar').disabled = false;
+        if (barraCont) barraCont.classList.add('oculto');
+      }
+    };
+    xhr.onerror = () => { toast('Error de red al subir', 'error'); document.getElementById('alo-sub-cancelar').disabled = false; };
+    xhr.send(fd);
+  }
+
+  // ---- Enviar por email (mailto) + descargar ----
+  function urlAbsoluta(u) { return u.startsWith('http') ? u : window.location.origin + u; }
+
+  async function modalEnviarEmail() {
+    if (!galeriaFotos.length) return;
+    const apto = fichaActual;
+    // Razón social principal (la primera) para la firma; reservas para el typeahead.
+    let razon = '';
+    try {
+      const rs = await API.get('/api/ajustes/razones-sociales');
+      if (rs && rs.length) razon = rs[0].razon_social || rs[0].nombre_comercial || '';
+    } catch (e) { /* opcional */ }
+    try { emailReservas = await API.get('/api/reservas/todas'); } catch (e) { emailReservas = []; }
+    // Candidatos únicos por email (o por nombre si no hay email).
+    const vistos = new Set();
+    emClientes = [];
+    for (const r of emailReservas) {
+      const nombre = r.nombre_cliente || r.ocupante || '';
+      const email = r.email || r.email_cliente || '';
+      if (!nombre && !email) continue;
+      const clave = (email || nombre).toLowerCase();
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+      emClientes.push({ nombre, email });
+    }
+
+    const asunto = `Fotos del apartamento ${apto.nombre || ''}`.trim();
+    const mensaje = `Buenos días,\n\nLe adjuntamos las fotos del apartamento ${apto.nombre || ''} para su consulta.\n\nUn saludo,\n${razon}`;
+
+    const thumbs = galeriaFotos.map((f) => `
+      <label class="alo-em-thumb">
+        <input type="checkbox" data-em-foto="${f.id}" checked>
+        <img src="${esc(f.url)}" alt="">
+      </label>`).join('');
+
+    abrirModal(`
+      <h3>📧 Enviar fotos</h3>
+      <div class="campo">
+        <label>Destinatario</label>
+        <div class="alo-em-radios">
+          <label><input type="radio" name="em-modo" value="manual" checked> Email manual</label>
+          <label><input type="radio" name="em-modo" value="cliente"> Buscar cliente</label>
+        </div>
+        <input type="email" id="em-email" placeholder="correo@ejemplo.com" autocomplete="off">
+        <div class="cnt-typeahead oculto" id="em-cliente-wrap" style="margin-top:8px">
+          <input id="em-cliente-buscar" placeholder="Buscar cliente por nombre o email..." autocomplete="off">
+          <div class="cnt-ta-dropdown oculto" id="em-cliente-dropdown"></div>
+        </div>
+      </div>
+      <div class="campo"><label>Asunto</label><input id="em-asunto" value="${esc(asunto)}"></div>
+      <div class="campo"><label>Mensaje</label><textarea id="em-mensaje" rows="6">${esc(mensaje)}</textarea></div>
+      <div class="campo"><label>Fotos a enviar (${galeriaFotos.length})</label><div class="alo-em-thumbs">${thumbs}</div></div>
+      <div class="alo-em-aviso">ℹ️ Se abrirá tu cliente de correo. Las fotos no se adjuntan automáticamente por mailto — descárgalas primero y adjúntalas manualmente, o usa el botón Descargar todas.</div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="em-cancelar">Cancelar</button>
+        <button class="btn-sec" id="em-descargar">📥 Descargar todas</button>
+        <button class="btn-pri" id="em-gmail">Abrir en Gmail</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+
+    // Alternar manual / cliente.
+    const wrapCli = document.getElementById('em-cliente-wrap');
+    const inputEmail = document.getElementById('em-email');
+    document.querySelectorAll('input[name="em-modo"]').forEach((rb) =>
+      rb.addEventListener('change', () => {
+        const cliente = rb.value === 'cliente' && rb.checked;
+        wrapCli.classList.toggle('oculto', !cliente);
+        inputEmail.classList.toggle('oculto', cliente);
+      }));
+
+    initEmailTypeahead();
+    document.getElementById('em-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('em-descargar').addEventListener('click', () => descargarSeleccionadas());
+    document.getElementById('em-gmail').addEventListener('click', () => {
+      const email = (inputEmail.value || '').trim();
+      if (!email) return toast('Indica un email de destino', 'error');
+      const asuntoV = val('em-asunto');
+      const mensajeV = val('em-mensaje');
+      const mailto = `mailto:${email}?subject=${encodeURIComponent(asuntoV)}&body=${encodeURIComponent(mensajeV)}`;
+      window.open(mailto, '_blank');
+    });
+  }
+
+  function fotosSeleccionadasEmail() {
+    const ids = Array.from(document.querySelectorAll('[data-em-foto]:checked')).map((c) => Number(c.dataset.emFoto));
+    return galeriaFotos.filter((f) => ids.includes(f.id));
+  }
+
+  async function descargarSeleccionadas() {
+    const fotos = fotosSeleccionadasEmail();
+    if (!fotos.length) return toast('Selecciona al menos una foto', 'aviso');
+    for (let i = 0; i < fotos.length; i++) {
+      const f = fotos[i];
+      if (fotos.length > 1) toast(`Descargando foto ${i + 1} de ${fotos.length}…`, 'ok');
+      try {
+        const r = await fetch(urlAbsoluta(f.url), { headers: authHeaders() });
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = f.nombre_archivo || `foto-${f.id}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+      } catch (e) { toast('No se pudo descargar una foto', 'error'); }
+    }
+    if (fotos.length > 1) toast('Descarga completada', 'ok');
+  }
+
+  // ---- Typeahead de cliente (modal email) ----
+  function initEmailTypeahead() {
+    const input = document.getElementById('em-cliente-buscar');
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      if (q.length < 2) { cerrarEmailDrop(); return; }
+      emtaMatches = emClientes.filter((c) =>
+        c.nombre.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q)).slice(0, 30);
+      emtaIndex = -1;
+      renderEmailDrop();
+    });
+    input.addEventListener('keydown', (e) => {
+      const dd = document.getElementById('em-cliente-dropdown');
+      const abierto = dd && !dd.classList.contains('oculto');
+      if (e.key === 'ArrowDown') { if (!abierto) return; e.preventDefault(); emtaIndex = Math.min(emtaIndex + 1, emtaMatches.length - 1); renderEmailDrop(); }
+      else if (e.key === 'ArrowUp') { if (!abierto) return; e.preventDefault(); emtaIndex = Math.max(emtaIndex - 1, 0); renderEmailDrop(); }
+      else if (e.key === 'Enter') { if (abierto && emtaIndex >= 0 && emtaMatches[emtaIndex]) { e.preventDefault(); seleccionarCliente(emtaIndex); } }
+      else if (e.key === 'Escape') { if (abierto) { e.preventDefault(); e.stopPropagation(); cerrarEmailDrop(); } }
+    });
+    input.addEventListener('blur', () => setTimeout(cerrarEmailDrop, 120));
+  }
+  function renderEmailDrop() {
+    const dd = document.getElementById('em-cliente-dropdown');
+    if (!dd) return;
+    if (!emtaMatches.length) { dd.innerHTML = '<div class="cnt-ta-vacio">Sin resultados</div>'; dd.classList.remove('oculto'); return; }
+    dd.innerHTML = emtaMatches.map((c, i) => `
+      <div class="cnt-ta-op${i === emtaIndex ? ' activo' : ''}" data-idx="${i}">
+        <span class="cnt-ta-nombre">${esc(c.nombre || '(sin nombre)')}${c.email ? ` <span class="cnt-ta-edif">${esc(c.email)}</span>` : ' <span class="cnt-ta-edif">sin email</span>'}</span>
+      </div>`).join('');
+    dd.classList.remove('oculto');
+    dd.querySelectorAll('.cnt-ta-op').forEach((op) =>
+      op.addEventListener('mousedown', (e) => { e.preventDefault(); seleccionarCliente(Number(op.dataset.idx)); }));
+  }
+  function seleccionarCliente(i) {
+    const c = emtaMatches[i];
+    if (!c) return;
+    document.getElementById('em-cliente-buscar').value = c.nombre + (c.email ? ` <${c.email}>` : '');
+    const inputEmail = document.getElementById('em-email');
+    if (c.email) { inputEmail.value = c.email; }
+    else toast('Esa reserva no tiene email guardado; escríbelo manualmente', 'aviso');
+    cerrarEmailDrop();
+  }
+  function cerrarEmailDrop() {
+    const dd = document.getElementById('em-cliente-dropdown');
+    if (dd) dd.classList.add('oculto');
+    emtaIndex = -1;
+  }
+
+  // Soltar fotos sobre la zona vacía de la galería → abre el modal de subida ya con archivos.
+  function conectarDropEnZona(zona) {
+    zona.addEventListener('dragover', (e) => { e.preventDefault(); zona.classList.add('arrastrando'); });
+    zona.addEventListener('dragleave', () => zona.classList.remove('arrastrando'));
+    zona.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zona.classList.remove('arrastrando');
+      modalSubirFotos();
+      anadirArchivos(e.dataTransfer.files);
+    });
+  }
+
+  // ==================== Pestaña Calendario ====================
+  function calendarioShellHTML() {
+    if (!ANIOS_CAL.includes(calAnio)) calAnio = new Date().getFullYear();
+    const opts = ANIOS_CAL.map((a) => `<option value="${a}"${a === calAnio ? ' selected' : ''}>${a}</option>`).join('');
+    return `
+      <div class="alo-cal-head">
+        <select id="alo-cal-anio" class="select-filtro">${opts}</select>
+        <div id="alo-cal-leyenda" class="alo-cal-leyenda"></div>
+      </div>
+      <div id="alo-cal-grid"></div>
+      <div id="alo-cal-resumen"></div>`;
+  }
+
+  // ---- Helpers de fecha (locales del calendario) ----
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function isoYMD(y, m, d) { return `${y}-${pad2(m)}-${pad2(d)}`; }
+  function diasDelMes(y, m) { return new Date(y, m, 0).getDate(); }    // m 1-based
+  function primerDiaLunes(y, m) { return (new Date(y, m - 1, 1).getDay() + 6) % 7; } // Lun=0
+  function esBisiesto(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+
+  async function cargarCalendario() {
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    calCargado = true;
+    const grid = document.getElementById('alo-cal-grid');
+    if (grid) grid.innerHTML = '<div style="color:var(--muted);padding:12px 0">Cargando calendario…</div>';
+
+    // Estados configurables → mapa nombre→color (solo activos para la leyenda;
+    // los inactivos siguen pintando si alguna reserva los usa, vía el mapa completo).
+    try {
+      const estados = await API.get('/api/ajustes/estados-reserva');
+      calEstados = {};
+      for (const e of estados) calEstados[e.nombre] = e.color;
+      calEstadosActivos = estados.filter((e) => e.activo);
+    } catch (e) { calEstados = {}; calEstadosActivos = []; }
+
+    let reservas = [];
+    try {
+      reservas = await API.get(`/api/reservas?desde=${calAnio}-01-01&hasta=${calAnio}-12-31`);
+    } catch (e) {
+      if (grid) grid.innerHTML = '<div style="color:var(--muted);padding:12px 0">No se pudo cargar el calendario.</div>';
+      return;
+    }
+    if (!fichaActual || String(fichaActual.id) !== String(id)) return; // la ficha cambió
+    // El endpoint no filtra por apartamento → filtramos en cliente.
+    reservas = reservas.filter((r) => String(r.apartamento_id) === String(id));
+
+    const ocupacion = construirOcupacion(reservas);
+    renderLeyenda();
+    renderMeses(ocupacion);
+    renderResumen(ocupacion);
+  }
+
+  // Mapa 'YYYY-MM-DD' → { reserva, color, estado } para los días ocupados (entrada..salida-1).
+  function construirOcupacion(reservas) {
+    const map = new Map();
+    for (const r of reservas) {
+      if (!r.entrada || !r.salida) continue;
+      const estado = r.tipo_reserva || '';
+      const color = calEstados[estado] || CAL_COLOR_DEFECTO;
+      const d = new Date(r.entrada + 'T00:00:00');
+      const fin = new Date(r.salida + 'T00:00:00');
+      while (d < fin) {
+        const key = isoYMD(d.getFullYear(), d.getMonth() + 1, d.getDate());
+        map.set(key, { reserva: r, color, estado: estado || 'Sin estado' });
+        d.setDate(d.getDate() + 1);
+      }
+    }
+    return map;
+  }
+
+  function renderLeyenda() {
+    const cont = document.getElementById('alo-cal-leyenda');
+    if (!cont) return;
+    const items = (calEstadosActivos || []).map((e) =>
+      `<span class="alo-cal-ley-item"><span class="alo-cal-ley-color" style="background:${esc(e.color)}"></span>${esc(e.nombre)}</span>`).join('');
+    cont.innerHTML = items +
+      `<span class="alo-cal-ley-item"><span class="alo-cal-ley-color" style="background:${CAL_COLOR_DEFECTO}"></span>Sin estado</span>`;
+  }
+
+  function renderMeses(ocupacion) {
+    const grid = document.getElementById('alo-cal-grid');
+    if (!grid) return;
+    const hoyISO = (() => { const n = new Date(); return isoYMD(n.getFullYear(), n.getMonth() + 1, n.getDate()); })();
+    let html = '<div class="alo-cal-meses">';
+    for (let m = 1; m <= 12; m++) html += mesHTML(calAnio, m, ocupacion, hoyISO);
+    html += '</div>';
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.alo-cal-dia.ocupado').forEach((cel) =>
+      cel.addEventListener('click', () => {
+        const rid = cel.dataset.reserva;
+        if (!rid) return;
+        cerrarPanel();
+        if (typeof activarTab === 'function') activarTab('reservas');
+        if (typeof Reservas !== 'undefined' && Reservas.abrirFicha) Reservas.abrirFicha(rid);
+      }));
+  }
+
+  function mesHTML(y, m, ocupacion, hoyISO) {
+    const total = diasDelMes(y, m);
+    const offset = primerDiaLunes(y, m);
+    let celdas = '';
+    for (let i = 0; i < offset; i++) celdas += '<td class="alo-cal-dia vacio"></td>';
+    for (let d = 1; d <= total; d++) {
+      const iso = isoYMD(y, m, d);
+      const occ = ocupacion.get(iso);
+      const esHoy = iso === hoyISO ? ' hoy' : '';
+      if (occ) {
+        const r = occ.reserva;
+        const tip = `${r.nombre_cliente || 'Reserva'} · ${fechaES(r.entrada)}–${fechaES(r.salida)} · ${occ.estado}`;
+        celdas += `<td class="alo-cal-dia ocupado${esHoy}" style="background:${esc(occ.color)}" data-reserva="${r.id}" title="${esc(tip)}">${d}</td>`;
+      } else {
+        celdas += `<td class="alo-cal-dia${esHoy}">${d}</td>`;
+      }
+      if ((offset + d) % 7 === 0) celdas += '</tr><tr>';
+    }
+    return `
+      <div class="alo-cal-mes">
+        <div class="alo-cal-mes-titulo">${MESES[m - 1]}</div>
+        <table class="alo-cal-tabla">
+          <thead><tr>${DIAS_CAB.map((x) => `<th>${x}</th>`).join('')}</tr></thead>
+          <tbody><tr>${celdas}</tr></tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderResumen(ocupacion) {
+    const cont = document.getElementById('alo-cal-resumen');
+    if (!cont) return;
+    // Noches ocupadas dentro del año seleccionado.
+    let nochesOcup = 0;
+    const prefijo = `${calAnio}-`;
+    for (const k of ocupacion.keys()) if (k.startsWith(prefijo)) nochesOcup++;
+    const totalAnio = esBisiesto(calAnio) ? 366 : 365;
+    const pct = totalAnio ? (nochesOcup / totalAnio) * 100 : 0;
+    cont.innerHTML = `
+      <div class="alo-cal-resumen-fila">
+        <span><strong>${nochesOcup}</strong> / ${totalAnio} noches ocupadas</span>
+        <span class="alo-cal-resumen-pct">${pct1(pct)}</span>
+      </div>
+      <div class="alo-cal-barra"><div class="alo-cal-barra-fill" style="width:${Math.min(pct, 100)}%"></div></div>`;
   }
 
   // ==================== Modal alta / edición ====================

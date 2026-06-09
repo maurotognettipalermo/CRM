@@ -311,6 +311,45 @@ router.post('/:id/propietarios/:rel_id/cerrar', (req, res) => {
   res.json({ ok: true, fecha_fin: fechaFin });
 });
 
+// ==================== Estado de limpieza ====================
+
+// PUT /api/apartamentos/:id/limpieza — Body: { estado_limpieza: 'limpio'|'sucio' }.
+// Actualiza el campo y registra el cambio en limpieza_log con el usuario que lo hizo.
+router.put('/:id/limpieza', (req, res) => {
+  const apto = db.prepare('SELECT id, nombre, estado_limpieza FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+
+  const nuevo = String((req.body || {}).estado_limpieza || '').trim();
+  if (nuevo !== 'limpio' && nuevo !== 'sucio') {
+    return res.status(400).json({ error: "estado_limpieza debe ser 'limpio' o 'sucio'" });
+  }
+
+  const anterior = apto.estado_limpieza || null;
+  db.prepare('UPDATE apartamentos SET estado_limpieza = ? WHERE id = ?').run(nuevo, apto.id);
+  db.prepare(`
+    INSERT INTO limpieza_log (apartamento_id, estado_anterior, estado_nuevo, usuario_id, usuario_nombre)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    apto.id, anterior, nuevo,
+    req.usuario && req.usuario.id != null ? req.usuario.id : null,
+    req.usuario && req.usuario.nombre != null ? req.usuario.nombre : null
+  );
+
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'editar', 'alojamiento-limpieza', apto.id, `${apto.nombre}: ${anterior || '-'} → ${nuevo}`);
+  res.json({ ok: true, estado_limpieza: nuevo });
+});
+
+// GET /api/apartamentos/:id/limpieza-log — historial de cambios (DESC, máx 50).
+router.get('/:id/limpieza-log', (req, res) => {
+  const apto = db.prepare('SELECT id FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+  const log = db.prepare(
+    'SELECT * FROM limpieza_log WHERE apartamento_id = ? ORDER BY fecha DESC, id DESC LIMIT 50'
+  ).all(req.params.id);
+  res.json(log);
+});
+
 function aEntero(v) {
   if (v === null || v === undefined || v === '') return null;
   const n = parseInt(v, 10);

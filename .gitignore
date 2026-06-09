@@ -9,3 +9,6 @@ public/uploads/portales/*
 # Logos de razones sociales subidos por el usuario
 public/uploads/razones-sociales/*
 !public/uploads/razones-sociales/.gitkeep
+# Fotos de apartamentos subidas por el usuario (datos, como la BD)
+public/uploads/apartamentos/*
+!public/uploads/apartamentos/.gitkeep

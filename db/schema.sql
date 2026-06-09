@@ -396,6 +396,43 @@ CREATE TABLE IF NOT EXISTS descuentos (
 CREATE INDEX IF NOT EXISTS idx_temporadas_anio ON temporadas(anio);
 CREATE INDEX IF NOT EXISTS idx_descuentos_anio ON descuentos(anio);
 
+-- ==================== Fotos, estados de reserva y limpieza ====================
+
+-- Galería de fotos de un apartamento. Los archivos viven en
+-- public/uploads/apartamentos/{apartamento_id}/ y url es la ruta pública.
+CREATE TABLE IF NOT EXISTS apartamento_fotos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  nombre_archivo TEXT NOT NULL,
+  descripcion TEXT,
+  orden INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_apto_fotos_apartamento ON apartamento_fotos(apartamento_id);
+
+-- Catálogo de estados de reserva (configurable en Ajustes). es_sistema=1 no se puede eliminar.
+CREATE TABLE IF NOT EXISTS estados_reserva (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  color TEXT NOT NULL DEFAULT '#3b82f6',
+  orden INTEGER DEFAULT 0,
+  activo INTEGER DEFAULT 1,
+  es_sistema INTEGER DEFAULT 0
+);
+
+-- Histórico de cambios del estado de limpieza de un apartamento.
+CREATE TABLE IF NOT EXISTS limpieza_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  estado_anterior TEXT,
+  estado_nuevo TEXT NOT NULL,
+  usuario_id INTEGER REFERENCES usuarios(id),
+  usuario_nombre TEXT,
+  fecha TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_limpieza_log_apartamento ON limpieza_log(apartamento_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

@@ -28,6 +28,7 @@ const Ajustes = (() => {
   let catBuscar = '';
   let extrasLista = [];
   let extraBuscar = '';
+  let estadosLista = [];
 
   // Etiqueta legible del tipo de precio de un extra.
   const TIPO_EXTRA_LABEL = { unidad: 'por unidad', noche: 'por noche', persona: 'por persona' };
@@ -70,6 +71,7 @@ const Ajustes = (() => {
     await cargarPortales();
     await cargarCatalogoGastos();
     await cargarCatalogoExtras();
+    await cargarEstadosReserva();
     if (Auth.esAdmin()) await cargarActividad();
   }
 
@@ -358,6 +360,140 @@ const Ajustes = (() => {
     } catch (e) {
       if (e.status === 409) toast('Este extra tiene reservas asociadas y no puede eliminarse', 'error');
       else toast(e.message, 'error');
+    }
+  }
+
+  // ==================== Estados de reserva ====================
+  // La sub-pestaña y su panel se inyectan por JS (no se toca index.html).
+  function inyectarEstadosReserva() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="estados"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.dataset.sub = 'estados';
+    btn.textContent = 'Estados de reserva';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'estados';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Estados de reserva</span>
+        <button id="btn-nuevo-estado" class="btn-pri">＋ Nuevo estado</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-estados">
+          <thead>
+            <tr><th class="col-logo">Color</th><th>Nombre</th><th>Sistema</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+    document.getElementById('btn-nuevo-estado').addEventListener('click', () => formularioEstado(null));
+  }
+
+  async function cargarEstadosReserva() {
+    try { estadosLista = await API.get('/api/ajustes/estados-reserva'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderEstadosReserva();
+  }
+
+  function renderEstadosReserva() {
+    const tbody = document.querySelector('#tabla-estados tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!estadosLista.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#6b7280;text-align:center;padding:24px">Sin estados.</td></tr>';
+      return;
+    }
+    for (const e of estadosLista) {
+      const estado = e.activo
+        ? '<span class="badge-estado activo">Activo</span>'
+        : '<span class="badge-estado neutro">Inactivo</span>';
+      const sistema = e.es_sistema ? '<span class="badge-estado neutro">Sistema</span>' : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="cel-logo"><span class="estado-color-cuadro" style="background:${esc(e.color)}"></span></td>
+        <td>${esc(e.nombre)}</td>
+        <td>${sistema}</td>
+        <td>${estado}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-est="${e.id}" title="Editar">✏️</button>
+          ${e.es_sistema ? '' : `<button class="btn-mini" data-borrar-est="${e.id}" title="Eliminar">🗑️</button>`}
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('[data-editar-est]').forEach((b) =>
+      b.addEventListener('click', () => formularioEstado(estadosLista.find((x) => x.id == b.dataset.editarEst))));
+    tbody.querySelectorAll('[data-borrar-est]').forEach((b) =>
+      b.addEventListener('click', () => borrarEstado(b.dataset.borrarEst)));
+  }
+
+  function formularioEstado(e) {
+    e = e || {};
+    const esNuevo = !e.id;
+    const esSistema = !!e.es_sistema;
+    const activoChecked = e.activo === undefined ? true : !!e.activo;
+    const color = e.color || '#3b82f6';
+    abrirModal(`
+      <h3>${esNuevo ? 'Nuevo' : 'Editar'} estado de reserva</h3>
+      <div class="campo"><label>Nombre *</label><input id="est-nombre" value="${esc(e.nombre)}"></div>
+      <div class="campo">
+        <label>Color</label>
+        <input type="color" id="est-color" value="${esc(color)}">
+        <span id="est-color-preview" class="badge-rsv" style="margin-left:10px;background:${esc(color)};color:#fff">${esc(e.nombre) || 'Estado'}</span>
+      </div>
+      <div class="campo"><label>Estado</label>
+        <label class="toggle-campo"><input type="checkbox" id="est-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
+      </div>
+      ${esSistema ? '<div class="e-obligatorio-aviso">⚠️ Este es un estado del sistema y no puede eliminarse</div>' : ''}
+      <div class="modal-acciones">
+        <button class="btn-sec" id="est-cancelar">Cancelar</button>
+        <button class="btn-pri" id="est-guardar">Guardar</button>
+      </div>`);
+
+    const actualizarPreview = () => {
+      const prev = document.getElementById('est-color-preview');
+      prev.style.background = document.getElementById('est-color').value;
+      prev.textContent = document.getElementById('est-nombre').value.trim() || 'Estado';
+    };
+    document.getElementById('est-color').addEventListener('input', actualizarPreview);
+    document.getElementById('est-nombre').addEventListener('input', actualizarPreview);
+
+    document.getElementById('est-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('est-guardar').addEventListener('click', async () => {
+      const nombre = document.getElementById('est-nombre').value.trim();
+      if (!nombre) return toast('El nombre es obligatorio', 'error');
+      const body = {
+        nombre,
+        color: document.getElementById('est-color').value,
+        activo: document.getElementById('est-activo').checked ? 1 : 0,
+      };
+      try {
+        if (esNuevo) await API.post('/api/ajustes/estados-reserva', body);
+        else await API.put('/api/ajustes/estados-reserva/' + e.id, body);
+        cerrarModal();
+        await cargarEstadosReserva();
+        toast('Estado guardado', 'ok');
+      } catch (err) {
+        if (err.status === 409) toast('Ya existe un estado con ese nombre', 'error');
+        else toast(err.message, 'error');
+      }
+    });
+  }
+
+  async function borrarEstado(id) {
+    const e = estadosLista.find((x) => x.id == id);
+    if (!confirm(`¿Eliminar el estado "${e ? e.nombre : id}"?`)) return;
+    try {
+      await API.del('/api/ajustes/estados-reserva/' + id);
+      await cargarEstadosReserva();
+      toast('Estado eliminado', 'ok');
+    } catch (err) {
+      if (err.status === 409) toast(err.message || 'No se puede eliminar este estado', 'error');
+      else toast(err.message, 'error');
     }
   }
 
@@ -866,6 +1002,7 @@ const Ajustes = (() => {
     inyectarPortales();        // 4ª sub-pestaña (antes de enlazar los clics)
     inyectarCatalogoGastos();  // 5ª sub-pestaña
     inyectarCatalogoExtras();  // 6ª sub-pestaña
+    inyectarEstadosReserva();  // 7ª sub-pestaña
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));

@@ -91,6 +91,71 @@ router.delete('/razones-sociales/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ===== Estados de reserva (catálogo configurable) =====
+router.get('/estados-reserva', (req, res) => {
+  res.json(db.prepare('SELECT * FROM estados_reserva ORDER BY orden, nombre').all());
+});
+
+router.post('/estados-reserva', (req, res) => {
+  const b = req.body || {};
+  const nombre = String(b.nombre || '').trim();
+  if (!nombre) return res.status(400).json({ error: 'El nombre del estado es obligatorio' });
+  const dup = db.prepare('SELECT id FROM estados_reserva WHERE nombre = ?').get(nombre);
+  if (dup) return res.status(409).json({ error: 'Ya existe un estado con ese nombre' });
+
+  const color = String(b.color || '').trim() || '#3b82f6';
+  const maxOrden = db.prepare('SELECT COALESCE(MAX(orden), 0) AS m FROM estados_reserva').get().m;
+  let orden = maxOrden + 1;
+  if (b.orden !== undefined && b.orden !== null && b.orden !== '') {
+    const o = parseInt(b.orden, 10);
+    if (!isNaN(o)) orden = o;
+  }
+  // Los estados creados desde Ajustes nunca son del sistema.
+  const info = db.prepare(
+    'INSERT INTO estados_reserva (nombre, color, orden, activo, es_sistema) VALUES (?, ?, ?, 1, 0)'
+  ).run(nombre, color, orden);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'estado_reserva', info.lastInsertRowid, nombre);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+router.put('/estados-reserva/:id', (req, res) => {
+  const actual = db.prepare('SELECT * FROM estados_reserva WHERE id = ?').get(req.params.id);
+  if (!actual) return res.status(404).json({ error: 'Estado no encontrado' });
+
+  const b = req.body || {};
+  const nombre = b.nombre != null && String(b.nombre).trim() ? String(b.nombre).trim() : actual.nombre;
+  if (nombre !== actual.nombre) {
+    const dup = db.prepare('SELECT id FROM estados_reserva WHERE nombre = ? AND id <> ?').get(nombre, actual.id);
+    if (dup) return res.status(409).json({ error: 'Ya existe un estado con ese nombre' });
+  }
+  const color = b.color != null && String(b.color).trim() ? String(b.color).trim() : actual.color;
+  const activo = b.activo === undefined ? actual.activo : (b.activo ? 1 : 0);
+  let orden = actual.orden;
+  if (b.orden !== undefined && b.orden !== null && b.orden !== '') {
+    const o = parseInt(b.orden, 10);
+    if (!isNaN(o)) orden = o;
+  }
+  db.prepare('UPDATE estados_reserva SET nombre = ?, color = ?, activo = ?, orden = ? WHERE id = ?')
+    .run(nombre, color, activo, orden, actual.id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'estado_reserva', actual.id, nombre);
+  res.json({ ok: true });
+});
+
+router.delete('/estados-reserva/:id', (req, res) => {
+  const estado = db.prepare('SELECT * FROM estados_reserva WHERE id = ?').get(req.params.id);
+  if (!estado) return res.status(404).json({ error: 'Estado no encontrado' });
+  if (estado.es_sistema) {
+    return res.status(409).json({ error: 'No se puede eliminar un estado del sistema' });
+  }
+  const usos = db.prepare('SELECT COUNT(*) AS c FROM reservas WHERE tipo_reserva = ?').get(estado.nombre).c;
+  if (usos > 0) {
+    return res.status(409).json({ error: `No se puede eliminar: ${usos} reserva(s) usan este estado` });
+  }
+  db.prepare('DELETE FROM estados_reserva WHERE id = ?').run(estado.id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'eliminar', 'estado_reserva', estado.id, estado.nombre);
+  res.json({ ok: true });
+});
+
 // ===== Registro de actividad (solo administradores) =====
 router.get('/actividad', (req, res) => {
   if (!req.usuario || req.usuario.rol !== 'administrador') {

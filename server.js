@@ -20,6 +20,7 @@ app.use('/api', requireAuth);
 // Rutas de la API (protegidas por requireAuth).
 const gastos = require('./routes/gastos');
 app.use('/api/apartamentos/:id/gastos', gastos.apartamentoGastos); // antes del router de apartamentos
+app.use('/api/apartamentos/:id/fotos', require('./routes/fotos')); // antes del router de apartamentos
 app.use('/api/apartamentos', require('./routes/apartamentos'));
 app.use('/api/catalogo-gastos', gastos.catalogo);
 app.use('/api/propietarios', require('./routes/propietarios'));

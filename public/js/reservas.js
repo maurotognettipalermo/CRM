@@ -1420,11 +1420,23 @@ const Reservas = (() => {
     const selOpts = (valores, actual) =>
       valores.map((v) => `<option${actual === v ? ' selected' : ''}>${v}</option>`).join('');
 
+    // Tipo de reserva: opciones dinámicas desde los estados configurables (solo activos).
+    // Se conserva el valor actual aunque su estado esté inactivo o ya no exista.
+    let estados = [];
+    try { estados = (await API.get('/api/ajustes/estados-reserva')).filter((e) => e.activo); }
+    catch (e) { /* seguimos con lista vacía */ }
+    const tipoActual = r.tipo_reserva || 'Confirmada';
+    const nombresEstado = estados.map((e) => e.nombre);
+    if (!nombresEstado.includes(tipoActual)) nombresEstado.unshift(tipoActual);
+    const optTipo = nombresEstado.length
+      ? selOpts(nombresEstado, tipoActual)
+      : selOpts(['Confirmada', 'Pendiente', 'Cancelada'], tipoActual);
+
     abrirModal(`
       <h3>Editar reserva #${esc(r.numero_reserva || r.id)}</h3>
       <div class="fila-campos">
         <div class="campo"><label>Tipo de reserva</label>
-          <select id="fr-tipo">${selOpts(['Confirmada', 'Pendiente', 'Cancelada'], r.tipo_reserva || 'Confirmada')}</select></div>
+          <select id="fr-tipo">${optTipo}</select></div>
         <div class="campo"><label>Portal</label><select id="fr-portal">${optPortal}</select></div>
       </div>
       <div class="fila-campos">
@@ -1483,5 +1495,5 @@ const Reservas = (() => {
     });
   }
 
-  return { init, cargar };
+  return { init, cargar, abrirFicha };
 })();
