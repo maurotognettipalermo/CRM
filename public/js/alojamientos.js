@@ -1393,8 +1393,6 @@ const Alojamientos = (() => {
   }
 
   // ---- Enviar por email (mailto) + descargar ----
-  function urlAbsoluta(u) { return u.startsWith('http') ? u : window.location.origin + u; }
-
   async function modalEnviarEmail() {
     if (!galeriaFotos.length) return;
     const apto = fichaActual;
@@ -1428,9 +1426,9 @@ const Alojamientos = (() => {
       </label>`).join('');
 
     abrirModal(`
-      <h3>📧 Enviar fotos</h3>
+      <h3>📧 Enviar fotos por email</h3>
       <div class="campo">
-        <label>Destinatario</label>
+        <label>Destinatario *</label>
         <div class="alo-em-radios">
           <label><input type="radio" name="em-modo" value="manual" checked> Email manual</label>
           <label><input type="radio" name="em-modo" value="cliente"> Buscar cliente</label>
@@ -1442,13 +1440,14 @@ const Alojamientos = (() => {
         </div>
       </div>
       <div class="campo"><label>Asunto</label><input id="em-asunto" value="${esc(asunto)}"></div>
-      <div class="campo"><label>Mensaje</label><textarea id="em-mensaje" rows="6">${esc(mensaje)}</textarea></div>
-      <div class="campo"><label>Fotos a enviar (${galeriaFotos.length})</label><div class="alo-em-thumbs">${thumbs}</div></div>
-      <div class="alo-em-aviso">ℹ️ Se abrirá tu cliente de correo. Las fotos no se adjuntan automáticamente por mailto — descárgalas primero y adjúntalas manualmente, o usa el botón Descargar todas.</div>
+      <div class="campo"><label>Mensaje</label><textarea id="em-mensaje" rows="7">${esc(mensaje)}</textarea></div>
+      <div class="campo">
+        <label>Fotos a enviar <span id="em-contador" class="alo-em-contador"></span></label>
+        <div class="alo-em-thumbs">${thumbs}</div>
+      </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="em-cancelar">Cancelar</button>
-        <button class="btn-sec" id="em-descargar">📥 Descargar todas</button>
-        <button class="btn-pri" id="em-gmail">Abrir en Gmail</button>
+        <button class="btn-pri" id="em-enviar">📧 Enviar</button>
       </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
 
@@ -1462,17 +1461,18 @@ const Alojamientos = (() => {
         inputEmail.classList.toggle('oculto', cliente);
       }));
 
+    // Contador de fotos seleccionadas.
+    const actualizarContador = () => {
+      const sel = fotosSeleccionadasEmail().length;
+      const el = document.getElementById('em-contador');
+      if (el) el.textContent = `${sel} de ${galeriaFotos.length} fotos seleccionadas`;
+    };
+    document.querySelectorAll('[data-em-foto]').forEach((c) => c.addEventListener('change', actualizarContador));
+    actualizarContador();
+
     initEmailTypeahead();
     document.getElementById('em-cancelar').addEventListener('click', cerrarModal);
-    document.getElementById('em-descargar').addEventListener('click', () => descargarSeleccionadas());
-    document.getElementById('em-gmail').addEventListener('click', () => {
-      const email = (inputEmail.value || '').trim();
-      if (!email) return toast('Indica un email de destino', 'error');
-      const asuntoV = val('em-asunto');
-      const mensajeV = val('em-mensaje');
-      const mailto = `mailto:${email}?subject=${encodeURIComponent(asuntoV)}&body=${encodeURIComponent(mensajeV)}`;
-      window.open(mailto, '_blank');
-    });
+    document.getElementById('em-enviar').addEventListener('click', enviarFotosEmail);
   }
 
   function fotosSeleccionadasEmail() {
@@ -1480,25 +1480,43 @@ const Alojamientos = (() => {
     return galeriaFotos.filter((f) => ids.includes(f.id));
   }
 
-  async function descargarSeleccionadas() {
+  // Envía las fotos seleccionadas por email (POST /api/email/enviar-fotos).
+  async function enviarFotosEmail() {
+    const inputEmail = document.getElementById('em-email');
+    const to = (inputEmail.value || '').trim();
+    if (!to) return toast('Indica un email de destino', 'error');
     const fotos = fotosSeleccionadasEmail();
     if (!fotos.length) return toast('Selecciona al menos una foto', 'aviso');
-    for (let i = 0; i < fotos.length; i++) {
-      const f = fotos[i];
-      if (fotos.length > 1) toast(`Descargando foto ${i + 1} de ${fotos.length}…`, 'ok');
-      try {
-        const r = await fetch(urlAbsoluta(f.url), { headers: authHeaders() });
-        const blob = await r.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = f.nombre_archivo || `foto-${f.id}.jpg`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(a.href);
-      } catch (e) { toast('No se pudo descargar una foto', 'error'); }
+
+    const btn = document.getElementById('em-enviar');
+    const btnCancel = document.getElementById('em-cancelar');
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btnCancel.disabled = true;
+    btn.innerHTML = `<span class="alo-spinner"></span> Enviando email con ${fotos.length} foto${fotos.length === 1 ? '' : 's'}...`;
+
+    try {
+      const r = await API.post('/api/email/enviar-fotos', {
+        to,
+        subject: val('em-asunto'),
+        mensaje: val('em-mensaje'),
+        apartamento_id: fichaActual.id,
+        foto_ids: fotos.map((f) => f.id),
+      });
+      // El backend devuelve {ok:false, error} con HTTP 200 en fallos de SMTP.
+      if (r && r.ok === false) throw new Error(r.error || 'No se pudo enviar el email');
+      cerrarModal();
+      toast(`Email enviado correctamente a ${to}`, 'ok');
+    } catch (e) {
+      let msg = e.message || 'No se pudo enviar el email';
+      if (/smtp|auth|login|credential|contrase|535|534/i.test(msg)) {
+        msg += '. Revisa la configuración de correo en Ajustes';
+      }
+      toast(msg, 'error');
+      btn.disabled = false;
+      btnCancel.disabled = false;
+      btn.innerHTML = original;
     }
-    if (fotos.length > 1) toast('Descarga completada', 'ok');
   }
 
   // ---- Typeahead de cliente (modal email) ----

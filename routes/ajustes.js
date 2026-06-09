@@ -5,8 +5,29 @@ const fs = require('fs');
 const multer = require('multer');
 const db = require('../db/database');
 const { registrarActividad } = require('../services/actividadService');
+const { enviarEmail, leerConfigSmtp } = require('../services/emailService');
 
 const router = express.Router();
+
+const SMTP_MASK = '••••••••'; // se devuelve en vez de la contraseña real
+const SMTP_CLAVES = ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_from_name', 'smtp_from_email'];
+
+// Solo administradores. Devuelve true si responde 403 (corta el handler).
+function bloqueaNoAdmin(req, res) {
+  if (!req.usuario || req.usuario.rol !== 'administrador') {
+    res.status(403).json({ error: 'Solo los administradores pueden gestionar esta configuración' });
+    return true;
+  }
+  return false;
+}
+
+// Guarda (upsert) una clave en la tabla clave-valor `ajustes`.
+function guardarAjuste(clave, valor) {
+  db.prepare(`
+    INSERT INTO ajustes (clave, valor) VALUES (?, ?)
+    ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
+  `).run(clave, valor == null ? '' : String(valor));
+}
 
 // Logos de razones sociales: se reciben en memoria y se escriben con el nombre definitivo.
 const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'razones-sociales');
@@ -170,6 +191,48 @@ router.get('/actividad', (req, res) => {
   sql += ' ORDER BY id DESC LIMIT ?';
   p.push(limit);
   res.json(db.prepare(sql).all(...p));
+});
+
+// ===== Configuración SMTP (solo admin) =====
+router.get('/smtp', (req, res) => {
+  if (bloqueaNoAdmin(req, res)) return;
+  const cfg = leerConfigSmtp(db);
+  // No devolver la contraseña en claro: máscara si hay guardada, vacío si no.
+  cfg.smtp_password = cfg.smtp_password ? SMTP_MASK : '';
+  res.json(cfg);
+});
+
+router.put('/smtp', (req, res) => {
+  if (bloqueaNoAdmin(req, res)) return;
+  const b = req.body || {};
+  for (const clave of SMTP_CLAVES) {
+    if (clave === 'smtp_password') {
+      // Si llega la máscara (o no llega), conservar la contraseña anterior.
+      if (b.smtp_password === undefined || b.smtp_password === SMTP_MASK) continue;
+      guardarAjuste('smtp_password', b.smtp_password);
+    } else if (clave in b) {
+      guardarAjuste(clave, b[clave]);
+    }
+  }
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'smtp', null, 'Configuración SMTP actualizada');
+  res.json({ ok: true });
+});
+
+router.post('/smtp/test', async (req, res) => {
+  if (bloqueaNoAdmin(req, res)) return;
+  const cfg = leerConfigSmtp(db);
+  const destino = cfg.smtp_user;
+  if (!destino) return res.json({ ok: false, error: 'No hay usuario SMTP configurado' });
+  try {
+    await enviarEmail(db, {
+      to: destino,
+      subject: 'Prueba de configuración SMTP — CRM',
+      html: '<p>Este es un email de prueba del CRM. Si lo recibes, la configuración SMTP funciona correctamente.</p>',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.json({ ok: false, error: e.message || 'No se pudo enviar el email de prueba' });
+  }
 });
 
 module.exports = router;

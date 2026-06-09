@@ -41,13 +41,16 @@ routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
   portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
   reserva-pagos (/api/reservas/:id/pagos) · catalogo-extras (exporta catalogo + reservaExtras) ·
-  fotos (/api/apartamentos/:id/fotos, galería de fotos del apartamento)
+  fotos (/api/apartamentos/:id/fotos, galería de fotos del apartamento) ·
+  email (/api/email/enviar-fotos, envío de fotos por SMTP)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
   actividadService.js  registrarActividad(...) → inserta en actividad_log (defensivo, nunca rompe la op.).
   asignacion.js        buscarPisoLibre(apartamentos, ocupaciones, tih, entrada, salida) + normalizaTih.
   dateUtils.js         parseFecha (DD/MM/AAAA, serial Excel, ISO), solapan (intervalos medio abiertos).
+  emailService.js      nodemailer: getTransporter(db) + enviarEmail(db, {to,subject,html,attachments}).
+                       Config SMTP en tabla ajustes (claves smtp_*); secure=true solo si puerto 465.
 public/                Frontend vanilla. Sin build, servido estático.
   index.html           SPA de 10 pestañas + menú lateral plegable + modal genérico + panel lateral + toast.
   css/styles.css       Tema claro (blanco / sidebar #1a1a2e). Variables CSS en :root.
@@ -75,8 +78,9 @@ public/                Frontend vanilla. Sin build, servido estático.
                        histórico colapsable, modales Añadir/Editar %/Cerrar relación con resumen en
                        vivo), Gastos (por año, marcar cobrado/borrar + modal con typeahead), Galería
                        (grid 3 col, subida multipart con dropzone+preview+barra de progreso XHR,
-                       drag&drop reordenar, lightbox con teclas, modal enviar por email vía mailto +
-                       descargar), Calendario (12 meses, días pintados con el color del estado de la
+                       drag&drop reordenar, lightbox con teclas, modal enviar por email — envío
+                       directo vía POST /api/email/enviar-fotos con spinner), Calendario (12 meses,
+                       días pintados con el color del estado de la
                        reserva, tooltip, clic→ficha de reserva, resumen % ocupación).
                        Expone abrirFicha(id).
   js/contratos.js      Contratos propietario: precio_cerrado o comision. Filtros año/tipo/propietario.
@@ -111,8 +115,10 @@ public/                Frontend vanilla. Sin build, servido estático.
   js/ajustes.js        Sub-pestañas: Razón Social / Usuarios / Actividad (admin) / Portales
                        (reordenar, color, logo) / Catálogo de gastos / Catálogo de extras (con
                        toggle "Extra obligatorio" + badge rojo en la tabla) / Estados de reserva
-                       (color clicable, badge "Sistema" si es_sistema, sin borrar los del sistema).
-                       Portales, Catálogo de gastos, Catálogo de extras y Estados de reserva se inyectan por JS.
+                       (color clicable, badge "Sistema" si es_sistema, sin borrar los del sistema) /
+                       Correo electrónico (SMTP, solo admin: formulario + guardar + email de prueba).
+                       Portales, Catálogo de gastos, Catálogo de extras, Estados de reserva y Correo
+                       electrónico se inyectan por JS (Correo y Actividad ocultas para no-admin).
   js/estadisticas.js   Solo admin. Selector de año + 4 sub-pestañas con datos reales y anti-respuesta-obsoleta:
                        (1) Ingresos por portal · (2) Ingresos por apartamento (general + detalle por apto) ·
                        (3) Ocupación (barras por mes + comparativa 1ª/2ª Línea) ·
@@ -174,6 +180,9 @@ Patrones clave:
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD razones sociales |
 | POST | /api/ajustes/razones-sociales/:id/logo | Multipart campo `logo`; .jpg/.jpeg/.png/.webp/.svg |
 | GET/POST/PUT/DELETE | /api/ajustes/estados-reserva[/:id] | CRUD estados de reserva (orden por `orden`). DELETE→409 si `es_sistema=1` o si alguna reserva usa ese nombre |
+| GET/PUT | /api/ajustes/smtp | **Solo admin**. Config SMTP (claves smtp_* de `ajustes`). GET enmascara la contraseña; PUT con `smtp_password='••••••••'` conserva la anterior |
+| POST | /api/ajustes/smtp/test | **Solo admin**. Envía email de prueba al smtp_user → `{ok}` / `{ok:false,error}` |
+| POST | /api/email/enviar-fotos | `{to, subject, mensaje, apartamento_id, foto_ids[]}`. Adjunta las fotos (verifica que son del apto), HTML con logo de razón social. Errores SMTP → `{ok:false,error}` (HTTP 200) |
 | GET | /api/ajustes/actividad | **Solo admin**. `?usuario_id=&accion=&limit=200`; orden fecha DESC |
 | GET | /api/dashboard | proximos_checkin, reservas_en_curso, proximos_checkout (máx 50 c/u), pagos_pendientes, reservas_entrantes |
 | GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas): totales, noches, resumen |
@@ -205,7 +214,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **apartamento_propietarios**: relación N:M apartamento ↔ propietarios con histórico. apartamento_id/propietario_id (FK, ON DELETE CASCADE), porcentaje (REAL, los activos deben sumar 100), fecha_inicio (NOT NULL), fecha_fin (null = actual), activo (1=actual, 0=histórico), notas, UNIQUE(apartamento_id, propietario_id, fecha_inicio). El "principal" para compat/facturas = mayor porcentaje (empate → fecha_inicio más antigua). Contratos: con 1 propietario activo se autorrellena `propietario_id`; con varios el POST/PUT exige especificarlo.
 - **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante.
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url. Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
-- **ajustes**: almacén genérico clave/valor. En uso: flag `limpieza_datos_prueba_v1` (marca la limpieza única de datos de prueba ya ejecutada — no borrar, o re-borraría facturas/contratos/pagos reales en el siguiente arranque).
+- **ajustes**: almacén genérico clave/valor. En uso: flag `limpieza_datos_prueba_v1` (marca la limpieza única de datos de prueba ya ejecutada — no borrar, o re-borraría facturas/contratos/pagos reales en el siguiente arranque) + claves `smtp_*` (host/port/user/password/from_name/from_email) de la config de correo saliente, gestionadas en Ajustes → Correo electrónico (defaults en `emailService.SMTP_DEFAULTS`).
 - **razones_sociales**: datos de facturación (razon_social, CIF, dirección, IBAN, logo_url). `RS_CAMPOS` en `routes/ajustes.js` como punto de verdad.
 - **usuarios**: nombre, username (UNIQUE), password_hash (sha256 sin bcrypt), rol ('administrador'|'usuario'), activo, ultimo_acceso, token (sesión activa). Admin por defecto: `admin` / `admin1234`.
 - **actividad_log**: usuario_id (FK sin ON DELETE — borrar usuario con registros requiere vaciar el log primero), usuario_nombre, accion, entidad, entidad_id, detalle, fecha.

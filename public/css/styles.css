@@ -2221,6 +2221,15 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
   border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.4; margin: 12px 0;
 }
+.alo-em-contador { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* Spinner inline (botón de envío de email) */
+.alo-spinner {
+  display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+  border: 2px solid rgba(255, 255, 255, 0.5); border-top-color: #fff;
+  border-radius: 50%; animation: alo-spin 0.7s linear infinite;
+}
+@keyframes alo-spin { to { transform: rotate(360deg); } }
 
 /* Lightbox */
 .alo-lightbox {

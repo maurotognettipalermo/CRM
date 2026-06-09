@@ -64,8 +64,9 @@ const Ajustes = (() => {
   }
 
   async function cargar() {
-    // La sub-pestaña Actividad solo existe para administradores.
+    // Las sub-pestañas Actividad y Correo electrónico solo existen para administradores.
     document.getElementById('subtab-actividad').classList.toggle('oculto', !Auth.esAdmin());
+    document.getElementById('subtab-smtp')?.classList.toggle('oculto', !Auth.esAdmin());
     await cargarRazones();
     await cargarUsuarios();
     await cargarPortales();
@@ -73,6 +74,7 @@ const Ajustes = (() => {
     await cargarCatalogoExtras();
     await cargarEstadosReserva();
     if (Auth.esAdmin()) await cargarActividad();
+    if (Auth.esAdmin()) await cargarSmtp();
   }
 
   // ==================== Catálogo de gastos ====================
@@ -494,6 +496,100 @@ const Ajustes = (() => {
     } catch (err) {
       if (err.status === 409) toast(err.message || 'No se puede eliminar este estado', 'error');
       else toast(err.message, 'error');
+    }
+  }
+
+  // ==================== Correo electrónico (SMTP, solo admin) ====================
+  // La sub-pestaña y su panel se inyectan por JS (no se toca index.html).
+  function inyectarSmtp() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="smtp"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.id = 'subtab-smtp';
+    btn.dataset.sub = 'smtp';
+    btn.textContent = 'Correo electrónico ✉️';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'smtp';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Configuración de correo saliente</span>
+      </div>
+      <div class="ajustes-grid">
+        <div class="ajuste-campo"><label>Servidor SMTP</label><input type="text" id="smtp-host" placeholder="smtp.gmail.com"></div>
+        <div class="ajuste-campo"><label>Puerto</label><input type="number" id="smtp-port" placeholder="587"></div>
+        <div class="ajuste-campo"><label>Usuario</label><input type="email" id="smtp-user" placeholder="reservas@hectorinmobiliaria.com" autocomplete="off"></div>
+        <div class="ajuste-campo"><label>Contraseña</label>
+          <div class="input-con-icono">
+            <input id="smtp-password" type="password" autocomplete="new-password">
+            <button type="button" class="btn-ojo" id="smtp-ojo" title="Mostrar/ocultar">👁</button>
+          </div>
+        </div>
+        <div class="ajuste-campo"><label>Nombre del remitente</label><input type="text" id="smtp-from-name" placeholder="Inmobiliaria Héctor"></div>
+        <div class="ajuste-campo"><label>Email del remitente</label><input type="email" id="smtp-from-email" placeholder="reservas@hectorinmobiliaria.com" autocomplete="off"></div>
+      </div>
+      <div class="alo-em-aviso" style="max-width:640px">ℹ️ Para Gmail necesitas una contraseña de aplicación. Genérala en myaccount.google.com → Seguridad → Contraseñas de aplicaciones</div>
+      <div class="modal-acciones" style="justify-content:flex-start">
+        <button class="btn-pri" id="smtp-guardar">Guardar configuración</button>
+        <button class="btn-sec" id="smtp-test">📧 Enviar email de prueba</button>
+      </div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+
+    document.getElementById('smtp-ojo').addEventListener('click', () => {
+      const inp = document.getElementById('smtp-password');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    });
+    document.getElementById('smtp-guardar').addEventListener('click', guardarSmtp);
+    document.getElementById('smtp-test').addEventListener('click', enviarPruebaSmtp);
+  }
+
+  async function cargarSmtp() {
+    let cfg;
+    try { cfg = await API.get('/api/ajustes/smtp'); }
+    catch (e) { return toast(e.message, 'error'); }
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v != null ? v : ''; };
+    set('smtp-host', cfg.smtp_host);
+    set('smtp-port', cfg.smtp_port);
+    set('smtp-user', cfg.smtp_user);
+    set('smtp-password', cfg.smtp_password); // '••••••••' si hay guardada, '' si no
+    set('smtp-from-name', cfg.smtp_from_name);
+    set('smtp-from-email', cfg.smtp_from_email);
+  }
+
+  async function guardarSmtp() {
+    const v = (id) => (document.getElementById(id) || {}).value || '';
+    const body = {
+      smtp_host: v('smtp-host'),
+      smtp_port: v('smtp-port'),
+      smtp_user: v('smtp-user'),
+      smtp_password: v('smtp-password'), // si es la máscara, el backend conserva la anterior
+      smtp_from_name: v('smtp-from-name'),
+      smtp_from_email: v('smtp-from-email'),
+    };
+    try {
+      await API.put('/api/ajustes/smtp', body);
+      toast('Configuración guardada', 'ok');
+      await cargarSmtp(); // re-enmascara la contraseña recién guardada
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function enviarPruebaSmtp() {
+    const btn = document.getElementById('smtp-test');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    try {
+      const r = await API.post('/api/ajustes/smtp/test', {});
+      if (r && r.ok) toast('Email de prueba enviado correctamente', 'ok');
+      else toast(r && r.error ? r.error : 'No se pudo enviar el email de prueba', 'error');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
     }
   }
 
@@ -1003,6 +1099,7 @@ const Ajustes = (() => {
     inyectarCatalogoGastos();  // 5ª sub-pestaña
     inyectarCatalogoExtras();  // 6ª sub-pestaña
     inyectarEstadosReserva();  // 7ª sub-pestaña
+    inyectarSmtp();            // 8ª sub-pestaña (solo admin)
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));
