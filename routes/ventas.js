@@ -76,9 +76,11 @@ const PROP_CAMPOS = [
   'garaje', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
   'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
   'descripcion', 'notas',
+  'fecha_venta', 'fecha_escritura', 'precio_venta_final',
+  'comprador_nombre', 'comprador_telefono', 'comprador_email',
 ];
 const PROP_INT = ['dormitorios', 'banos', 'num_fotos'];
-const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles'];
+const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final'];
 
 function normalizaPropCampo(campo, valor) {
   if (PROP_INT.includes(campo)) return aEntero(valor);
@@ -183,6 +185,25 @@ router.post('/propiedades/importar', upload.single('archivo'), (req, res) => {
     console.error('Error importando propiedades:', e);
     res.status(500).json({ error: 'No se pudo procesar el archivo: ' + e.message });
   }
+});
+
+// POST /api/ventas/propiedades/:id/vender — cierra la venta: estado='Vendida' + datos.
+router.post('/propiedades/:id/vender', (req, res) => {
+  const prop = db.prepare('SELECT id, referencia FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  const b = req.body || {};
+  db.prepare(`
+    UPDATE propiedades_venta SET
+      estado = 'Vendida',
+      fecha_venta = ?, fecha_escritura = ?, precio_venta_final = ?,
+      comprador_nombre = ?, comprador_telefono = ?, comprador_email = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), aReal(b.precio_venta_final),
+    txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), prop.id);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id, `Vendida ${prop.referencia}`);
+  res.json({ ok: true });
 });
 
 // ============================================================

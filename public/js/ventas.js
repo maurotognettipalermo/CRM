@@ -10,8 +10,10 @@ const Ventas = (() => {
 
   // Filtros de la sub-pestaña Propiedades.
   const ESTADOS = ['Disponible', 'Reservada', 'Vendida', 'Retirada'];
+  // Las Vendidas viven en la sub-pestaña "Vendidos"; no se filtran ni listan aquí.
+  const ESTADOS_FILTRO = ['Disponible', 'Reservada', 'Retirada'];
   const TIPOS = ['Piso', 'Ático', 'Casa', 'Villa', 'Otros'];
-  let fEstado = new Set(ESTADOS);
+  let fEstado = new Set(ESTADOS_FILTRO);
   let fTipo = new Set();        // vacío = todos los tipos
   let fPrecioMin = '';
   let fPrecioMax = '';
@@ -84,6 +86,7 @@ const Ventas = (() => {
   function filtradas() {
     const q = busqueda.trim().toLowerCase();
     return propiedades.filter((p) => {
+      if (p.estado === 'Vendida') return false; // las vendidas van en la pestaña Vendidos
       if (!fEstado.has(p.estado)) return false;
       if (fTipo.size) {
         const t = TIPOS.includes(p.tipo) ? p.tipo : 'Otros';
@@ -132,12 +135,16 @@ const Ventas = (() => {
       b.addEventListener('click', (e) => { e.stopPropagation(); modalFormulario(propiedades.find((p) => p.id == b.dataset.editar)); }));
     tbody.querySelectorAll('[data-borrar]').forEach((b) =>
       b.addEventListener('click', (e) => { e.stopPropagation(); borrar(propiedades.find((p) => p.id == b.dataset.borrar)); }));
+    tbody.querySelectorAll('[data-vender]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalVender(propiedades.find((p) => p.id == b.dataset.vender)); }));
   }
 
   function filaHTML(p) {
     const dir = [p.calle, p.numero].filter(Boolean).join(' ') || '—';
     const nv = visitasRealizadas(p);
     const visitasCel = nv > 0 ? `<span class="vta-visitas-badge">${nv}</span>` : '<span class="vta-muted">0</span>';
+    const btnVender = p.estado !== 'Vendida'
+      ? `<button class="btn-icono" data-vender="${p.id}" title="Marcar como vendida">🏷️</button>` : '';
     return `
       <tr data-ficha="${p.id}">
         <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
@@ -151,6 +158,7 @@ const Ventas = (() => {
         <td>${estadoBadge(p.estado)}</td>
         <td>${visitasCel}</td>
         <td class="vta-acciones">
+          ${btnVender}
           <button class="btn-icono" data-editar="${p.id}" title="Editar">✏️</button>
           <button class="btn-icono" data-borrar="${p.id}" title="Eliminar">🗑</button>
         </td>
@@ -164,7 +172,7 @@ const Ventas = (() => {
 
   function nFiltrosActivos() {
     let n = 0;
-    if (fEstado.size !== ESTADOS.length) n++;
+    if (fEstado.size !== ESTADOS_FILTRO.length) n++;
     if (fTipo.size) n++;
     if (fPrecioMin !== '' || fPrecioMax !== '') n++;
     if (fDorm !== '') n++;
@@ -181,7 +189,7 @@ const Ventas = (() => {
   function construirFiltros() {
     const panel = document.getElementById('vta-filtros-panel');
     if (!panel || panel.dataset.listo) return;
-    const estItems = ESTADOS.map((e) =>
+    const estItems = ESTADOS_FILTRO.map((e) =>
       `<label class="rsv-f-op"><input type="checkbox" data-f="estado" value="${e}" checked><span class="rsv-f-op-label">${e}</span></label>`).join('');
     const tipoItems = TIPOS.map((t) =>
       `<label class="rsv-f-op"><input type="checkbox" data-f="tipo" value="${t}"><span class="rsv-f-op-label">${t}</span></label>`).join('');
@@ -225,7 +233,7 @@ const Ventas = (() => {
   }
 
   function resetFiltros() {
-    fEstado = new Set(ESTADOS);
+    fEstado = new Set(ESTADOS_FILTRO);
     fTipo = new Set();
     fPrecioMin = ''; fPrecioMax = ''; fDorm = '';
     const panel = document.getElementById('vta-filtros-panel');
@@ -364,7 +372,35 @@ const Ventas = (() => {
         ${visitas}
       </div>`;
 
-    document.getElementById('vta-d-cuerpo').innerHTML = datos + propietario + notas + histVisitas;
+    // Sección DATOS DE VENTA (solo si está vendida), destacada arriba del todo.
+    let ventaSec = '';
+    if (d.estado === 'Vendida') {
+      const dif = difVenta(d.precio, d.precio_venta_final);
+      const tel = d.comprador_telefono ? `📞 <a class="vta-link" href="tel:${esc(d.comprador_telefono)}">${esc(d.comprador_telefono)}</a>` : '';
+      const email = d.comprador_email ? `✉️ <a class="vta-link" href="mailto:${esc(d.comprador_email)}">${esc(d.comprador_email)}</a>` : '';
+      const escritura = d.fecha_escritura
+        ? `<div class="vta-d-linea">📜 Escriturada el ${fechaES(d.fecha_escritura)}</div>`
+        : `<div class="vta-d-linea" style="color:#f59e0b;font-weight:600">⏳ Pendiente de escriturar
+             <button class="btn-sec" id="vta-add-escritura" style="margin-left:8px;padding:2px 8px">＋ Añadir fecha</button></div>`;
+      ventaSec = `
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-bottom:20px">
+          <div class="vta-d-titulo-sec" style="border:none;color:#047857">💰 Datos de venta</div>
+          <div style="font-size:26px;font-weight:700;color:#047857;line-height:1.1">${euro(d.precio_venta_final)}</div>
+          <div style="font-size:13px;font-weight:600;margin-top:2px;color:${dif.color}">${dif.texto} respecto al precio de anuncio (${euro(d.precio)})</div>
+          <div class="vta-d-grid" style="margin-top:10px">
+            ${dato('Comprador', esc(d.comprador_nombre) || '—')}
+            ${dato('Fecha de venta', fechaES(d.fecha_venta))}
+          </div>
+          ${tel ? `<div class="vta-d-linea">${tel}</div>` : ''}
+          ${email ? `<div class="vta-d-linea">${email}</div>` : ''}
+          ${escritura}
+        </div>`;
+    }
+
+    document.getElementById('vta-d-cuerpo').innerHTML = ventaSec + datos + propietario + notas + histVisitas;
+
+    const btnEscritura = document.getElementById('vta-add-escritura');
+    if (btnEscritura) btnEscritura.addEventListener('click', () => modalAnadirEscritura(d));
 
     document.getElementById('vta-d-guardar-notas').addEventListener('click', async () => {
       const btn = document.getElementById('vta-d-guardar-notas');
@@ -1820,6 +1856,266 @@ const Ventas = (() => {
     setTimeout(() => document.addEventListener('click', cerrarPopoverCal, { once: true }), 0);
   }
 
+  // ============================================================
+  //                    VENTA DE PROPIEDAD
+  // ============================================================
+  // Diferencia precio venta vs anuncio: { texto con signo, color }.
+  function difVenta(anuncio, venta) {
+    const d = (Number(venta) || 0) - (Number(anuncio) || 0);
+    const abs = Math.abs(Math.round(d)).toLocaleString('de-DE') + ' €';
+    if (d > 0) return { texto: '+' + abs, color: '#10b981', valor: d };
+    if (d < 0) return { texto: '−' + abs, color: '#ef4444', valor: d };
+    return { texto: '0 €', color: '#6b7280', valor: 0 };
+  }
+
+  async function modalVender(p) {
+    if (!p) return;
+    const dir = [p.calle, p.numero].filter(Boolean).join(' ') || p.zona || '';
+    let vvClienteId = null;          // cliente comprador seleccionado (modo "existente")
+    let vvClientes = [];             // catálogo de clientes para el typeahead
+
+    abrirModal(`
+      <h3>🏷️ Marcar como vendida</h3>
+      <div class="vta-pv-resumen"><div>🏠 <strong>${esc(p.referencia)}</strong>${dir ? ' — ' + esc(dir) : ''}</div></div>
+      <div class="campo"><label>Precio de venta final (€)</label><input type="number" min="0" id="vv-precio" value="${p.precio ?? ''}"></div>
+      <div class="vta-modal-sub">Comprador</div>
+      <div class="fila-campos" style="gap:16px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px"><input type="radio" name="vv-modo" value="cliente" checked> Seleccionar cliente existente</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:14px"><input type="radio" name="vv-modo" value="manual"> Introducir manualmente</label>
+      </div>
+      <div class="campo vta-ta" id="vv-ta-wrap">
+        <label>Buscar cliente</label>
+        <input id="vv-cli-input" class="input-buscar" autocomplete="off" placeholder="Buscar por nombre, teléfono o email...">
+        <div id="vv-cli-res" class="vta-ta-res oculto"></div>
+      </div>
+      <div class="campo"><label>Nombre</label><input id="vv-comp-nombre"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Teléfono</label><input id="vv-comp-tel"></div>
+        <div class="campo"><label>Email</label><input id="vv-comp-email"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha de venta</label><input type="date" id="vv-fventa" value="${hoyStr()}"></div>
+        <div class="campo"><label>Fecha de escrituración (opcional)</label><input type="date" id="vv-fescritura"></div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vv-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vv-guardar">Marcar vendida</button>
+      </div>`);
+
+    const inpNombre = document.getElementById('vv-comp-nombre');
+    const inpTel = document.getElementById('vv-comp-tel');
+    const inpEmail = document.getElementById('vv-comp-email');
+    const taWrap = document.getElementById('vv-ta-wrap');
+    const cliInput = document.getElementById('vv-cli-input');
+    const cliRes = document.getElementById('vv-cli-res');
+
+    // Campos del comprador en modo lectura (cliente existente) o editable (manual).
+    function setLectura(ro) {
+      [inpNombre, inpTel, inpEmail].forEach((el) => { el.readOnly = ro; el.style.background = ro ? '#f3f4f6' : ''; });
+    }
+    function limpiarComprador() {
+      vvClienteId = null; inpNombre.value = ''; inpTel.value = ''; inpEmail.value = '';
+    }
+    function aplicarModo(modo) {
+      limpiarComprador();
+      cliInput.value = ''; cliRes.classList.add('oculto');
+      taWrap.classList.toggle('oculto', modo !== 'cliente');
+      setLectura(modo === 'cliente'); // existente: lectura hasta elegir; manual: editable
+    }
+
+    // Carga el catálogo de clientes para el typeahead.
+    try { vvClientes = await API.get('/api/ventas/clientes'); } catch (e) { vvClientes = []; }
+
+    document.querySelectorAll('input[name="vv-modo"]').forEach((r) =>
+      r.addEventListener('change', () => aplicarModo(r.value)));
+
+    cliInput.addEventListener('input', () => {
+      vvClienteId = null; inpNombre.value = ''; inpTel.value = ''; inpEmail.value = '';
+      const q = cliInput.value.trim().toLowerCase();
+      renderTA(cliRes,
+        vvClientes.filter((c) => `${c.nombre} ${c.apellidos || ''} ${c.telefono || ''} ${c.email || ''}`.toLowerCase().includes(q)),
+        (c) => `${esc([c.nombre, c.apellidos].filter(Boolean).join(' '))}${c.telefono ? ' · ' + esc(c.telefono) : ''}`,
+        (c) => {
+          vvClienteId = c.id;
+          cliInput.value = [c.nombre, c.apellidos].filter(Boolean).join(' ');
+          inpNombre.value = [c.nombre, c.apellidos].filter(Boolean).join(' ');
+          inpTel.value = c.telefono || '';
+          inpEmail.value = c.email || '';
+          cliRes.classList.add('oculto');
+        });
+    });
+
+    aplicarModo('cliente'); // estado inicial
+
+    document.getElementById('modal-contenido')?.addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) cliRes.classList.add('oculto');
+    });
+
+    document.getElementById('vv-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vv-guardar').addEventListener('click', async () => {
+      const btn = document.getElementById('vv-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.post(`/api/ventas/propiedades/${p.id}/vender`, {
+          precio_venta_final: val('vv-precio'),
+          comprador_nombre: val('vv-comp-nombre'),
+          comprador_telefono: val('vv-comp-tel'),
+          comprador_email: val('vv-comp-email'),
+          fecha_venta: val('vv-fventa'),
+          fecha_escritura: val('vv-fescritura'),
+        });
+        // Cliente existente: marcarlo como "Compró" (no rompe la venta si falla).
+        if (vvClienteId) {
+          try { await API.put('/api/ventas/clientes/' + vvClienteId, { estado: 'Compró' }); } catch (e) { /* venta ya guardada */ }
+        }
+        cerrarModal();
+        await cargarPropiedades(); // la propiedad desaparece de la tabla principal
+        cargarResumen();
+        if (vendConstruido) cargarVendidos();
+        toast('Propiedad vendida — movida a pestaña Vendidos', 'ok');
+      } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Marcar vendida'; }
+    });
+  }
+
+  // Mini-modal para añadir la fecha de escrituración desde la ficha de una vendida.
+  function modalAnadirEscritura(d) {
+    abrirModal(`
+      <h3>📜 Añadir fecha de escrituración</h3>
+      <div class="vta-pv-resumen"><div>🏠 <strong>${esc(d.referencia)}</strong></div></div>
+      <div class="campo"><label>Fecha de escrituración</label><input type="date" id="vesc-fecha" value="${hoyStr()}"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vesc-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vesc-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('vesc-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vesc-guardar').addEventListener('click', async () => {
+      try {
+        await API.put('/api/ventas/propiedades/' + d.id, { fecha_escritura: val('vesc-fecha') });
+        cerrarModal();
+        toast('Fecha de escrituración guardada', 'ok');
+        await abrirFicha(d.id);
+        if (vendConstruido) cargarVendidos();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ============================================================
+  //                    SUB-PESTAÑA VENDIDOS
+  // ============================================================
+  let vendidos = [];           // todas las propiedades Vendida
+  let vendConstruido = false;
+  let vendBusqueda = '';
+  let vendAnio = new Date().getFullYear();
+
+  function anioDe(iso) { return iso ? String(iso).slice(0, 4) : ''; }
+
+  function construirVendidos() {
+    if (vendConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="vendidos"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vta-prop-cab">
+        <div class="reservas-controles">
+          <input type="search" id="vnd-buscar" class="input-buscar" placeholder="Buscar por referencia, calle, comprador..." autocomplete="off">
+          <select id="vnd-anio" class="select-filtro"></select>
+          <span id="vnd-contador" class="alo-contador"></span>
+        </div>
+        <div id="vnd-resumen" style="margin-left:auto;font-size:14px;color:var(--muted)"></div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-vendidos">
+          <thead><tr>
+            <th>Ref.</th><th>Dirección</th><th>Precio anuncio</th><th>Precio venta</th>
+            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.getElementById('vnd-buscar').addEventListener('input', (e) => { vendBusqueda = e.target.value; renderVendidos(); });
+    document.getElementById('vnd-anio').addEventListener('change', (e) => { vendAnio = e.target.value; renderVendidos(); });
+    vendConstruido = true;
+  }
+
+  async function cargarVendidos() {
+    const tbody = document.querySelector('#tabla-vendidos tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">Cargando vendidos…</td></tr>';
+    try { vendidos = await API.get('/api/ventas/propiedades?estado=Vendida'); }
+    catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">No se pudieron cargar las propiedades vendidas.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderVendidos();
+  }
+
+  function pintarSelectAnios() {
+    const sel = document.getElementById('vnd-anio');
+    if (!sel) return;
+    const anios = new Set(vendidos.map((p) => anioDe(p.fecha_venta)).filter(Boolean));
+    anios.add(String(new Date().getFullYear()));
+    const lista = [...anios].sort((a, b) => b.localeCompare(a));
+    if (!lista.includes(String(vendAnio))) vendAnio = lista[0];
+    sel.innerHTML = lista.map((a) => `<option value="${a}"${String(vendAnio) === a ? ' selected' : ''}>${a}</option>`).join('');
+  }
+
+  function renderVendidos() {
+    pintarSelectAnios();
+    const tbody = document.querySelector('#tabla-vendidos tbody');
+    if (!tbody) return;
+
+    const delAnio = vendidos.filter((p) => anioDe(p.fecha_venta) === String(vendAnio));
+    const q = vendBusqueda.trim().toLowerCase();
+    const lista = delAnio.filter((p) => {
+      if (!q) return true;
+      return `${p.referencia || ''} ${p.calle || ''} ${p.comprador_nombre || ''}`.toLowerCase().includes(q);
+    });
+
+    const cont = document.getElementById('vnd-contador');
+    if (cont) cont.textContent = `${delAnio.length} propiedad${delAnio.length === 1 ? '' : 'es'} vendida${delAnio.length === 1 ? '' : 's'} en ${vendAnio}`;
+    const volumen = delAnio.reduce((s, p) => s + (Number(p.precio_venta_final) || 0), 0);
+    const res = document.getElementById('vnd-resumen');
+    if (res) res.innerHTML = `Volumen total: <strong>${euro(volumen)}</strong>`;
+
+    if (!delAnio.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Sin propiedades vendidas en ' + vendAnio + '.</td></tr>';
+      return;
+    }
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Ninguna coincide con la búsqueda.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.map((p) => {
+      const dir = [p.calle, p.numero].filter(Boolean).join(' ') || '—';
+      const dif = difVenta(p.precio, p.precio_venta_final);
+      const escritura = p.fecha_escritura
+        ? fechaES(p.fecha_escritura)
+        : '<span class="vta-bdg" style="background:#fffbeb;color:#b45309">Pendiente</span>';
+      return `
+        <tr data-ficha="${p.id}">
+          <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
+          <td>${esc(dir)}</td>
+          <td class="vta-precio">${euro(p.precio)}</td>
+          <td class="vta-precio">${euro(p.precio_venta_final)}</td>
+          <td style="color:${dif.color};font-weight:600">${dif.texto}</td>
+          <td>${esc(p.comprador_nombre) || '—'}</td>
+          <td>${fechaES(p.fecha_venta)}</td>
+          <td>${escritura}</td>
+          <td class="vta-acciones">
+            <button class="btn-icono" data-editar="${p.id}" title="Editar">✏️</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('[data-editar]') || e.target.closest('[data-ref]')) return;
+        abrirFicha(tr.dataset.ficha);
+      }));
+    tbody.querySelectorAll('[data-ref]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); abrirFicha(a.dataset.ref); }));
+    tbody.querySelectorAll('[data-editar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalFormulario(vendidos.find((p) => p.id == b.dataset.editar)); }));
+  }
+
   // ==================== Init ====================
   function init() {
     construirFiltros();
@@ -1839,22 +2135,28 @@ const Ventas = (() => {
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
     }
 
-    // Inyecta la sub-pestaña Calendario (no está en index.html).
+    // Inyecta las sub-pestañas Calendario y Vendidos (no están en index.html).
     const subtabs = document.getElementById('vta-subtabs');
     const scroll = document.querySelector('#vista-ventas .vta-scroll');
-    if (subtabs && scroll && !subtabs.querySelector('[data-sub="calendario"]')) {
-      const btn = document.createElement('button');
-      btn.className = 'subtab';
-      btn.dataset.sub = 'calendario';
-      btn.textContent = 'Calendario';
-      subtabs.appendChild(btn);
-      const panel = document.createElement('div');
-      panel.className = 'sub-panel';
-      panel.dataset.panelSub = 'calendario';
-      scroll.appendChild(panel);
-    }
+    const inyectarSub = (sub, etiqueta) => {
+      if (subtabs && !subtabs.querySelector(`[data-sub="${sub}"]`)) {
+        const btn = document.createElement('button');
+        btn.className = 'subtab';
+        btn.dataset.sub = sub;
+        btn.textContent = etiqueta;
+        subtabs.appendChild(btn);
+      }
+      if (scroll && !scroll.querySelector(`[data-panel-sub="${sub}"]`)) {
+        const panel = document.createElement('div');
+        panel.className = 'sub-panel';
+        panel.dataset.panelSub = sub;
+        scroll.appendChild(panel);
+      }
+    };
+    inyectarSub('calendario', 'Calendario');
+    inyectarSub('vendidos', 'Vendidos');
 
-    // Sub-pestañas Propiedades / Clientes / Visitas / Calendario.
+    // Sub-pestañas Propiedades / Clientes / Visitas / Calendario / Vendidos.
     document.querySelectorAll('#vta-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => {
         document.querySelectorAll('#vta-subtabs .subtab').forEach((x) => x.classList.toggle('activo', x === b));
@@ -1863,6 +2165,7 @@ const Ventas = (() => {
         if (b.dataset.sub === 'clientes') { construirClientes(); cargarClientes(); }
         if (b.dataset.sub === 'visitas') { construirVisitas(); cargarVisitas(); }
         if (b.dataset.sub === 'calendario') { construirCalendario(); cargarCalendario(); }
+        if (b.dataset.sub === 'vendidos') { construirVendidos(); cargarVendidos(); }
       }));
   }
 

@@ -504,22 +504,81 @@ router.post('/', (req, res) => {
   res.status(201).json({ id: r.id, numero: r.numero });
 });
 
-// PUT /api/facturas/:id — solo estado / fecha_vencimiento / notas (no toca importes).
+// PUT /api/facturas/:id — edición completa (solo administradores): emisor, receptor,
+// fechas, estado, notas, importes y líneas. Si vienen `lineas`, se reemplazan todas y los
+// importes se recalculan desde ellas (la base manda). Campos NOT NULL conservan su valor
+// si llegan vacíos.
 router.put('/:id', (req, res) => {
-  const factura = db.prepare('SELECT id FROM facturas WHERE id = ?').get(req.params.id);
-  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
   const b = req.body || {};
-  const sets = [];
-  const vals = [];
-  if (b.estado !== undefined) {
-    if (!ESTADOS.includes(b.estado)) return res.status(400).json({ error: 'Estado no válido' });
-    sets.push('estado = ?'); vals.push(b.estado);
+  // Los no administradores solo pueden tocar estado/fecha_vencimiento/notas (p. ej. "marcar
+  // pagada"); cualquier otro campo (líneas, importes, emisor, receptor…) exige rol admin.
+  if (!req.usuario || req.usuario.rol !== 'administrador') {
+    const PERMITIDOS_NO_ADMIN = ['estado', 'fecha_vencimiento', 'notas'];
+    const tieneOtros = Object.keys(b).some((k) => !PERMITIDOS_NO_ADMIN.includes(k));
+    if (tieneOtros) {
+      return res.status(403).json({ error: 'Solo los administradores pueden editar facturas' });
+    }
   }
-  if (b.fecha_vencimiento !== undefined) { sets.push('fecha_vencimiento = ?'); vals.push(txt(b.fecha_vencimiento)); }
-  if (b.notas !== undefined) { sets.push('notas = ?'); vals.push(txt(b.notas)); }
-  if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
-  vals.push(req.params.id);
-  db.prepare(`UPDATE facturas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  const factura = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
+  if (b.estado !== undefined && b.estado !== null && b.estado !== '' && !ESTADOS.includes(b.estado)) {
+    return res.status(400).json({ error: 'Estado no válido' });
+  }
+  const lineasNuevas = Array.isArray(b.lineas) ? b.lineas : null;
+
+  // Campos de texto/fecha/estado editables (los no enviados conservan su valor).
+  const STR = ['emisor_nombre', 'emisor_cif', 'emisor_direccion', 'receptor_nombre',
+    'receptor_cif', 'receptor_direccion', 'receptor_email', 'fecha_emision', 'fecha_vencimiento', 'notas', 'estado'];
+  const f = {};
+  for (const k of STR) f[k] = (b[k] !== undefined) ? txt(b[k]) : factura[k];
+
+  // Porcentajes: del body o conservados.
+  const pIva = b.porcentaje_iva !== undefined ? num(b.porcentaje_iva) : num(factura.porcentaje_iva);
+  const pRet = b.porcentaje_retencion !== undefined ? num(b.porcentaje_retencion) : num(factura.porcentaje_retencion);
+  f.porcentaje_iva = pIva;
+  f.porcentaje_retencion = pRet;
+
+  if (lineasNuevas) {
+    // Recalcular importes desde las líneas (la suma manda).
+    const base = round2(lineasNuevas.reduce((s, l) => s + (round2(l.importe) || 0), 0));
+    f.base_imponible = base;
+    f.importe_iva = round2(base * pIva / 100);
+    f.importe_retencion = round2(base * pRet / 100);
+    f.total = round2(base + f.importe_iva - f.importe_retencion);
+  } else {
+    // Sin líneas: aceptar importes del body o conservar.
+    f.base_imponible = b.base_imponible !== undefined ? round2(b.base_imponible) : round2(factura.base_imponible);
+    f.importe_iva = b.importe_iva !== undefined ? round2(b.importe_iva) : round2(factura.importe_iva);
+    f.importe_retencion = b.importe_retencion !== undefined ? round2(b.importe_retencion) : round2(factura.importe_retencion);
+    f.total = b.total !== undefined ? round2(b.total) : round2(factura.total);
+  }
+
+  // Columnas NOT NULL: conservar el valor anterior si llega vacío.
+  if (!f.emisor_nombre) f.emisor_nombre = factura.emisor_nombre;
+  if (!f.receptor_nombre) f.receptor_nombre = factura.receptor_nombre;
+  if (!f.fecha_emision) f.fecha_emision = factura.fecha_emision;
+  if (!f.estado) f.estado = factura.estado;
+
+  const COLS_UPD = ['emisor_nombre', 'emisor_cif', 'emisor_direccion',
+    'receptor_nombre', 'receptor_cif', 'receptor_direccion', 'receptor_email',
+    'base_imponible', 'porcentaje_iva', 'importe_iva', 'porcentaje_retencion', 'importe_retencion', 'total',
+    'fecha_emision', 'fecha_vencimiento', 'notas', 'estado'];
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE facturas SET ${COLS_UPD.map((c) => `${c} = @${c}`).join(', ')} WHERE id = @id`)
+      .run({ ...f, id: factura.id });
+    if (lineasNuevas) {
+      db.prepare('DELETE FROM factura_lineas WHERE factura_id = ?').run(factura.id);
+      const ins = db.prepare(
+        'INSERT INTO factura_lineas (factura_id, descripcion, cantidad, precio_unitario, importe, orden) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      lineasNuevas.forEach((l, i) => ins.run(
+        factura.id, txt(l.descripcion) || '', l.cantidad != null ? num(l.cantidad) : 1,
+        round2(l.precio_unitario), round2(l.importe), l.orden != null ? l.orden : i));
+    }
+  });
+  try { tx(); } catch (e) { return res.status(500).json({ error: e.message }); }
+  registrarActividad(db, req.usuario.id, req.usuario.nombre, 'editar', 'factura', factura.id, `Editada ${factura.numero}`);
   res.json({ ok: true });
 });
 

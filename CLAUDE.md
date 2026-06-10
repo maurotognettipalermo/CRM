@@ -31,7 +31,10 @@ db/database.js         better-sqlite3, WAL + foreign_keys. Ejecuta schema + limp
                        migrarRelacionPropietarios() (volcó apartamentos.propietario_id a la tabla N:M
                        y eliminó la columna recreando la tabla) + migrarUsuariosRol() (recrea usuarios
                        para ampliar el CHECK de rol con 'limpieza' y 'mantenimiento'; el guard mira si
-                       el CHECK ya incluye 'mantenimiento') + seeds (admin, portales, estados_reserva).
+                       el CHECK ya incluye 'mantenimiento') + migrarFacturasTipo() (recrea facturas para
+                       ampliar el CHECK de tipo con 'mayorista', reescribiendo su SQL por regex) +
+                       migrarPropiedadesVenta() (ALTER de los campos de venta cerrada) + seeds (admin,
+                       portales, estados_reserva, mayoristas: Apartplaya/Viajes Himalaya).
                        Columna estado_limpieza ('limpio'|'sucio', CHECK) se añade vía COLUMNAS_APARTAMENTOS.
 scripts/crear-usuario.js  Crear/actualizar usuario admin directamente en BD (node scripts/crear-usuario.js).
 db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietarios, reservas, ajustes,
@@ -41,7 +44,8 @@ db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietar
                        descuentos, apartamento_fotos, estados_reserva, limpieza_log,
                        limpieza_tareas, limpieza_fotos, mantenimiento_tareas,
                        mantenimiento_notas, mantenimiento_fotos, propiedades_venta,
-                       clientes_compradores, visitas_venta, visitas_notas.
+                       clientes_compradores, visitas_venta, visitas_notas, mayoristas,
+                       mayorista_contratos, mayorista_pagos.
 routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
   portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
@@ -51,7 +55,9 @@ routes/                Un router Express por recurso:
   limpieza (/api/limpieza, tareas de limpieza por día + reportes) ·
   mantenimiento (/api/mantenimiento, tareas kanban + notas + fotos + historial por apto) ·
   ventas (/api/ventas, módulo inmobiliaria: propiedades en venta + clientes compradores +
-    visitas + notas de visita + resumen; importación de Idealista)
+    visitas + notas de visita + resumen; importación de Idealista; venta de propiedad) ·
+  mayoristas (/api/mayoristas, Pagos de Mayoristas: mayoristas + contratos anuales +
+    plan de pagos + resumen)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
@@ -103,11 +109,13 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Expone abrirFicha(id).
   js/contratos.js      Contratos propietario: precio_cerrado o comision. Filtros año/tipo/propietario.
                        Tabla con badges y mini barra de cuotas. Expone filtrarPorPropietario(id, nombre).
-  js/facturas.js       Facturación: tipos propietario/autofactura/gastos/huésped. Filtros año/tipo/estado.
+  js/facturas.js       Facturación: tipos propietario/autofactura/gastos/huésped/mayorista. Filtros año/tipo/estado.
                        Ficha en panel lateral (emisor/receptor, líneas, totales, PDF).
                        Wizard 2 pasos: tipo+razón social → datos según tipo (typeahead propietario→
                        contrato→cuotas / apartamento→gastos / reserva→huésped manual).
-                       PDF: /api/facturas/:id/pdf en nueva pestaña.
+                       Botón "✏️ Editar" (solo admin, oculto vía Auth.sesion().rol): modal de edición
+                       completa (generales/emisor/receptor/líneas editables/totales recalculados en vivo)
+                       → PUT /api/facturas/:id. PDF: /api/facturas/:id/pdf en nueva pestaña.
   js/tarifas.js        Pestaña Tarifas (todos los roles): selector de año + botón copiar año +
                        sub-pestañas Temporadas (calendario anual de 12 franjas × grid 31 columnas,
                        días tintados con el color de su temporada, tabla CRUD, modal con preview de
@@ -139,11 +147,14 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Mantenimiento con descripción dinámica vía ROL_DESC).
                        Portales, Catálogo de gastos, Catálogo de extras, Estados de reserva y Correo
                        electrónico se inyectan por JS (Correo y Actividad ocultas para no-admin).
-  js/estadisticas.js   Solo admin. Selector de año + 4 sub-pestañas con datos reales y anti-respuesta-obsoleta:
+  js/estadisticas.js   Solo admin. Selector de año + 5 sub-pestañas con datos reales y anti-respuesta-obsoleta:
                        (1) Ingresos por portal · (2) Ingresos por apartamento (general + detalle por apto) ·
                        (3) Ocupación (barras por mes + comparativa 1ª/2ª Línea) ·
-                       (4) Propietarios 💰 (cashflow precio_cerrado → link a Contratos filtrado).
-                       Sub-pestaña 4 y su panel se inyectan por JS (no en index.html).
+                       (4) Propietarios 💰 (cashflow precio_cerrado → link a Contratos filtrado) ·
+                       (5) Mayoristas (4 cards + cashflow + card por mayorista + panel lateral con plan
+                       de pagos: marcar/desmarcar cobro, generar factura tipo 'mayorista' —el nº enlaza a
+                       Facturación—, gestionar mayoristas y nuevo contrato; desde /api/mayoristas).
+                       Sub-pestañas 4 y 5 y sus paneles se inyectan por JS (no en index.html).
   js/limpieza.js       Módulo Limpieza (todos los roles; rol 'limpieza' solo ve esta pestaña).
                        Sub-pestaña "Tareas del día": selector de fecha + Hoy/Mañana, 4 mini-tarjetas
                        de resumen, buscador + filtro pill por estado (Todos/Pendientes/Completadas),
@@ -167,24 +178,31 @@ public/                Frontend vanilla. Sin build, servido estático.
                        descripción, notas tipo chat con Enter-envía, fotos grid+lightbox+dropzone,
                        modal editar). Columnas colapsables en móvil (clase mant-col-colapsada + CSS).
                        Expone abrirDetalle(id) y nuevaTareaPara(aptoId). UI mobile-first.
-  js/ventas.js         Módulo Ventas (inmobiliaria). IIFE `Ventas`, 3 sub-pestañas (#vta-subtabs):
-                       Propiedades · Clientes · Visitas. 4 mini-tarjetas de resumen
-                       (disponibles/clientes activos/visitas hoy/ventas) desde /ventas/resumen.
-                       **Propiedades**: el HTML estático está en index.html; las sub-pestañas Clientes
-                       y Visitas son placeholders en index.html que ventas.js REEMPLAZA por completo en
-                       runtime (construirClientes/construirVisitas, una vez). Tabla con buscador +
-                       panel "🔽 Filtros" (estado/tipo multiselección + rango precio + dormitorios),
-                       ficha en panel lateral propio (#vta-panel, editable: descripción/notas), modal
-                       alta/edición, modal importar Idealista (dropzone, fetch directo con authHeaders()
-                       campo `archivo`, resumen nuevas/actualizadas/errores). **Clientes**: tabla +
-                       filtros, ficha lateral (#vcl-panel) con dropdown cambiar estado, "Qué busca"
-                       (chips), "Propiedades sugeridas" (match contra disponibles → Programar visita),
-                       historial de visitas, notas. **Visitas**: filtro día/semana/mes + estado +
-                       buscador, sección "Visitas de hoy" (cards con realizar/cancelar), tabla, modal
-                       detalle con notas tipo chat (Enter-envía), modal nueva visita (typeahead cliente
-                       +propiedad, "crear cliente nuevo" reentra preseleccionando). Avance automático
-                       de estado del cliente: crear visita Nuevo→Contactado, realizar Contactado→Visitado.
-                       Expone init/cargar/abrirFicha. Clases CSS `vta-*`. UI mobile-first.
+  js/ventas.js         Módulo Ventas (inmobiliaria). IIFE `Ventas`, 5 sub-pestañas (#vta-subtabs):
+                       Propiedades · Clientes · Visitas · Calendario · Vendidos. Solo Propiedades
+                       está en index.html; las otras 4 (incluidos sus paneles) las inyecta ventas.js
+                       en runtime, una vez (construirClientes/Visitas/Calendario/Vendidos). 4 mini-tarjetas
+                       de resumen (disponibles/clientes activos/visitas hoy/ventas) desde /ventas/resumen.
+                       **Propiedades**: tabla (buscador + panel "🔽 Filtros": estado/tipo multiselección
+                       —Vendida excluida, va en Vendidos— + rango precio + dormitorios), ficha en panel
+                       lateral propio (#vta-panel, editable: descripción/notas; sección verde "Datos de
+                       venta" arriba si la propiedad está Vendida), modal alta/edición, modal importar
+                       Idealista (dropzone, fetch directo authHeaders() campo `archivo`), botón "🏷️
+                       Vendido" por fila → modal venta (precio prerrellenado; comprador por radio
+                       "cliente existente" con typeahead que autorellena+lectura / "manual"; al guardar
+                       con cliente existente lo marca estado='Compró') → POST /ventas/propiedades/:id/vender.
+                       **Clientes**: tabla + filtros, ficha lateral (#vcl-panel) con dropdown cambiar
+                       estado, "Qué busca" (chips), "Propiedades sugeridas" (match → Programar visita),
+                       historial de visitas, notas. **Visitas**: filtro día/semana/mes + estado + buscador,
+                       sección "Visitas de hoy", tabla, modal detalle con notas tipo chat, modal nueva
+                       visita (typeahead cliente+propiedad). Avance automático del estado del cliente:
+                       crear visita Nuevo→Contactado, realizar Contactado→Visitado. **Calendario**: vista
+                       mensual (grid 7 col + flechas/Hoy + leyenda; modo lista en móvil) con las visitas
+                       por día; clic en visita → detalle, clic en día → nueva visita. **Vendidos**:
+                       buscador + selector de año (por fecha_venta) + contador + volumen total; tabla
+                       (precio anuncio/venta, Diferencia coloreada, comprador, escritura con badge
+                       "Pendiente") desde /ventas/propiedades?estado=Vendida filtrado en cliente.
+                       Expone init/cargar/abrirFicha. Clases CSS `vta-*`/`vca-*`. UI mobile-first.
 ```
 
 **Orden de carga de scripts**: `api.js` y `auth.js` primero, `app.js` último. Los módulos se referencian entre sí solo en runtime (no en carga).
@@ -261,6 +279,7 @@ Patrones clave:
 | GET | /api/ventas/propiedades | Lista; filtros `?estado=&tipo=&zona=&precio_min=&precio_max=&dormitorios=` |
 | GET/POST/PUT/DELETE | /api/ventas/propiedades[/:id] | CRUD propiedades en venta. GET/:id incluye `visitas[]`. POST/PUT validan `referencia` única (409). DELETE→409 si tiene visitas |
 | POST | /api/ventas/propiedades/importar | Excel de Idealista (campo `archivo`); upsert por referencia, no pisa estado/notas/descripcion |
+| POST | /api/ventas/propiedades/:id/vender | `{fecha_venta, fecha_escritura, precio_venta_final, comprador_*}`. estado='Vendida' + guarda datos (fecha_venta→hoy si falta) |
 | GET | /api/ventas/clientes | Lista; filtros `?estado=&busca_tipo=&presupuesto_min=&presupuesto_max=` |
 | GET/POST/PUT/DELETE | /api/ventas/clientes[/:id] | CRUD clientes compradores. GET/:id incluye `visitas[]`. DELETE→409 si tiene visitas |
 | GET | /api/ventas/visitas | Lista; filtros `?fecha=&estado=&cliente_id=&propiedad_id=` |
@@ -268,6 +287,12 @@ Patrones clave:
 | GET/POST/PUT/DELETE | /api/ventas/visitas[/:id] | CRUD visitas. POST→409 si duplicada (cliente+propiedad+fecha); crea visita avanza cliente Nuevo→Contactado |
 | POST | /api/ventas/visitas/:id/realizar | `{valoracion, notas}` → estado='Realizada'; avanza cliente Contactado→Visitado |
 | POST/DELETE | /api/ventas/visitas/:id/notas[/:nota_id] | Hilo de notas de la visita |
+| GET | /api/mayoristas/resumen | `?anio=` → `{resumen{total_comprometido,total_cobrado,total_pendiente,contratos_activos}, por_mayorista[]}` (próximo pago incluido). **Antes de /:id** |
+| GET/POST/PUT/DELETE | /api/mayoristas[/:id] | CRUD mayoristas (turoperadores). DELETE→409 si tiene contratos |
+| GET | /api/mayoristas/contratos | `?anio=`. Todos los contratos del año + nombre del mayorista (**antes de /:id**) |
+| GET/PUT/DELETE | /api/mayoristas/contratos/:id | Detalle (con `pagos[]`) / editar + reemplazar plan de pagos (transacción, valida suma==total) / borrar (409 si pagos cobrados) |
+| GET/POST | /api/mayoristas/:id/contratos | Contratos de un mayorista (`?anio=`) / crear contrato + plan de pagos `{anio, importe_total, pagos:[{numero_pago,fecha_prevista,importe}]}` (valida suma, 409 si año duplicado) |
+| PUT | /api/mayoristas/pagos/:pago_id | Marcar/desmarcar cobro `{pagado, fecha_pago, metodo_pago, numero_factura}`. Marcar sin fecha→hoy; desmarcar limpia fecha+método |
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD razones sociales |
 | POST | /api/ajustes/razones-sociales/:id/logo | Multipart campo `logo`; .jpg/.jpeg/.png/.webp/.svg |
 | GET/POST/PUT/DELETE | /api/ajustes/estados-reserva[/:id] | CRUD estados de reserva (orden por `orden`). DELETE→409 si `es_sistema=1` o si alguna reserva usa ese nombre |
@@ -283,7 +308,8 @@ Patrones clave:
 | GET/POST/PUT/DELETE | /api/contratos[/:id] | CRUD contratos + cuotas (transacción). DELETE→409 si hay cuotas pagadas |
 | GET | /api/contratos/resumen-propietario | `?propietario_id=&anio=` (**declarar antes de /:id**) |
 | PUT | /api/contratos/:id/cuotas/:cuota_id | Marcar/desmarcar pago; sin fecha→usa hoy; desmarcar limpia fecha |
-| GET/POST/PUT/DELETE | /api/facturas[/:id] | CRUD facturas. POST numera correlativo F-{anio}-NNN en transacción |
+| GET/POST/DELETE | /api/facturas[/:id] | Lista/ficha/crear/borrar facturas. POST tipos huésped/propietario/autofactura/gastos/mayorista, numera correlativo F-{anio}-NNN en transacción. Tipo `mayorista`: `{razon_social_id, anio, mayorista_pago_ids[]}`, IVA 10%, fija numero_factura en los pagos |
+| PUT | /api/facturas/:id | Editar. **Admin**: todos los campos (emisor/receptor/importes + array `lineas` reemplaza líneas y recalcula totales). **No admin**: solo `estado`/`fecha_vencimiento`/`notas` (p. ej. marcar pagada); cualquier otro campo → 403 |
 | GET/POST/PUT/DELETE | /api/tarifas/temporadas[/:id] | CRUD temporadas. `?anio=`. POST/PUT validan solape mismo año (409) |
 | POST | /api/tarifas/temporadas/copiar | `{anio_origen, anio_destino}`. 409 si destino ya tiene; 29-feb→28 si destino no bisiesto |
 | GET/PUT | /api/tarifas/modificadores[/:id] | Modificadores % por tipo. PUT solo porcentaje; tipo A bloqueado (400) |
@@ -315,7 +341,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **contrato_cuotas**: contrato_id (FK, ON DELETE CASCADE), numero_cuota, fecha_prevista, importe, pagado, fecha_pago. Suma de importes debe cuadrar con precio_total (±0.01€). PUT de contrato borra y reinserta todas las cuotas.
 - **catalogo_gastos**: nombre (UNIQUE), precio, descripcion, activo, incluye_iva (informativo; precio lleva IVA 21%).
 - **apartamento_gastos**: apartamento_id (FK, ON DELETE CASCADE), catalogo_gasto_id (FK nullable, ON DELETE SET NULL), nombre/precio (**snapshot** al insertar), fecha, notas, cobrado_propietario, created_by. Cambios en catálogo no afectan gastos ya registrados.
-- **facturas**: tipo CHECK (huésped/propietario/autofactura/gastos), estado CHECK (borrador/emitida/pagada/anulada), numero UNIQUE (F-{anio}-NNN). Snapshot de emisor y receptor. IVA por tipo: propietario/autofactura→del contrato; gastos→21% si algún gasto lleva IVA; huésped→10%.
+- **facturas**: tipo CHECK (huésped/propietario/autofactura/gastos/mayorista; 'mayorista' se añadió ampliando el CHECK vía `migrarFacturasTipo()`), estado CHECK (borrador/emitida/pagada/anulada), numero UNIQUE (F-{anio}-NNN). Snapshot de emisor y receptor. IVA por tipo: propietario/autofactura→del contrato; gastos→21% si algún gasto lleva IVA; huésped→10%; mayorista→10% (alojamiento turístico). PUT de edición: admin todos los campos+líneas; no-admin solo estado/fecha_vencimiento/notas.
 - **factura_lineas**: factura_id (FK, ON DELETE CASCADE), descripcion, cantidad, precio_unitario, importe, orden.
 - **factura_contador**: anio PK / ultimo_numero. Numeración correlativa sin huecos dentro de la transacción del INSERT de factura.
 - **reserva_pagos**: reserva_id (FK, ON DELETE CASCADE), concepto, importe, metodo_pago (CHECK caja/tpv/transferencia, nullable), pagado (0/1), fecha_pago (ISO, null hasta pagar), notas, orden, created_at. Plan de pagos del huésped. Sin migración en database.js (la tabla la crea schema.sql).
@@ -332,12 +358,15 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **mantenimiento_tareas**: apartamento_id (FK CASCADE), titulo, descripcion, estado (CHECK urgente/pendiente/en_proceso/completada, def. 'pendiente'), posicion (orden dentro de la columna), reserva_id (FK SET NULL), cliente_nombre/cliente_telefono (snapshot de la reserva al crear; teléfono extraído de observaciones), asignado_a/asignado_nombre, completado_por/completado_nombre/completado_fecha, fecha_creacion, fecha_limite, created_by. Tablero kanban: una "columna" por estado, ordenada por posicion.
 - **mantenimiento_notas**: tarea_id (FK CASCADE), texto, usuario_id (FK), usuario_nombre, fecha. Hilo cronológico (chat) de la tarea.
 - **mantenimiento_fotos**: tarea_id (FK CASCADE), url, nombre_archivo, descripcion, created_by. Archivos en `public/uploads/mantenimiento/{tarea_id}/`; el DELETE de foto borra BD + disco.
-- **propiedades_venta** (módulo Ventas/inmobiliaria): referencia (TEXT UNIQUE NOT NULL, clave de upsert al importar de Idealista), codigo_idealista, tipo, dirección (calle/numero/planta/zona/localidad), precio, dormitorios/banos/metros_cuadrados/metros_utiles, clase_energetica, garaje, num_fotos, estado (CHECK Disponible/Reservada/Vendida/Retirada, def. 'Disponible'), estado_idealista, fecha_alta/fecha_baja, datos del propietario (nombre/apellidos/telefono/email — **snapshot del Excel, no FK a `propietarios`**), descripcion, notas. `referencia`, `estado`, `notas`, `descripcion` son del CRM y la importación NO los pisa en UPDATE. `routes/ventas.js` define `PROP_CAMPOS` como punto de verdad.
+- **propiedades_venta** (módulo Ventas/inmobiliaria): referencia (TEXT UNIQUE NOT NULL, clave de upsert al importar de Idealista), codigo_idealista, tipo, dirección (calle/numero/planta/zona/localidad), precio, dormitorios/banos/metros_cuadrados/metros_utiles, clase_energetica, garaje, num_fotos, estado (CHECK Disponible/Reservada/Vendida/Retirada, def. 'Disponible'), estado_idealista, fecha_alta/fecha_baja, datos del propietario (nombre/apellidos/telefono/email — **snapshot del Excel, no FK a `propietarios`**), descripcion, notas. Datos de la venta cerrada (vía `migrarPropiedadesVenta`, ALTER): fecha_venta, fecha_escritura, precio_venta_final, comprador_nombre/telefono/email. `referencia`, `estado`, `notas`, `descripcion` son del CRM y la importación NO los pisa en UPDATE. `routes/ventas.js` define `PROP_CAMPOS` como punto de verdad. `POST /:id/vender` pone estado='Vendida' y rellena los campos de venta.
 - **clientes_compradores**: demanda (compradores). nombre (NOT NULL), apellidos/telefono/email, presupuesto_max, criterios de búsqueda (busca_tipo, busca_dormitorios, busca_zona, busca_linea, busca_frontal, busca_villa), notas, estado (CHECK Nuevo/Contactado/Visitado/En negociación/Compró/Descartado, def. 'Nuevo'), origen, created_by. `CLI_CAMPOS` como punto de verdad. El estado avanza solo al programar/realizar visitas.
 - **visitas_venta**: cliente_id + propiedad_id (FK, ON DELETE CASCADE), fecha (NOT NULL), hora, estado (CHECK Programada/Realizada/Cancelada, def. 'Programada'), valoracion, notas, atendido_por, created_by. **UNIQUE(cliente_id, propiedad_id, fecha)** → POST duplicado da 409.
 - **visitas_notas**: visita_id (FK CASCADE), texto (NOT NULL), usuario_nombre, fecha. Hilo cronológico (chat) de la visita.
+- **mayoristas** (Pagos de Mayoristas): nombre (UNIQUE NOT NULL), cif, direccion, telefono, email, contacto_nombre, notas, activo. Seed: Apartplaya, Viajes Himalaya (si tabla vacía). DELETE→409 si tiene contratos. `MAY_CAMPOS`/`CLI_CAMPOS`-style en `routes/mayoristas.js`.
+- **mayorista_contratos**: mayorista_id (FK CASCADE), anio, descripcion, importe_total, estado (CHECK activo/finalizado/cancelado, def. 'activo'), notas. **UNIQUE(mayorista_id, anio)**. La suma del plan de pagos debe cuadrar con importe_total (±0.01€).
+- **mayorista_pagos**: contrato_id (FK CASCADE), numero_pago, fecha_prevista, importe, pagado (0/1), fecha_pago, metodo_pago (CHECK transferencia/cheque/efectivo), numero_factura, notas. Plan de pagos del contrato; al facturar (tipo 'mayorista') se anota el numero_factura.
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_notas` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo la columna `estado_limpieza`, que sí va por ALTER en `COLUMNAS_APARTAMENTOS`, y el CHECK de `usuarios.rol` que se amplía recreando la tabla en `migrarUsuariosRol()`). `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_notas`, `mayoristas`, `mayorista_contratos`, `mayorista_pagos` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo: la columna `estado_limpieza` vía ALTER en `COLUMNAS_APARTAMENTOS`; el CHECK de `usuarios.rol` recreando la tabla en `migrarUsuariosRol()`; el CHECK de `facturas.tipo` recreado en `migrarFacturasTipo()`; y los campos de venta de `propiedades_venta` vía ALTER en `migrarPropiedadesVenta()`). `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 

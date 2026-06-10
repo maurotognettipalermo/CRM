@@ -156,6 +156,16 @@ const COLUMNAS_FACTURAS = {};
 // Mayoristas por defecto (se insertan si la tabla está vacía).
 const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
 
+// Columnas extra de propiedades_venta (datos de la venta cerrada). ALTER si faltan.
+const COLUMNAS_PROPIEDADES_VENTA = {
+  fecha_venta: 'TEXT',
+  fecha_escritura: 'TEXT',
+  precio_venta_final: 'REAL',
+  comprador_nombre: 'TEXT',
+  comprador_telefono: 'TEXT',
+  comprador_email: 'TEXT',
+};
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -173,6 +183,7 @@ function init() {
   migrarCatalogoExtras();
   migrarUsuariosRol();
   migrarFacturasTipo();
+  migrarPropiedadesVenta();
   seedAdmin();
   seedPortales();
   seedModificadores();
@@ -317,6 +328,11 @@ function migrarFacturas() {
 // Migración de la tabla catalogo_extras: añade obligatorio si falta.
 function migrarCatalogoExtras() {
   anadirColumnasFaltantes('catalogo_extras', COLUMNAS_CATALOGO_EXTRAS);
+}
+
+// Migración de propiedades_venta: añade los campos de la venta cerrada si faltan.
+function migrarPropiedadesVenta() {
+  anadirColumnasFaltantes('propiedades_venta', COLUMNAS_PROPIEDADES_VENTA);
 }
 
 // Amplía el CHECK de facturas.tipo para admitir 'mayorista'. SQLite no permite alterar un

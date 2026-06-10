@@ -140,6 +140,7 @@ const Facturas = (() => {
           <span id="fac-badges"></span>
         </div>
         <div class="panel-cabecera-acciones">
+          <button id="fac-editar" class="btn-sec oculto">✏️ Editar</button>
           <button id="fac-pdf" class="btn-sec">Descargar PDF</button>
           <button id="fac-anular" class="btn-sec">Anular</button>
           <button id="fac-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
@@ -152,6 +153,7 @@ const Facturas = (() => {
     panel.querySelector('#fac-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#fac-pdf').addEventListener('click', () => { if (fichaActual) descargarPDF(fichaActual.id, fichaActual.numero); });
     panel.querySelector('#fac-anular').addEventListener('click', () => { if (fichaActual) anular(fichaActual.id); });
+    panel.querySelector('#fac-editar').addEventListener('click', () => { if (fichaActual) abrirEditar(fichaActual); });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
@@ -168,6 +170,179 @@ const Facturas = (() => {
     fichaActual = null;
   }
 
+  // ==================== Edición de factura (solo administradores) ====================
+  const ESTADOS_FAC = [['borrador', 'Borrador'], ['emitida', 'Emitida'], ['pagada', 'Pagada'], ['anulada', 'Anulada']];
+  let edLineas = []; // estado de las líneas en el modal de edición
+
+  function esAdmin() { return (((typeof Auth !== 'undefined' && Auth.sesion && Auth.sesion()) || {}).rol) === 'administrador'; }
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  function fval(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+
+  function abrirEditar(f) {
+    if (!f) return;
+    edLineas = (f.lineas || []).map((l) => ({
+      descripcion: l.descripcion || '',
+      cantidad: Number(l.cantidad) || 0,
+      precio_unitario: Number(l.precio_unitario) || 0,
+      importe: Number(l.importe) || 0,
+    }));
+    const optEstado = ESTADOS_FAC.map(([v, t]) => `<option value="${v}"${f.estado === v ? ' selected' : ''}>${t}</option>`).join('');
+    const sec = 'style="font-weight:700;color:var(--text);margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border-soft)"';
+    const totFila = 'style="display:flex;justify-content:space-between;align-items:center;padding:6px 0"';
+    const pct = 'style="width:64px;padding:4px 6px;margin:0 4px"';
+
+    abrirModal(`
+      <h3>✏️ Editar factura ${esc(f.numero)}</h3>
+      <div ${sec}>Datos generales</div>
+      <div class="fila-campos">
+        <div class="campo"><label>Número de factura</label><input value="${esc(f.numero)}" disabled></div>
+        <div class="campo"><label>Estado</label><select id="fe-estado">${optEstado}</select></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha emisión</label><input type="date" id="fe-femision" value="${esc(f.fecha_emision)}"></div>
+        <div class="campo"><label>Fecha vencimiento</label><input type="date" id="fe-fvenc" value="${esc(f.fecha_vencimiento)}"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="fe-notas" rows="2">${esc(f.notas)}</textarea></div>
+
+      <div ${sec}>Emisor</div>
+      <div class="campo"><label>Nombre</label><input id="fe-em-nombre" value="${esc(f.emisor_nombre)}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>CIF/NIF</label><input id="fe-em-cif" value="${esc(f.emisor_cif)}"></div>
+        <div class="campo"><label>Dirección</label><input id="fe-em-dir" value="${esc(f.emisor_direccion)}"></div>
+      </div>
+
+      <div ${sec}>Receptor</div>
+      <div class="campo"><label>Nombre</label><input id="fe-re-nombre" value="${esc(f.receptor_nombre)}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>CIF/NIF</label><input id="fe-re-cif" value="${esc(f.receptor_cif)}"></div>
+        <div class="campo"><label>Email</label><input id="fe-re-email" value="${esc(f.receptor_email)}"></div>
+      </div>
+      <div class="campo"><label>Dirección</label><input id="fe-re-dir" value="${esc(f.receptor_direccion)}"></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border-soft)">
+        <span style="font-weight:700;color:var(--text)">Líneas de factura</span>
+        <button class="btn-sec" id="fe-add">＋ Añadir línea</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr>
+            <th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Importe</th><th></th>
+          </tr></thead>
+          <tbody id="fe-lineas"></tbody>
+        </table>
+      </div>
+
+      <div ${sec}>Totales</div>
+      <div style="max-width:360px;margin-left:auto">
+        <div ${totFila}><span>Base imponible</span><strong id="fe-base">—</strong></div>
+        <div ${totFila}><span>IVA <input type="number" id="fe-iva" ${pct} min="0" step="0.01" value="${Number(f.porcentaje_iva) || 0}">%</span><strong id="fe-imp-iva">—</strong></div>
+        <div ${totFila}><span>Retención <input type="number" id="fe-ret" ${pct} min="0" step="0.01" value="${Number(f.porcentaje_retencion) || 0}">%</span><strong id="fe-imp-ret">—</strong></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:2px solid var(--text);margin-top:4px;font-size:18px;font-weight:700"><span>TOTAL</span><strong id="fe-total">—</strong></div>
+      </div>
+
+      <div class="modal-acciones">
+        <button class="btn-sec" id="fe-cancelar">Cancelar</button>
+        <button class="btn-pri" id="fe-guardar">Guardar cambios</button>
+      </div>`);
+    document.querySelector('.modal')?.classList.add('modal-ancho');
+
+    pintarLineasEdit();
+    recalcEdit();
+    document.getElementById('fe-iva').addEventListener('input', recalcEdit);
+    document.getElementById('fe-ret').addEventListener('input', recalcEdit);
+    document.getElementById('fe-add').addEventListener('click', () => {
+      edLineas.push({ descripcion: '', cantidad: 1, precio_unitario: 0, importe: 0 });
+      pintarLineasEdit(); recalcEdit();
+    });
+    document.getElementById('fe-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('fe-guardar').addEventListener('click', () => guardarEdicion(f.id));
+  }
+
+  function pintarLineasEdit() {
+    const tbody = document.getElementById('fe-lineas');
+    if (!tbody) return;
+    tbody.innerHTML = edLineas.map((l, i) => `
+      <tr>
+        <td><input data-ed-desc="${i}" style="width:100%" value="${esc(l.descripcion)}"></td>
+        <td class="num"><input type="number" data-ed-cant="${i}" style="width:80px;text-align:right" min="0" step="0.01" value="${l.cantidad}"></td>
+        <td class="num"><input type="number" data-ed-precio="${i}" style="width:90px;text-align:right" min="0" step="0.01" value="${l.precio_unitario}"></td>
+        <td class="num" data-ed-importe="${i}">${euro(l.importe)}</td>
+        <td class="acciones"><button class="btn-mini" data-ed-del="${i}" title="Eliminar">🗑</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" style="color:#6b7280;text-align:center;padding:14px">Sin líneas. Añade al menos una.</td></tr>';
+
+    tbody.querySelectorAll('[data-ed-desc]').forEach((el) =>
+      el.addEventListener('input', () => { edLineas[Number(el.dataset.edDesc)].descripcion = el.value; }));
+    tbody.querySelectorAll('[data-ed-cant]').forEach((el) =>
+      el.addEventListener('input', () => { actualizarLinea(Number(el.dataset.edCant)); }));
+    tbody.querySelectorAll('[data-ed-precio]').forEach((el) =>
+      el.addEventListener('input', () => { actualizarLinea(Number(el.dataset.edPrecio)); }));
+    tbody.querySelectorAll('[data-ed-del]').forEach((el) =>
+      el.addEventListener('click', () => { edLineas.splice(Number(el.dataset.edDel), 1); pintarLineasEdit(); recalcEdit(); }));
+  }
+
+  // Recalcula el importe de una línea (cantidad × precio) sin repintar toda la tabla.
+  function actualizarLinea(i) {
+    const elCant = document.querySelector(`[data-ed-cant="${i}"]`);
+    const elPrecio = document.querySelector(`[data-ed-precio="${i}"]`);
+    const cant = Number(elCant && elCant.value) || 0;
+    const precio = Number(elPrecio && elPrecio.value) || 0;
+    edLineas[i].cantidad = cant;
+    edLineas[i].precio_unitario = precio;
+    edLineas[i].importe = round2(cant * precio);
+    const cel = document.querySelector(`[data-ed-importe="${i}"]`);
+    if (cel) cel.textContent = euro(edLineas[i].importe);
+    recalcEdit();
+  }
+
+  function recalcEdit() {
+    const base = round2(edLineas.reduce((s, l) => s + (Number(l.importe) || 0), 0));
+    const pIva = Number(fval('fe-iva')) || 0;
+    const pRet = Number(fval('fe-ret')) || 0;
+    const impIva = round2(base * pIva / 100);
+    const impRet = round2(base * pRet / 100);
+    const total = round2(base + impIva - impRet);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = euro(v); };
+    set('fe-base', base); set('fe-imp-iva', impIva); set('fe-imp-ret', impRet); set('fe-total', total);
+  }
+
+  async function guardarEdicion(id) {
+    const body = {
+      fecha_emision: fval('fe-femision'),
+      fecha_vencimiento: fval('fe-fvenc'),
+      estado: fval('fe-estado'),
+      notas: fval('fe-notas'),
+      emisor_nombre: fval('fe-em-nombre'),
+      emisor_cif: fval('fe-em-cif'),
+      emisor_direccion: fval('fe-em-dir'),
+      receptor_nombre: fval('fe-re-nombre'),
+      receptor_cif: fval('fe-re-cif'),
+      receptor_direccion: fval('fe-re-dir'),
+      receptor_email: fval('fe-re-email'),
+      porcentaje_iva: Number(fval('fe-iva')) || 0,
+      porcentaje_retencion: Number(fval('fe-ret')) || 0,
+      lineas: edLineas.map((l, i) => ({
+        descripcion: l.descripcion,
+        cantidad: Number(l.cantidad) || 0,
+        precio_unitario: Number(l.precio_unitario) || 0,
+        importe: round2((Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0)),
+        orden: i,
+      })),
+    };
+    const btn = document.getElementById('fe-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await API.put('/api/facturas/' + id, body);
+      cerrarModal();
+      await cargar();
+      if (fichaActual && String(fichaActual.id) === String(id)) await abrirFicha(id);
+      toast('Factura actualizada', 'ok');
+    } catch (e) {
+      // 403 → "Solo los administradores pueden editar facturas"
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = 'Guardar cambios';
+    }
+  }
+
   async function abrirFicha(id) {
     crearPanel();
     try { fichaActual = await API.get('/api/facturas/' + id); }
@@ -175,6 +350,7 @@ const Facturas = (() => {
     document.getElementById('fac-titulo').textContent = fichaActual.numero || 'Factura';
     document.getElementById('fac-badges').innerHTML = badgeTipo(fichaActual.tipo) + ' ' + badgeEstado(fichaActual.estado);
     document.getElementById('fac-anular').classList.toggle('oculto', fichaActual.estado === 'anulada');
+    document.getElementById('fac-editar').classList.toggle('oculto', !esAdmin());
     document.getElementById('fac-cuerpo').innerHTML = fichaHTML(fichaActual);
     abrirPanel();
   }
