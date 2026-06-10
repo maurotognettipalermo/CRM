@@ -17,6 +17,10 @@ const Mantenimiento = (() => {
     { estado: 'completada', titulo: 'HECHO',      icono: '✅', clase: 'mant-col-hecho' },
   ];
 
+  // Columnas que arrancan colapsadas en móvil.
+  const COLAPSADAS_MOVIL = ['en_proceso', 'completada'];
+  function esMovil() { return window.matchMedia('(max-width: 767px)').matches; }
+
   // ---- Utilidades de fecha ----
   function hoyISO() {
     const d = new Date();
@@ -103,17 +107,21 @@ const Mantenimiento = (() => {
   function renderTablero() {
     const cont = document.getElementById('mant-tablero');
     if (!cont) return;
+    const movil = esMovil();
     cont.innerHTML = COLS.map((c) => {
       const items = tareasDeColumna(c.estado);
       const cards = items.map(cardHTML).join('') || '<div class="mant-col-vacia">Sin tareas</div>';
-      // Por defecto colapsada: en móvil solo se ve la cabecera (CSS la expande al tocar);
-      // en escritorio/tablet la clase es inerte (el cuerpo se muestra siempre).
+      // En móvil las columnas EN PROCESO y HECHO arrancan colapsadas (URGENTE y POR HACER
+      // expandidas). En escritorio/tablet la clase no se aplica (el cuerpo se ve siempre).
+      const colapsada = movil && COLAPSADAS_MOVIL.includes(c.estado) ? ' mant-col-colapsada' : '';
+      const plural = items.length === 1 ? '' : 's';
       return `
-        <div class="mant-col ${c.clase} mant-col-colapsada">
+        <div class="mant-col ${c.clase}${colapsada}">
           <div class="mant-col-cab">
             <span class="mant-col-tit">${c.icono} ${c.titulo}</span>
             <span class="mant-col-count">(${items.length})</span>
           </div>
+          <div class="mant-col-hint">${items.length} tarea${plural} oculta${plural} — toca para ver</div>
           <div class="mant-col-body" data-estado="${c.estado}">${cards}</div>
         </div>`;
     }).join('');
@@ -801,9 +809,17 @@ const Mantenimiento = (() => {
     }
   }
 
+  // Al pasar de móvil a escritorio, quita los colapsos para que se vea todo.
+  function ajustarColapsoMovil() {
+    const cont = document.getElementById('mant-tablero');
+    if (!cont || esMovil()) return;
+    cont.querySelectorAll('.mant-col-colapsada').forEach((c) => c.classList.remove('mant-col-colapsada'));
+  }
+
   // ==================== Init ====================
   function init() {
     document.getElementById('mant-nueva')?.addEventListener('click', () => abrirModalNueva());
+    window.addEventListener('resize', ajustarColapsoMovil);
   }
 
   // nuevaTareaPara(aptoId): abre el modal de alta con el apartamento preseleccionado.

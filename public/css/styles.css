@@ -2515,6 +2515,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .mant-col-count { font-weight: 600; opacity: .7; }
 .mant-col-body { min-height: 320px; border-radius: 8px; transition: background .12s, box-shadow .12s; }
 .mant-col-vacia { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 8px; }
+/* Resumen de columna colapsada (solo se muestra en móvil al colapsar, vía media query) */
+.mant-col-hint { display: none; font-size: 12px; color: var(--muted); font-style: italic; padding: 8px; }
 
 /* Color por columna (fondo suave + cabecera de color) */
 .mant-col-urgente   { background: #fef2f2; } .mant-col-urgente   .mant-col-cab { color: #dc2626; }
@@ -2591,24 +2593,45 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   .mant-tablero { grid-template-columns: 1fr; }
   .mant-resumen { grid-template-columns: repeat(2, 1fr); }
 
+  /* Columnas apiladas y colapsables: cabecera con flecha ▼/▶ + cuerpo animado */
   .mant-col { min-height: auto; }
-  .mant-col-cab { cursor: pointer; }
-  .mant-col-cab::after { content: '▾'; margin-left: auto; padding-left: 8px; transition: transform .15s; }
+  .mant-col-cab { cursor: pointer; user-select: none; }
+  .mant-col-cab::after { content: '▼'; margin-left: auto; padding-left: 8px; transition: transform .2s ease; }
   .mant-col-colapsada .mant-col-cab::after { transform: rotate(-90deg); }
-  .mant-col-colapsada .mant-col-body { display: none; }
+  .mant-col-body { overflow: hidden; max-height: 2000px; transition: max-height .25s ease; }
+  .mant-col-colapsada .mant-col-body { max-height: 0; padding: 0; }
+  /* Ocultar las cards por completo (más fiable que max-height para que no asome ninguna) */
+  .mant-col-colapsada .mant-card,
+  .mant-col-colapsada .mant-col-vacia { display: none; }
+  /* Indicador de columna colapsada: solo visible cuando está colapsada */
+  .mant-col-colapsada .mant-col-hint { display: block; }
 
   /* Cards a ancho completo y controles táctiles más grandes */
   .mant-card { padding: 14px; }
+  .mant-card-titulo, .mant-card-apto, .mant-card-cli { font-size: 15px; }
   .mant-check { width: 44px; height: 44px; min-height: 44px; font-size: 18px; }
   .mant-drag { font-size: 24px; padding: 6px; }
+  /* Teléfono del cliente: objetivo táctil destacado */
+  .mant-tel { font-size: 15px; font-weight: 600; padding: 2px 0; }
+  .mant-card-cli .mant-tel { display: inline-block; }
 
-  /* Panel lateral a pantalla completa */
-  #mant-panel { width: 100%; max-width: 100%; }
+  /* Panel lateral a pantalla completa + acciones de cabecera táctiles */
+  #mant-panel { width: 100%; max-width: 100%; min-width: 0; }
+  #mant-panel .panel-cabecera-acciones button { min-height: 44px; }
 
-  /* Evita el zoom de iOS al enfocar el textarea de notas */
+  /* Notas: textarea 16px (anti-zoom iOS) y botón enviar a ancho completo */
+  .mant-nota-input { flex-direction: column; align-items: stretch; }
   .mant-nota-input textarea { font-size: 16px; }
+  .mant-nota-input .btn-pri { width: 100%; min-height: 44px; }
   .mant-notas-lista { max-height: 50vh; }
   .mant-nota { max-width: 95%; }
+
+  /* Fotos del panel: 2 columnas en móvil */
+  .mant-fotos-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Modal "Nueva tarea": typeahead táctil */
+  .mant-ta-res { max-height: 200px; }
+  .mant-ta-item { padding: 14px 12px; }
 }
 
 /* ===================== Mantenimiento — panel de detalle ===================== */
@@ -2688,3 +2711,110 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .alo-mant-card-cli { font-size: 13px; color: #4b5563; margin-bottom: 3px; }
 .alo-mant-card-meta { font-size: 12px; color: var(--muted); }
 .alo-mant-card-fechas { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* Overlay del sidebar (creado en app.js): oculto salvo en móvil con sidebar abierto. */
+#sidebar-overlay { display: none; }
+
+/* ============================================================
+   Responsive móvil (≤767px): login, sidebar deslizable con
+   hamburguesa, modales, paneles, toasts y ajustes táctiles
+   globales. El cierre del sidebar al tocar fuera/ítem lo
+   resuelve app.js (#sidebar-overlay + cerrarSidebarMovil).
+   ============================================================ */
+@media (max-width: 767px) {
+
+  /* ---------- General táctil ---------- */
+  /* font-size 16px en campos evita el zoom automático de iOS al enfocar */
+  input, textarea, select,
+  .campo input, .campo textarea, .campo select,
+  .campo-ficha input, .campo-ficha textarea,
+  .input-buscar, .input-fecha, .select-filtro,
+  .login-campo input {
+    font-size: 16px;
+  }
+  .btn-pri, .btn-sec, .btn-peligro { min-height: 44px; }
+
+  /* ---------- Login ---------- */
+  .login-card { width: 90%; max-width: 90vw; padding: 26px 20px; }
+  .login-logo { font-size: 24px; }
+  .login-sub { font-size: 12px; margin-bottom: 18px; }
+  .login-campo input { padding: 12px; }
+  .login-btn { width: 100%; min-height: 48px; font-size: 16px; }
+
+  /* ---------- Sidebar deslizable + hamburguesa ----------
+     Se desplaza con `left` (no transform) para que el botón hamburguesa,
+     en position:fixed, escape al viewport. La clase .colapsado (que alterna
+     el #sidebar-toggle vía el JS existente) = sidebar ABIERTO en móvil;
+     sin la clase = OCULTO a la izquierda (estado por defecto). */
+  .sidebar {
+    position: fixed; top: 0; left: -260px;
+    width: 260px; height: 100vh;
+    z-index: 460;
+    transition: left 250ms ease;
+  }
+  .sidebar.colapsado { left: 0; width: 260px; }
+
+  /* Deshacer el modo "icono" del colapsado de escritorio: el sidebar
+     abierto en móvil muestra logo, textos, usuario y logout completos */
+  .sidebar.colapsado .sidebar-logo { opacity: 1; max-width: 120px; }
+  .sidebar.colapsado .sidebar-top { justify-content: space-between; padding: 0 10px 0 16px; }
+  .sidebar.colapsado .nav-item { justify-content: flex-start; padding: 0 16px; }
+  .sidebar.colapsado .nav-texto { opacity: 1; max-width: 140px; margin-left: 12px; }
+  .sidebar.colapsado .sidebar-user { justify-content: flex-start; }
+  .sidebar.colapsado .su-logout { display: inline-flex; }
+  .nav-item { height: 48px; }   /* objetivos táctiles más altos */
+
+  /* Botón hamburguesa: fijo arriba a la izquierda, siempre visible y por
+     encima del sidebar (para poder cerrarlo). Es el #sidebar-toggle. */
+  .sidebar-toggle {
+    position: fixed; top: 6px; left: 8px;
+    width: 42px; height: 42px;
+    z-index: 470;
+    background: var(--nav); color: #ffffff;
+    border-radius: 8px; font-size: 22px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Overlay oscuro tras el sidebar abierto. Es un elemento real (#sidebar-overlay,
+     creado en app.js) hermano de .sidebar; al pulsarlo se cierra el sidebar. */
+  .sidebar.colapsado ~ #sidebar-overlay {
+    display: block; position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.45); z-index: 440;
+  }
+
+  /* Contenido a ancho completo + hueco superior para la hamburguesa */
+  main { padding-top: 50px; }
+
+  /* Ocultar sidebar + hamburguesa + overlay mientras se muestra el login */
+  .login-overlay:not(.oculto) ~ .sidebar,
+  .login-overlay:not(.oculto) ~ #sidebar-overlay { display: none; }
+
+  /* ---------- Modales ---------- */
+  .modal { width: 95%; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+  .modal.modal-ancho { width: 95%; max-width: 95vw; }
+
+  /* ---------- Paneles laterales (a pantalla completa) ----------
+     z-index por encima de la hamburguesa (#sidebar-toggle = 470) para que no
+     quede tapado el contenido del panel; por debajo del login (500). */
+  .panel-lateral { width: 100%; max-width: 100%; min-width: 0; z-index: 490; }
+  .panel-fondo { z-index: 480; }
+
+  /* ---------- Mantenimiento: scroll vertical libre ----------
+     La vista y el tablero usan overflow oculto en escritorio; en móvil el
+     contenido apilado debe poder desplazarse con la página. */
+  #vista-mantenimiento { overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
+  .mant-tablero { height: auto; overflow: visible; }
+
+  /* ---------- Toast centrado ---------- */
+  .toast { width: 90%; max-width: 90vw; text-align: center; }
+
+  /* ---------- Limpieza: extras táctiles ---------- */
+  /* Pills de filtro (Todos/Pendientes/Completadas) a ancho completo */
+  .limp-estado-filtro { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+  .limp-estado-filtro .btn-filtro-tih { flex: 1 1 auto; min-height: 44px; }
+  /* Atajos de fecha de Reportes en flex-wrap a ancho completo */
+  .limp-rep-pills { width: 100%; }
+  .limp-rep-pills .rsv-f-pill { flex: 1 1 auto; min-height: 40px; }
+  /* Dropzone de subida más grande para el dedo */
+  .alo-dropzone { padding: 24px 16px; }
+}

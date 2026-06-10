@@ -23,6 +23,14 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('sidebar-colapsado', sidebar.classList.contains('colapsado') ? '1' : '0');
   });
 
+  // Overlay oscuro tras el sidebar abierto en móvil: al pulsarlo se cierra.
+  // (En móvil la clase .colapsado = sidebar ABIERTO; el CSS muestra el overlay
+  // solo cuando está abierto y en viewport estrecho.)
+  const sidebarOverlay = document.createElement('div');
+  sidebarOverlay.id = 'sidebar-overlay';
+  document.body.appendChild(sidebarOverlay);
+  sidebarOverlay.addEventListener('click', cerrarSidebarMovil);
+
   // Cierre del modal.
   document.getElementById('modal-cerrar').addEventListener('click', cerrarModal);
   document.getElementById('modal-fondo').addEventListener('click', (e) => {
@@ -85,6 +93,17 @@ function arrancarApp() {
 // Roles con acceso restringido a un único módulo (clave = rol, valor = pestaña permitida).
 const SOLO_TAB = { limpieza: 'limpieza', mantenimiento: 'mantenimiento' };
 
+// En móvil cierra el sidebar (en móvil la clase .colapsado = abierto, así que cerrar
+// = quitarla). No-op en escritorio, donde .colapsado es el modo "icono".
+function cerrarSidebarMovil() {
+  if (window.innerWidth >= 768) return;
+  const sb = document.getElementById('sidebar');
+  if (sb && sb.classList.contains('colapsado')) {
+    sb.classList.remove('colapsado');
+    localStorage.setItem('sidebar-colapsado', '0');
+  }
+}
+
 // Pinta (o actualiza) el badge de rol bajo el nombre en el sidebar.
 function pintarBadgeRol(rol) {
   const footer = document.querySelector('.sidebar-footer');
@@ -129,6 +148,9 @@ function activarTab(nombre) {
   );
   document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
   document.getElementById('vista-' + nombre).classList.add('activa');
+
+  // En móvil, navegar cierra el sidebar deslizable.
+  cerrarSidebarMovil();
 
   if (nombre === 'dashboard')    Dashboard.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'planning') Planning.cargar().catch((e) => toast(e.message, 'error'));
