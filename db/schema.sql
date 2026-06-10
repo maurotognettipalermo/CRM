@@ -468,6 +468,54 @@ CREATE TABLE IF NOT EXISTS limpieza_fotos (
 );
 CREATE INDEX IF NOT EXISTS idx_limpieza_fotos_tarea ON limpieza_fotos(tarea_id);
 
+-- Tareas de mantenimiento (estilo kanban: columnas por estado, ordenadas por posicion).
+-- Pueden vincularse a una reserva (cliente que reporta la incidencia).
+CREATE TABLE IF NOT EXISTS mantenimiento_tareas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  titulo TEXT NOT NULL,
+  descripcion TEXT,
+  estado TEXT DEFAULT 'pendiente' CHECK(estado IN ('urgente','pendiente','en_proceso','completada')),
+  posicion INTEGER DEFAULT 0,
+  reserva_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  cliente_nombre TEXT,
+  cliente_telefono TEXT,
+  asignado_a INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  asignado_nombre TEXT,
+  completado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  completado_nombre TEXT,
+  completado_fecha TEXT,
+  fecha_creacion TEXT DEFAULT (datetime('now')),
+  fecha_limite TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mantenimiento_tareas_estado ON mantenimiento_tareas(estado);
+CREATE INDEX IF NOT EXISTS idx_mantenimiento_tareas_apartamento ON mantenimiento_tareas(apartamento_id);
+
+-- Notas/comentarios de una tarea de mantenimiento (hilo cronológico).
+CREATE TABLE IF NOT EXISTS mantenimiento_notas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tarea_id INTEGER NOT NULL REFERENCES mantenimiento_tareas(id) ON DELETE CASCADE,
+  texto TEXT NOT NULL,
+  usuario_id INTEGER REFERENCES usuarios(id),
+  usuario_nombre TEXT,
+  fecha TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mantenimiento_notas_tarea ON mantenimiento_notas(tarea_id);
+
+-- Fotos de una tarea de mantenimiento. Archivos en public/uploads/mantenimiento/{tarea_id}/.
+CREATE TABLE IF NOT EXISTS mantenimiento_fotos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tarea_id INTEGER NOT NULL REFERENCES mantenimiento_tareas(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  nombre_archivo TEXT NOT NULL,
+  descripcion TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mantenimiento_fotos_tarea ON mantenimiento_fotos(tarea_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

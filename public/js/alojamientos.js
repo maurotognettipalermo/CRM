@@ -36,6 +36,9 @@ const Alojamientos = (() => {
   let calCargado = false;      // ya cargado el calendario para esta ficha
   let calEstados = {};         // { nombreEstado: color }
   let calEstadosActivos = [];  // estados activos (para la leyenda)
+  const ANIOS_MANT = [2024, 2025, 2026];
+  let mantAnio = new Date().getFullYear();
+  let mantCargado = false;     // ya cargada la pestaña Mantenimiento para esta ficha
   const CAL_COLOR_DEFECTO = '#9ca3af';
   const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const DIAS_CAB = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -375,6 +378,7 @@ const Alojamientos = (() => {
         <button class="rsv-subtab" data-asub="gastos">Gastos</button>
         <button class="rsv-subtab" data-asub="galeria">Galería</button>
         <button class="rsv-subtab" data-asub="calendario">Calendario</button>
+        <button class="rsv-subtab" data-asub="mantenimiento">Mantenimiento</button>
       </div>
       <div id="alo-cuerpo" class="panel-cuerpo"></div>`;
     document.body.appendChild(fondo);
@@ -413,6 +417,7 @@ const Alojamientos = (() => {
     if (sub === 'gastos' && !gastosCargados) cargarGastos();
     if (sub === 'galeria' && !galeriaCargada) cargarGaleria();
     if (sub === 'calendario' && !calCargado) cargarCalendario();
+    if (sub === 'mantenimiento' && !mantCargado) cargarMantenimiento();
   }
 
   async function abrirFicha(id) {
@@ -426,6 +431,7 @@ const Alojamientos = (() => {
     gastosCargados = false;
     galeriaCargada = false;
     calCargado = false;
+    mantCargado = false;
     if (!ANIOS_GASTO.includes(gastoAnio)) gastoAnio = ANIOS_GASTO[ANIOS_GASTO.length - 1];
     document.getElementById('alo-titulo').textContent = fichaActual.nombre || 'Alojamiento';
     document.getElementById('alo-badges').innerHTML = badgesCabecera(fichaActual);
@@ -445,7 +451,8 @@ const Alojamientos = (() => {
       <div class="rsv-subpanel" data-asubpanel="propietario"><div id="alo-prop-cont"></div></div>
       <div class="rsv-subpanel" data-asubpanel="gastos">${gastosShellHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="galeria">${galeriaShellHTML()}</div>
-      <div class="rsv-subpanel" data-asubpanel="calendario">${calendarioShellHTML()}</div>`;
+      <div class="rsv-subpanel" data-asubpanel="calendario">${calendarioShellHTML()}</div>
+      <div class="rsv-subpanel" data-asubpanel="mantenimiento">${mantenimientoShellHTML()}</div>`;
 
     const wt = document.querySelector('#alo-cuerpo [data-wifi-toggle]');
     if (wt) wt.addEventListener('click', () => {
@@ -462,6 +469,15 @@ const Alojamientos = (() => {
 
     const calSelAnio = document.getElementById('alo-cal-anio');
     if (calSelAnio) calSelAnio.addEventListener('change', (e) => { calAnio = Number(e.target.value); cargarCalendario(); });
+
+    const mantSelAnio = document.getElementById('alo-mant-anio');
+    if (mantSelAnio) mantSelAnio.addEventListener('change', (e) => { mantAnio = Number(e.target.value); cargarMantenimiento(); });
+    const mantAdd = document.getElementById('alo-mant-add');
+    if (mantAdd) mantAdd.addEventListener('click', () => {
+      if (fichaActual && typeof Mantenimiento !== 'undefined' && Mantenimiento.nuevaTareaPara) {
+        Mantenimiento.nuevaTareaPara(fichaActual.id);
+      }
+    });
 
     const limpInd = document.getElementById('alo-limp-indicador');
     if (limpInd) limpInd.addEventListener('click', () => { if (fichaActual) cambiarLimpieza(fichaActual.id, limpDeApto(fichaActual)); });
@@ -1581,6 +1597,88 @@ const Alojamientos = (() => {
   }
 
   // ==================== Pestaña Calendario ====================
+  // ==================== Pestaña Mantenimiento ====================
+  function mantenimientoShellHTML() {
+    if (!ANIOS_MANT.includes(mantAnio)) mantAnio = new Date().getFullYear();
+    const opts = ANIOS_MANT.map((a) => `<option value="${a}"${a === mantAnio ? ' selected' : ''}>${a}</option>`).join('');
+    return `
+      <div class="alo-mant-head">
+        <div class="alo-mant-head-left">
+          <select id="alo-mant-anio" class="select-filtro">${opts}</select>
+          <span id="alo-mant-resumen" class="alo-mant-resumen-badge">—</span>
+        </div>
+        <button id="alo-mant-add" class="btn-pri">＋ Nueva tarea</button>
+      </div>
+      <div id="alo-mant-lista"></div>`;
+  }
+
+  function mantEstadoBadge(e) {
+    const m = {
+      urgente:    ['🔴 Urgente', 'mant-bdg-urg'],
+      pendiente:  ['📋 Por hacer', 'mant-bdg-pend'],
+      en_proceso: ['🔄 En proceso', 'mant-bdg-proc'],
+      completada: ['✅ Hecho', 'mant-bdg-hecho'],
+    };
+    const x = m[e] || m.pendiente;
+    return `<span class="mant-bdg ${x[1]}">${x[0]}</span>`;
+  }
+
+  async function cargarMantenimiento() {
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    mantCargado = true;
+    const cont = document.getElementById('alo-mant-lista');
+    if (cont) cont.innerHTML = '<div style="color:var(--muted);padding:12px 0">Cargando tareas…</div>';
+    let data;
+    try {
+      data = await API.get(`/api/mantenimiento/historial?apartamento_id=${id}&anio=${mantAnio}`);
+    } catch (e) {
+      if (cont) cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar las tareas.</div>';
+      return;
+    }
+    const r = data.resumen || {};
+    const completadas = r.completadas || 0;
+    const pendientes = (r.total || 0) - completadas;
+    const badge = document.getElementById('alo-mant-resumen');
+    if (badge) badge.textContent = `${r.total || 0} tareas — ${completadas} completadas — ${pendientes} pendientes`;
+    renderMantenimientoLista(data.tareas || []);
+  }
+
+  function renderMantenimientoLista(tareas) {
+    const cont = document.getElementById('alo-mant-lista');
+    if (!cont) return;
+    if (!tareas.length) {
+      cont.innerHTML = `<div class="alo-mant-vacio">Sin incidencias registradas en ${mantAnio}</div>`;
+      return;
+    }
+    cont.innerHTML = tareas.map((t) => {
+      const nn = t.notas ? t.notas.length : 0;
+      const nf = t.num_fotos || 0;
+      const cliente = t.cliente_nombre ? `<div class="alo-mant-card-cli">👤 Cliente: ${esc(t.cliente_nombre)}</div>` : '';
+      const fechaCreada = fechaES((t.fecha_creacion || '').slice(0, 10));
+      const completada = t.estado === 'completada' && t.completado_fecha
+        ? ` → Completada ${fechaES((t.completado_fecha || '').slice(0, 10))}` : '';
+      return `
+        <div class="alo-mant-card">
+          <div class="alo-mant-card-top">
+            ${mantEstadoBadge(t.estado)}
+            <a class="alo-mant-card-tit mant-link" data-mant-tarea="${t.id}">${esc(t.titulo)}</a>
+          </div>
+          ${cliente}
+          <div class="alo-mant-card-meta">📝 ${nn} nota${nn === 1 ? '' : 's'} · 📷 ${nf} foto${nf === 1 ? '' : 's'}</div>
+          <div class="alo-mant-card-fechas">📅 ${fechaCreada}${completada}</div>
+        </div>`;
+    }).join('');
+
+    cont.querySelectorAll('[data-mant-tarea]').forEach((a) =>
+      a.addEventListener('click', () => {
+        const tid = a.dataset.mantTarea;
+        cerrarPanel();
+        if (typeof activarTab === 'function') activarTab('mantenimiento');
+        if (typeof Mantenimiento !== 'undefined' && Mantenimiento.abrirDetalle) Mantenimiento.abrirDetalle(tid);
+      }));
+  }
+
   function calendarioShellHTML() {
     if (!ANIOS_CAL.includes(calAnio)) calAnio = new Date().getFullYear();
     const opts = ANIOS_CAL.map((a) => `<option value="${a}"${a === calAnio ? ' selected' : ''}>${a}</option>`).join('');

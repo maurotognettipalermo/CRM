@@ -15,3 +15,6 @@ public/uploads/apartamentos/*
 # Fotos de reportes de limpieza subidas por el usuario (datos, como la BD)
 public/uploads/limpieza/*
 !public/uploads/limpieza/.gitkeep
+# Fotos de tareas de mantenimiento subidas por el usuario (datos, como la BD)
+public/uploads/mantenimiento/*
+!public/uploads/mantenimiento/.gitkeep

@@ -56,11 +56,12 @@ function arrancarApp() {
 
   // Visibilidad de pestañas según rol.
   // - Estadísticas: solo administradores.
-  // - Rol 'limpieza': solo ve el módulo de Limpieza; el resto se oculta.
+  // - Roles de acceso único (limpieza, mantenimiento): solo ven su propio módulo.
   document.getElementById('nav-estadisticas').classList.toggle('oculto', rol !== 'administrador');
-  if (rol === 'limpieza') {
+  const soloTab = SOLO_TAB[rol];
+  if (soloTab) {
     document.querySelectorAll('.nav-item').forEach((it) =>
-      it.classList.toggle('oculto', it.dataset.tab !== 'limpieza'));
+      it.classList.toggle('oculto', it.dataset.tab !== soloTab));
   }
 
   Dashboard.init();
@@ -74,11 +75,15 @@ function arrancarApp() {
   Ajustes.init();
   Estadisticas.init();
   Limpieza.init();
+  Mantenimiento.init();
 
-  // Vista por defecto: Limpieza para el rol limpieza, Dashboard para el resto.
-  if (rol === 'limpieza') activarTab('limpieza');
+  // Vista por defecto: su propio módulo para roles de acceso único, Dashboard para el resto.
+  if (soloTab) activarTab(soloTab);
   else Dashboard.cargar().catch((e) => toast(e.message, 'error'));
 }
+
+// Roles con acceso restringido a un único módulo (clave = rol, valor = pestaña permitida).
+const SOLO_TAB = { limpieza: 'limpieza', mantenimiento: 'mantenimiento' };
 
 // Pinta (o actualiza) el badge de rol bajo el nombre en el sidebar.
 function pintarBadgeRol(rol) {
@@ -96,6 +101,7 @@ function pintarBadgeRol(rol) {
     administrador: ['Admin', 'rol-admin'],
     usuario: ['Usuario', 'rol-usuario'],
     limpieza: ['Limpieza', 'rol-limpieza'],
+    mantenimiento: ['Mantenimiento', 'rol-mantenimiento'],
   };
   const x = map[rol] || map.usuario;
   badge.className = 'sidebar-rol-badge nav-texto ' + x[1];
@@ -105,10 +111,11 @@ function pintarBadgeRol(rol) {
 function activarTab(nombre) {
   const rol = (Auth.sesion() || {}).rol;
 
-  // Rol 'limpieza': solo puede acceder al módulo de Limpieza.
-  if (rol === 'limpieza' && nombre !== 'limpieza') {
+  // Roles de acceso único (limpieza, mantenimiento): solo su propio módulo.
+  const soloTab = SOLO_TAB[rol];
+  if (soloTab && nombre !== soloTab) {
     toast('No tienes acceso a esta sección', 'error');
-    nombre = 'limpieza';
+    nombre = soloTab;
   }
 
   // Estadísticas está restringida a administradores (también frente a acceso directo).
@@ -133,5 +140,6 @@ function activarTab(nombre) {
   if (nombre === 'reservas')     Reservas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'estadisticas') Estadisticas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'limpieza')     Limpieza.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'mantenimiento') Mantenimiento.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'ajustes')      Ajustes.cargar().catch((e) => toast(e.message, 'error'));
 }

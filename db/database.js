@@ -314,13 +314,14 @@ function migrarCatalogoExtras() {
   anadirColumnasFaltantes('catalogo_extras', COLUMNAS_CATALOGO_EXTRAS);
 }
 
-// Amplía el CHECK de usuarios.rol para permitir 'limpieza'. SQLite no permite alterar
-// un CHECK, así que se recrea la tabla (CREATE temp → INSERT → DROP → RENAME) solo si el
-// CHECK actual aún no incluye 'limpieza'. Idempotente. FKs desactivadas durante el rebuild
-// para que el DROP no afecte a las tablas que referencian usuarios(id).
+// Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no
+// permite alterar un CHECK, así que se recrea la tabla (CREATE temp → INSERT → DROP → RENAME)
+// solo si el CHECK actual aún no incluye 'mantenimiento' (el rol añadido más recientemente).
+// Idempotente. FKs desactivadas durante el rebuild para que el DROP no afecte a las tablas
+// que referencian usuarios(id).
 function migrarUsuariosRol() {
   const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='usuarios'").get();
-  if (!def || /'limpieza'/.test(def.sql)) return; // ya admite limpieza (o tabla no creada aún)
+  if (!def || /'mantenimiento'/.test(def.sql)) return; // ya admite todos los roles (o tabla no creada aún)
 
   db.pragma('foreign_keys = OFF');
   db.transaction(() => {
@@ -329,7 +330,7 @@ function migrarUsuariosRol() {
       nombre        TEXT NOT NULL,
       username      TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      rol           TEXT NOT NULL CHECK(rol IN ('administrador','usuario','limpieza')),
+      rol           TEXT NOT NULL CHECK(rol IN ('administrador','usuario','limpieza','mantenimiento')),
       activo        INTEGER DEFAULT 1,
       created_at    TEXT DEFAULT (datetime('now')),
       ultimo_acceso TEXT,
@@ -343,7 +344,7 @@ function migrarUsuariosRol() {
   db.pragma('foreign_keys = ON');
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar usuarios.rol:', rotas);
-  console.log("Migración: usuarios.rol ahora admite 'limpieza'.");
+  console.log("Migración: usuarios.rol ahora admite 'limpieza' y 'mantenimiento'.");
 }
 
 // Inserta los modificadores por tipo de clasificación si la tabla está vacía.

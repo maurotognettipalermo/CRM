@@ -30,8 +30,8 @@ db/database.js         better-sqlite3, WAL + foreign_keys. Ejecuta schema + limp
                        en ajustes) + migraciones ALTER (anadirColumnasFaltantes) +
                        migrarRelacionPropietarios() (volcó apartamentos.propietario_id a la tabla N:M
                        y eliminó la columna recreando la tabla) + migrarUsuariosRol() (recrea usuarios
-                       para ampliar el CHECK de rol con 'limpieza' si aún no lo incluye) + seeds
-                       (admin, portales, estados_reserva).
+                       para ampliar el CHECK de rol con 'limpieza' y 'mantenimiento'; el guard mira si
+                       el CHECK ya incluye 'mantenimiento') + seeds (admin, portales, estados_reserva).
                        Columna estado_limpieza ('limpio'|'sucio', CHECK) se añade vía COLUMNAS_APARTAMENTOS.
 scripts/crear-usuario.js  Crear/actualizar usuario admin directamente en BD (node scripts/crear-usuario.js).
 db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietarios, reservas, ajustes,
@@ -39,14 +39,16 @@ db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietar
                        catalogo_gastos, apartamento_gastos, facturas, factura_lineas, factura_contador,
                        reserva_pagos, catalogo_extras, reserva_extras, temporadas, tipo_modificadores,
                        descuentos, apartamento_fotos, estados_reserva, limpieza_log,
-                       limpieza_tareas, limpieza_fotos.
+                       limpieza_tareas, limpieza_fotos, mantenimiento_tareas,
+                       mantenimiento_notas, mantenimiento_fotos.
 routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
   portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
   reserva-pagos (/api/reservas/:id/pagos) · catalogo-extras (exporta catalogo + reservaExtras) ·
   fotos (/api/apartamentos/:id/fotos, galería de fotos del apartamento) ·
   email (/api/email/enviar-fotos, envío de fotos por SMTP) ·
-  limpieza (/api/limpieza, tareas de limpieza por día + reportes)
+  limpieza (/api/limpieza, tareas de limpieza por día + reportes) ·
+  mantenimiento (/api/mantenimiento, tareas kanban + notas + fotos + historial por apto)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
@@ -64,9 +66,9 @@ public/                Frontend vanilla. Sin build, servido estático.
   js/auth.js           Auth (window.Auth). Sesión en localStorage('crm-sesion'). Login/logout.
   js/app.js            Gate de login + menú lateral (navegación, plegado, logout) + init de módulos.
                        Vista por defecto: Dashboard. activarTab('estadisticas') exige rol admin.
-                       Control de acceso por rol: rol 'limpieza' solo ve la pestaña Limpieza (resto
-                       oculto, arranca y se queda en Limpieza); badge de rol en el sidebar
-                       (Admin/Usuario/Limpieza) vía pintarBadgeRol().
+                       Control de acceso por rol: SOLO_TAB = {limpieza, mantenimiento} → esos roles
+                       solo ven su propio módulo (resto oculto, arranca y se queda ahí); badge de rol
+                       en el sidebar (Admin/Usuario/Limpieza/Mantenimiento naranja) vía pintarBadgeRol().
   js/dashboard.js      4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, check-out)
                        desde GET /api/dashboard. Skeleton, error+reintentar, paginación 5/5, auto-refresco 5 min.
   js/planning.js       Vista continua de N días (estilo Avantio) con drag&drop e import.
@@ -79,7 +81,7 @@ public/                Frontend vanilla. Sin build, servido estático.
                        tipo/limpieza multiselección + tiene-propietario/visible-planning single;
                        contador "Mostrando X de Y") + modal alta/edición (ficha ampliada, toggles En
                        garantía / Quitar planning; SIN typeahead de propietario). Ficha en panel
-                       lateral con 5 pestañas: Alojamiento (datos + indicador de limpieza clicable +
+                       lateral con 6 pestañas: Alojamiento (datos + indicador de limpieza clicable +
                        popover historial desde /limpieza-log + "Recaudación del año"), Propietario
                        (gestión N:M: cards de activos con badge % verde/naranja/rojo según suma=100,
                        histórico colapsable, modales Añadir/Editar %/Cerrar relación con resumen en
@@ -88,7 +90,10 @@ public/                Frontend vanilla. Sin build, servido estático.
                        drag&drop reordenar, lightbox con teclas, modal enviar por email — envío
                        directo vía POST /api/email/enviar-fotos con spinner), Calendario (12 meses,
                        días pintados con el color del estado de la
-                       reserva, tooltip, clic→ficha de reserva, resumen % ocupación).
+                       reserva, tooltip, clic→ficha de reserva, resumen % ocupación) y Mantenimiento
+                       (selector de año + resumen X/Y/Z desde /mantenimiento/historial + cards
+                       compactas por tarea; título→tab Mantenimiento + abre el panel de detalle;
+                       botón "＋ Nueva tarea" preselecciona el apto vía Mantenimiento.nuevaTareaPara).
                        Expone abrirFicha(id).
   js/contratos.js      Contratos propietario: precio_cerrado o comision. Filtros año/tipo/propietario.
                        Tabla con badges y mini barra de cuotas. Expone filtrarPorPropietario(id, nombre).
@@ -124,7 +129,8 @@ public/                Frontend vanilla. Sin build, servido estático.
                        toggle "Extra obligatorio" + badge rojo en la tabla) / Estados de reserva
                        (color clicable, badge "Sistema" si es_sistema, sin borrar los del sistema) /
                        Correo electrónico (SMTP, solo admin: formulario + guardar + email de prueba).
-                       Modal de usuario: rol Administrador/Usuario/Limpieza (este último con descripción).
+                       Modal de usuario: rol Administrador/Usuario/Limpieza/Mantenimiento (Limpieza y
+                       Mantenimiento con descripción dinámica vía ROL_DESC).
                        Portales, Catálogo de gastos, Catálogo de extras, Estados de reserva y Correo
                        electrónico se inyectan por JS (Correo y Actividad ocultas para no-admin).
   js/estadisticas.js   Solo admin. Selector de año + 4 sub-pestañas con datos reales y anti-respuesta-obsoleta:
@@ -143,6 +149,18 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Sub-pestaña "Reportes": filtro de fechas + pills (hoy/semana/mes) + buscador,
                        cards de limpiezas completadas con nota (truncada) y thumbnails, lightbox y
                        modal de detalle (con "Crear gasto" si la nota sugiere incidencia). UI mobile-first.
+  js/mantenimiento.js  Módulo Mantenimiento (todos los roles; rol 'mantenimiento' solo ve esta pestaña).
+                       Tablero kanban de 4 columnas (urgente/pendiente/en_proceso/completada) con
+                       drag&drop nativo HTML5 (intra-columna reordena; entre columnas cambia estado;
+                       soltar en "Hecho" llama /completar). 4 mini-tarjetas de resumen. Columna "Hecho"
+                       solo muestra completadas de los últimos 30 días. Cards con handle ≡, botón ✓
+                       rápido, cliente con tel: clicable, contadores notas/fotos (enriquecidos con el
+                       detalle por tarea, el listado no los trae). Modal "＋ Nueva tarea" con typeahead
+                       de apto + preview de huésped activo hoy (reservas ?desde=hoy&hasta=hoy). Panel
+                       lateral de detalle (datos, cliente —sin nº reserva para rol mantenimiento—,
+                       descripción, notas tipo chat con Enter-envía, fotos grid+lightbox+dropzone,
+                       modal editar). Columnas colapsables en móvil (clase mant-col-colapsada + CSS).
+                       Expone abrirDetalle(id) y nuevaTareaPara(aptoId). UI mobile-first.
 ```
 
 **Orden de carga de scripts**: `api.js` y `auth.js` primero, `app.js` último. Los módulos se referencian entre sí solo en runtime (no en carga).
@@ -204,6 +222,17 @@ Patrones clave:
 | GET/DELETE | /api/limpieza/tareas/:id/detalle · /api/limpieza/tareas/:id | Detalle (tarea+fotos+reservas) / Borrar (solo `manual`+`pendiente`, else 409) |
 | GET | /api/limpieza/reportes | `?desde=&hasta=&apartamento_id=`. Completadas con notas o fotos + num_fotos, orden completado_fecha DESC |
 | GET | /api/limpieza/resumen | `?fecha=` → `{total, pendientes, en_proceso, completadas, turnovers}` |
+| GET | /api/mantenimiento/tareas | `?estado=&apartamento_id=&anio=`. JOIN apto (nombre+tipo); orden estado+posicion ASC |
+| GET | /api/mantenimiento/tareas/:id | Ficha: tarea + apto + notas (fecha ASC) + fotos + reserva vinculada |
+| POST | /api/mantenimiento/tareas | `{apartamento_id, titulo, descripcion, estado, reserva_id, asignado_a, fecha_limite}`. Vincula reserva (la indicada o la activa hoy) y copia cliente_nombre + teléfono de observaciones; posicion = MAX+1 del estado |
+| PUT | /api/mantenimiento/tareas/:id | Editar titulo/descripcion/estado/asignado_a/fecha_limite. Cambio de estado → al final de la nueva columna |
+| POST | /api/mantenimiento/tareas/:id/completar | estado='completada' + completado_por/nombre/fecha |
+| POST | /api/mantenimiento/tareas/:id/reordenar | `{posicion, estado}`. Incrementa la posicion de los ≥ nueva (mismo estado, excluyendo la propia) |
+| DELETE | /api/mantenimiento/tareas/:id | Eliminar tarea. **403 para rol mantenimiento** |
+| POST/DELETE | /api/mantenimiento/tareas/:id/notas[/:nota_id] | Añadir nota (usuario actual) / borrar (solo autor o admin, else 403) |
+| POST/DELETE | /api/mantenimiento/tareas/:id/fotos[/:foto_id] | Multipart campo **`fotos`** (≤5) en `public/uploads/mantenimiento/{tarea_id}/` / borrar BD+disco |
+| GET | /api/mantenimiento/historial | `?apartamento_id=&anio=`. Tareas del apto+año con notas y num_fotos, orden fecha_creacion DESC + `resumen{total,completadas,pendientes,en_proceso,urgentes}` |
+| GET | /api/mantenimiento/resumen | `{total_abiertas, urgentes, en_proceso, completadas_este_mes}` |
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD razones sociales |
 | POST | /api/ajustes/razones-sociales/:id/logo | Multipart campo `logo`; .jpg/.jpeg/.png/.webp/.svg |
 | GET/POST/PUT/DELETE | /api/ajustes/estados-reserva[/:id] | CRUD estados de reserva (orden por `orden`). DELETE→409 si `es_sistema=1` o si alguna reserva usa ese nombre |
@@ -243,7 +272,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url. Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
 - **ajustes**: almacén genérico clave/valor. En uso: flag `limpieza_datos_prueba_v1` (marca la limpieza única de datos de prueba ya ejecutada — no borrar, o re-borraría facturas/contratos/pagos reales en el siguiente arranque) + claves `smtp_*` (host/port/user/password/from_name/from_email) de la config de correo saliente, gestionadas en Ajustes → Correo electrónico (defaults en `emailService.SMTP_DEFAULTS`).
 - **razones_sociales**: datos de facturación (razon_social, CIF, dirección, IBAN, logo_url). `RS_CAMPOS` en `routes/ajustes.js` como punto de verdad.
-- **usuarios**: nombre, username (UNIQUE), password_hash (sha256 sin bcrypt), rol ('administrador'|'usuario'|'limpieza'), activo, ultimo_acceso, token (sesión activa). Admin por defecto: `admin` / `admin1234`. El rol 'limpieza' se añadió ampliando el CHECK vía `migrarUsuariosRol()` (rebuild). `routes/usuarios.js` valida contra `ROLES_VALIDOS`.
+- **usuarios**: nombre, username (UNIQUE), password_hash (sha256 sin bcrypt), rol ('administrador'|'usuario'|'limpieza'|'mantenimiento'), activo, ultimo_acceso, token (sesión activa). Admin por defecto: `admin` / `admin1234`. Los roles 'limpieza' y 'mantenimiento' se añadieron ampliando el CHECK vía `migrarUsuariosRol()` (rebuild; el guard mira si el CHECK ya incluye 'mantenimiento'). `routes/usuarios.js` valida contra `ROLES_VALIDOS`.
 - **actividad_log**: usuario_id (FK sin ON DELETE — borrar usuario con registros requiere vaciar el log primero), usuario_nombre, accion, entidad, entidad_id, detalle, fecha.
 - **contratos**: apartamento_id (FK NOT NULL, ON DELETE RESTRICT), propietario_id (FK nullable), tipo ('precio_cerrado'|'comision'), temporada_inicio/fin, anio, precio_total, porcentaje_comision, aplica_iva, porcentaje_retencion (0/19/24, def. 19), estado ('activo'|'finalizado'|'cancelado'), created_by. Fiscalidad precio_cerrado: total = base + IVA 21% − retención.
 - **contrato_cuotas**: contrato_id (FK, ON DELETE CASCADE), numero_cuota, fecha_prevista, importe, pagado, fecha_pago. Suma de importes debe cuadrar con precio_total (±0.01€). PUT de contrato borra y reinserta todas las cuotas.
@@ -263,8 +292,11 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **limpieza_log**: apartamento_id (FK, ON DELETE CASCADE), estado_anterior, estado_nuevo, usuario_id (FK), usuario_nombre, fecha. Histórico de cambios de `apartamentos.estado_limpieza`.
 - **limpieza_tareas**: apartamento_id (FK CASCADE), fecha (ISO), tipo (checkout/manual/turnover), prioridad (0/1, 1=turnover urgente), estado (pendiente/en_proceso/completada), reserva_checkout_id/reserva_checkin_id (FK SET NULL), asignado_a/asignado_nombre, completado_por/completado_nombre/completado_fecha, notas_limpieza, created_by. Las de checkout/turnover se autogeneran (idempotente) en `GET /api/limpieza/tareas`; las manuales se crean a mano. Solo las `manual`+`pendiente` se pueden borrar.
 - **limpieza_fotos**: tarea_id (FK CASCADE), url, nombre_archivo, descripcion. Fotos de reporte en `public/uploads/limpieza/{tarea_id}/`.
+- **mantenimiento_tareas**: apartamento_id (FK CASCADE), titulo, descripcion, estado (CHECK urgente/pendiente/en_proceso/completada, def. 'pendiente'), posicion (orden dentro de la columna), reserva_id (FK SET NULL), cliente_nombre/cliente_telefono (snapshot de la reserva al crear; teléfono extraído de observaciones), asignado_a/asignado_nombre, completado_por/completado_nombre/completado_fecha, fecha_creacion, fecha_limite, created_by. Tablero kanban: una "columna" por estado, ordenada por posicion.
+- **mantenimiento_notas**: tarea_id (FK CASCADE), texto, usuario_id (FK), usuario_nombre, fecha. Hilo cronológico (chat) de la tarea.
+- **mantenimiento_fotos**: tarea_id (FK CASCADE), url, nombre_archivo, descripcion, created_by. Archivos en `public/uploads/mantenimiento/{tarea_id}/`; el DELETE de foto borra BD + disco.
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo la columna `estado_limpieza`, que sí va por ALTER en `COLUMNAS_APARTAMENTOS`, y el CHECK de `usuarios.rol` que se amplía recreando la tabla en `migrarUsuariosRol()`). `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo la columna `estado_limpieza`, que sí va por ALTER en `COLUMNAS_APARTAMENTOS`, y el CHECK de `usuarios.rol` que se amplía recreando la tabla en `migrarUsuariosRol()`). `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 

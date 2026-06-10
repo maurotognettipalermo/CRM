@@ -6,7 +6,7 @@ const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
-const ROLES_VALIDOS = ['administrador', 'usuario', 'limpieza'];
+const ROLES_VALIDOS = ['administrador', 'usuario', 'limpieza', 'mantenimiento'];
 
 // Lista (sin exponer password_hash ni token).
 router.get('/', (req, res) => {

@@ -1,6 +1,12 @@
 // Módulo Ajustes: razones sociales (tarjetas + modal), usuarios y registro de actividad.
 
 const Ajustes = (() => {
+  // Descripción del rol bajo el select (solo para los roles de acceso restringido).
+  const ROL_DESC = {
+    limpieza: 'Solo acceso al módulo de limpieza',
+    mantenimiento: 'Solo acceso al módulo de mantenimiento',
+  };
+
   // ---- Campos de razón social (mismo orden que la captura) ----
   const RS_GENERAL = [
     ['razon_social', 'Razón Social'], ['nombre_comercial', 'Nombre comercial'],
@@ -1003,8 +1009,9 @@ const Ajustes = (() => {
             <option value="usuario"${u.rol === 'usuario' ? ' selected' : ''}>Usuario</option>
             <option value="administrador"${u.rol === 'administrador' ? ' selected' : ''}>Administrador</option>
             <option value="limpieza"${u.rol === 'limpieza' ? ' selected' : ''}>Limpieza</option>
+            <option value="mantenimiento"${u.rol === 'mantenimiento' ? ' selected' : ''}>Mantenimiento</option>
           </select>
-          <div id="u-rol-desc" class="u-rol-desc${u.rol === 'limpieza' ? '' : ' oculto'}">Solo acceso al módulo de limpieza</div>
+          <div id="u-rol-desc" class="u-rol-desc${ROL_DESC[u.rol] ? '' : ' oculto'}">${ROL_DESC[u.rol] || ''}</div>
         </div>
         <div class="campo"><label>Estado</label>
           <label class="toggle-campo">
@@ -1021,8 +1028,12 @@ const Ajustes = (() => {
       const inp = document.getElementById('u-password');
       inp.type = inp.type === 'password' ? 'text' : 'password';
     });
-    document.getElementById('u-rol').addEventListener('change', (e) =>
-      document.getElementById('u-rol-desc').classList.toggle('oculto', e.target.value !== 'limpieza'));
+    document.getElementById('u-rol').addEventListener('change', (e) => {
+      const desc = ROL_DESC[e.target.value] || '';
+      const el = document.getElementById('u-rol-desc');
+      el.textContent = desc;
+      el.classList.toggle('oculto', !desc);
+    });
     document.getElementById('u-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('u-guardar').addEventListener('click', async () => {
       const body = {

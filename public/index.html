@@ -64,6 +64,9 @@
       <button class="nav-item" data-tab="limpieza" title="Limpieza">
         <span class="nav-icono">🧹</span><span class="nav-texto">Limpieza</span>
       </button>
+      <button class="nav-item" data-tab="mantenimiento" title="Mantenimiento">
+        <span class="nav-icono">🔧</span><span class="nav-texto">Mantenimiento</span>
+      </button>
       <button class="nav-item" data-tab="ajustes" title="Ajustes">
         <span class="nav-icono">⚙️</span><span class="nav-texto">Ajustes</span>
       </button>
@@ -353,6 +356,16 @@
       </div>
     </section>
 
+    <!-- ============ MANTENIMIENTO ============ -->
+    <section id="vista-mantenimiento" class="vista">
+      <div class="barra-herramientas">
+        <h2>Mantenimiento</h2>
+        <button class="btn-pri" id="mant-nueva">＋ Nueva tarea</button>
+      </div>
+      <div class="mant-resumen" id="mant-resumen"></div>
+      <div class="mant-tablero" id="mant-tablero"></div>
+    </section>
+
     <!-- ============ AJUSTES ============ -->
     <section id="vista-ajustes" class="vista">
       <div class="barra-herramientas">
@@ -463,6 +476,7 @@
   <script src="js/dashboard.js"></script>
   <script src="js/estadisticas.js"></script>
   <script src="js/limpieza.js"></script>
+  <script src="js/mantenimiento.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
