@@ -14,7 +14,7 @@ const router = express.Router();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
-const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos'];
+const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista'];
 const ESTADOS = ['borrador', 'emitida', 'pagada', 'anulada'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -266,6 +266,52 @@ function construirHuesped(body) {
   return { f, lineas };
 }
 
+// Factura a un mayorista: una línea por pago seleccionado del plan, IVA 21% sin retención.
+// Emisor = nuestra razón social; receptor = datos del mayorista. Devuelve también pagoIds
+// para fijar numero_factura en los pagos una vez generada la factura.
+function construirMayorista(body) {
+  const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(body.razon_social_id));
+  if (!rs) return { error: 'Razón social no válida' };
+
+  const ids = Array.isArray(body.mayorista_pago_ids)
+    ? body.mayorista_pago_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
+  if (!ids.length) return { error: 'Selecciona al menos un pago de mayorista' };
+
+  const pagos = db.prepare(`
+    SELECT p.*, c.anio AS contrato_anio, c.mayorista_id,
+           m.nombre AS mayorista_nombre, m.cif AS mayorista_cif,
+           m.direccion AS mayorista_direccion, m.email AS mayorista_email
+    FROM mayorista_pagos p
+    JOIN mayorista_contratos c ON c.id = p.contrato_id
+    JOIN mayoristas m ON m.id = c.mayorista_id
+    WHERE p.id IN (${ids.map(() => '?').join(',')})
+    ORDER BY c.anio, p.numero_pago
+  `).all(...ids);
+  if (!pagos.length) return { error: 'No se encontraron pagos válidos' };
+
+  // Todos los pagos deben ser del mismo mayorista (un receptor por factura).
+  const mids = new Set(pagos.map((p) => p.mayorista_id));
+  if (mids.size > 1) return { error: 'Todos los pagos deben pertenecer al mismo mayorista' };
+  const m = pagos[0];
+
+  const lineas = pagos.map((p) => ({
+    descripcion: `Pago ${p.numero_pago} — Contrato ${p.contrato_anio} — ${p.mayorista_nombre}`,
+    cantidad: 1, precio_unitario: round2(p.importe), importe: round2(p.importe),
+  }));
+
+  const f = nuevaFactura();
+  f.tipo = 'mayorista';
+  f.porcentaje_iva = 10; // alojamiento turístico: IVA reducido
+  f.porcentaje_retencion = 0;
+  f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+  Object.assign(f, emisorDeRazon(rs));
+  f.receptor_nombre = m.mayorista_nombre;
+  f.receptor_cif = m.mayorista_cif || null;
+  f.receptor_direccion = m.mayorista_direccion || null;
+  f.receptor_email = m.mayorista_email || null;
+  return { f, lineas, pagoIds: pagos.map((p) => p.id) };
+}
+
 // ==================== Endpoints ====================
 
 // GET /api/facturas?anio=&tipo=&estado=&propietario_id=&reserva_id=
@@ -424,6 +470,7 @@ router.post('/', (req, res) => {
   if (body.tipo === 'propietario') construido = construirPropietario(body, false);
   else if (body.tipo === 'autofactura') construido = construirPropietario(body, true);
   else if (body.tipo === 'gastos') construido = construirGastos(body);
+  else if (body.tipo === 'mayorista') construido = construirMayorista(body);
   else construido = construirHuesped(body);
 
   if (construido.error) return res.status(400).json({ error: construido.error });
@@ -446,6 +493,13 @@ router.post('/', (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
+
+  // Tipo mayorista: anotar el número de factura en cada pago facturado.
+  if (f.tipo === 'mayorista' && Array.isArray(construido.pagoIds) && construido.pagoIds.length) {
+    const upd = db.prepare('UPDATE mayorista_pagos SET numero_factura = ? WHERE id = ?');
+    db.transaction(() => { for (const pid of construido.pagoIds) upd.run(r.numero, pid); })();
+  }
+
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (${f.tipo})`);
   res.status(201).json({ id: r.id, numero: r.numero });
 });

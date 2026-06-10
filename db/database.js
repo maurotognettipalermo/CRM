@@ -153,6 +153,9 @@ const ESTADOS_RESERVA_DEFECTO = [
 // Las tablas las crea schema.sql; aquí solo reservamos el punto para columnas futuras.
 const COLUMNAS_FACTURAS = {};
 
+// Mayoristas por defecto (se insertan si la tabla está vacía).
+const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
+
 // Crea las tablas si no existen ejecutando el schema.sql.
 function init() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
@@ -169,10 +172,12 @@ function init() {
   migrarFacturas();
   migrarCatalogoExtras();
   migrarUsuariosRol();
+  migrarFacturasTipo();
   seedAdmin();
   seedPortales();
   seedModificadores();
   seedEstadosReserva();
+  seedMayoristas();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -314,6 +319,42 @@ function migrarCatalogoExtras() {
   anadirColumnasFaltantes('catalogo_extras', COLUMNAS_CATALOGO_EXTRAS);
 }
 
+// Amplía el CHECK de facturas.tipo para admitir 'mayorista'. SQLite no permite alterar un
+// CHECK, así que se recrea la tabla (CREATE temp → INSERT SELECT → DROP → RENAME) solo si el
+// CHECK actual aún no incluye 'mayorista'. Genérico: reescribe el SQL de la tabla por regex
+// (no duplica el esquema), por lo que sobrevive a columnas futuras de facturas. Idempotente.
+// FKs desactivadas durante el rebuild para que el DROP no afecte a tablas que la referencian.
+function migrarFacturasTipo() {
+  const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facturas'").get();
+  if (!def || /'mayorista'/.test(def.sql)) return; // ya admite el tipo (o tabla no creada aún)
+
+  // Reescribe el nombre de la tabla y amplía la lista del CHECK del tipo.
+  const sqlNueva = def.sql
+    .replace(/CREATE TABLE\s+"?facturas"?/i, 'CREATE TABLE facturas_nueva')
+    .replace(/CHECK\s*\(\s*tipo\s+IN\s*\([^)]*\)\s*\)/i,
+      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista'))");
+
+  if (!/facturas_nueva/.test(sqlNueva) || !/'mayorista'/.test(sqlNueva)) {
+    console.error('AVISO: no se pudo reescribir el CHECK de facturas.tipo; se omite la migración.');
+    return;
+  }
+
+  // Columnas comunes (mismas en ambas tablas: solo cambia el CHECK) para el INSERT SELECT.
+  const cols = db.prepare('PRAGMA table_info(facturas)').all().map((c) => c.name).join(', ');
+
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(sqlNueva);
+    db.exec(`INSERT INTO facturas_nueva (${cols}) SELECT ${cols} FROM facturas`);
+    db.exec('DROP TABLE facturas');
+    db.exec('ALTER TABLE facturas_nueva RENAME TO facturas');
+  })();
+  db.pragma('foreign_keys = ON');
+  const rotas = db.prepare('PRAGMA foreign_key_check').all();
+  if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo:', rotas);
+  console.log("Migración: facturas.tipo ahora admite 'mayorista'.");
+}
+
 // Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no
 // permite alterar un CHECK, así que se recrea la tabla (CREATE temp → INSERT → DROP → RENAME)
 // solo si el CHECK actual aún no incluye 'mantenimiento' (el rol añadido más recientemente).
@@ -366,6 +407,16 @@ function seedEstadosReserva() {
     );
     for (const e of ESTADOS_RESERVA_DEFECTO) insertar.run(e.nombre, e.color, e.orden, e.es_sistema);
     console.log('Estados de reserva por defecto creados.');
+  }
+}
+
+// Inserta los mayoristas por defecto si la tabla está vacía.
+function seedMayoristas() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM mayoristas').get().c;
+  if (n === 0) {
+    const insertar = db.prepare('INSERT INTO mayoristas (nombre, activo) VALUES (?, 1)');
+    for (const nombre of MAYORISTAS_DEFECTO) insertar.run(nombre);
+    console.log('Mayoristas por defecto creados (Apartplaya, Viajes Himalaya).');
   }
 }
 

@@ -2818,3 +2818,311 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   /* Dropzone de subida más grande para el dedo */
   .alo-dropzone { padding: 24px 16px; }
 }
+
+/* ===================== Ventas (inmobiliaria) ===================== */
+
+/* Mini-tarjetas de resumen */
+.vta-resumen { display: flex; gap: 12px; flex-wrap: wrap; }
+.vta-mini {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 1px solid var(--border); border-left-width: 4px;
+  border-radius: 10px; padding: 8px 14px;
+}
+.vta-mini-ico { font-size: 20px; }
+.vta-mini-val { font-size: 22px; font-weight: 700; line-height: 1; }
+.vta-mini-lbl { font-size: 12px; color: var(--muted); }
+.vta-mini-azul    { border-left-color: var(--blue); }
+.vta-mini-verde   { border-left-color: var(--green); }
+.vta-mini-naranja { border-left-color: #f59e0b; }
+.vta-mini-morado  { border-left-color: #8b5cf6; }
+
+/* Sub-pestañas + contenedor scroll */
+.vta-subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding: 0 4px; }
+.vta-scroll { flex: 1; overflow-y: auto; padding-top: 12px; }
+.vta-placeholder { color: var(--muted); text-align: center; padding: 48px 16px; }
+
+/* Cabecera de la sub-pestaña Propiedades */
+.vta-prop-cab { align-items: flex-start; gap: 12px; }
+.vta-prop-acciones { display: flex; gap: 8px; flex-shrink: 0; }
+.vta-f-precio { display: flex; gap: 8px; }
+.vta-f-precio input { width: 100%; }
+
+/* Tabla */
+.vta-ref { color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: none; }
+.vta-ref:hover { text-decoration: underline; }
+.vta-precio { font-weight: 600; white-space: nowrap; }
+.vta-acciones { white-space: nowrap; }
+.vta-visitas-badge {
+  display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px;
+  background: #ede9fe; color: #6d28d9; font-weight: 600; font-size: 12px; text-align: center;
+}
+.vta-muted { color: var(--muted); }
+.vta-cargando, .vta-vacio { text-align: center; color: var(--muted); padding: 28px 8px; }
+#tabla-propiedades tbody tr[data-ficha] { cursor: pointer; }
+#tabla-propiedades tbody tr[data-ficha]:hover { background: #f9fafb; }
+
+/* Badges de estado */
+.vta-bdg { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.vta-bdg-disp { background: #f0fdf4; color: #047857; }
+.vta-bdg-res  { background: #fffbeb; color: #b45309; }
+.vta-bdg-vend { background: #eff6ff; color: #1d4ed8; }
+.vta-bdg-ret  { background: #f3f4f6; color: #6b7280; }
+.vta-bdg-visita { background: #eef2ff; color: #4338ca; }
+.vta-badge-tipo { display: inline-block; font-size: 12px; background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 2px 9px; }
+
+/* Panel ficha */
+.vta-d-seccion { padding: 16px 0; border-bottom: 1px solid var(--border-soft); }
+.vta-d-seccion:last-child { border-bottom: none; }
+.vta-d-titulo-sec { font-weight: 700; font-size: 13px; color: #374151; margin-bottom: 10px; }
+.vta-d-precio { font-size: 26px; font-weight: 700; color: var(--text); margin-bottom: 12px; }
+.vta-d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+.vta-d-linea { font-size: 13.5px; color: #4b5563; margin-top: 4px; }
+.vta-d-cli-nombre { font-weight: 700; font-size: 15px; }
+.vta-link { color: var(--blue); text-decoration: none; }
+.vta-link:hover { text-decoration: underline; }
+.vta-d-etq2 { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: var(--muted); margin: 8px 0 3px; }
+.vta-d-textarea { width: 100%; resize: vertical; }
+.vta-d-guardar-wrap { margin-top: 10px; text-align: right; }
+
+/* Historial de visitas en la ficha */
+.vta-visita-item { background: #fafafa; border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.vta-visita-top { display: flex; align-items: center; justify-content: space-between; }
+.vta-visita-fecha { font-size: 13px; font-weight: 600; }
+.vta-visita-cli { font-size: 13px; color: #4b5563; margin-top: 4px; }
+.vta-visita-val { font-size: 13px; color: #6d28d9; margin-top: 2px; }
+
+/* Modal nueva/editar */
+.vta-modal-sub { font-weight: 700; font-size: 13px; color: #374151; margin: 14px 0 6px; }
+
+/* Modal importar */
+.vta-import-aviso { background: #f0fdf4; color: #047857; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+.vta-import-nombre { font-size: 13px; color: #374151; margin-top: 8px; }
+.vta-import-resultado { margin-top: 14px; }
+.vta-import-ok { font-weight: 600; color: #047857; margin-bottom: 8px; }
+.vta-import-stats { display: flex; gap: 16px; font-size: 14px; }
+.vta-import-errores { margin-top: 10px; font-size: 13px; color: var(--red); }
+.vta-import-errores ul { margin: 6px 0 0 18px; }
+.vta-spinner {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff; border-radius: 50%; animation: vta-spin 0.7s linear infinite; vertical-align: -2px;
+}
+@keyframes vta-spin { to { transform: rotate(360deg); } }
+
+/* Responsive de la cabecera de Propiedades */
+@media (max-width: 767px) {
+  .vta-resumen { width: 100%; }
+  .vta-mini { flex: 1 1 calc(50% - 6px); }
+  .vta-prop-cab { flex-direction: column; }
+  .vta-prop-acciones { width: 100%; }
+  .vta-prop-acciones .btn-pri, .vta-prop-acciones .btn-sec { flex: 1; min-height: 44px; }
+  .vta-d-grid { grid-template-columns: 1fr; }
+}
+
+/* ===================== Ventas · Clientes ===================== */
+
+/* Badges de estado de cliente */
+.vta-bdg-cli-nuevo  { background: #f3f4f6; color: #6b7280; }
+.vta-bdg-cli-cont   { background: #eff6ff; color: #1d4ed8; }
+.vta-bdg-cli-vis    { background: #fffbeb; color: #b45309; }
+.vta-bdg-cli-neg    { background: #ede9fe; color: #6d28d9; }
+.vta-bdg-cli-compro { background: #f0fdf4; color: #047857; }
+.vta-bdg-cli-desc   { background: #fef2f2; color: #dc2626; }
+
+/* Columna "Busca" truncada */
+.vta-busca-cel { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #4b5563; }
+
+/* Dropdown "Cambiar estado" en la cabecera del panel */
+.vta-estado-drop { position: relative; }
+.vta-estado-menu {
+  position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 30;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12); padding: 6px; min-width: 180px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.vta-estado-op { background: none; border: none; text-align: left; cursor: pointer; padding: 6px; border-radius: 6px; }
+.vta-estado-op:hover { background: #f3f4f6; }
+
+/* Qué busca: chips */
+.vta-busca-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.vta-busca-chip { display: inline-block; background: #f3f4f6; color: #374151; border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 500; }
+.vta-busca-chip.vta-chip-on { background: #eef2ff; color: #4338ca; }
+.vta-busca-pres { margin-top: 10px; font-size: 15px; }
+.vta-busca-pres strong { font-size: 18px; }
+
+/* Propiedades sugeridas */
+.vta-sug-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #fafafa; border: 1px solid var(--border-soft); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.vta-sug-ref { font-weight: 700; }
+.vta-sug-precio { color: var(--green); font-weight: 600; margin-left: 6px; }
+.vta-sug-detalle { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.vta-sug-btn { flex-shrink: 0; white-space: nowrap; }
+
+/* Modal programar visita */
+.vta-pv-resumen { background: #f9fafb; border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 14px; line-height: 1.6; }
+
+@media (max-width: 767px) {
+  .vta-busca-cel { max-width: 140px; }
+  .vta-sug-card { flex-direction: column; align-items: stretch; }
+  .vta-sug-btn { width: 100%; min-height: 44px; }
+}
+
+/* ===================== Ventas · Visitas ===================== */
+.vta-vis-cab { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+
+/* Sección destacada "Visitas de hoy" */
+.vta-vis-hoy { margin-bottom: 16px; }
+.vta-vis-hoy-titulo { font-weight: 700; font-size: 14px; margin: 4px 0 10px; }
+.vta-vis-hoy-vacio { padding: 8px 0 16px; }
+.vta-vis-hoy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.vta-hoy-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 14px; }
+.vta-hoy-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.vta-hoy-hora { font-weight: 700; font-size: 15px; }
+.vta-hoy-cli { font-size: 14px; margin-bottom: 4px; }
+.vta-hoy-prop { font-size: 13px; color: #374151; margin-bottom: 4px; }
+.vta-hoy-aten { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.vta-hoy-acc { display: flex; gap: 8px; }
+.vta-hoy-btn { flex: 1; min-height: 40px; }
+
+/* Modal detalle de visita */
+.vta-det-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.vta-det-col { min-width: 0; }
+.vta-det-linea { font-size: 13px; margin-top: 4px; word-break: break-word; }
+
+/* Notas tipo timeline */
+.vta-notas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; margin-bottom: 10px; }
+.vta-nota { background: #f3f4f6; border-radius: 8px; padding: 8px 12px; }
+.vta-nota-cab { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 3px; }
+.vta-nota-fecha { color: var(--muted); font-size: 11px; }
+.vta-nota-texto { font-size: 13.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.vta-nota-input { display: flex; gap: 8px; align-items: flex-end; }
+.vta-nota-input textarea { flex: 1; resize: vertical; min-height: 40px; }
+
+/* Typeahead (cliente / propiedad) en Nueva visita */
+.vta-ta { position: relative; }
+.vta-ta-res {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 20;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12); max-height: 240px; overflow-y: auto;
+}
+.vta-ta-item { padding: 10px 12px; cursor: pointer; font-size: 14px; }
+.vta-ta-item:hover { background: #f3f4f6; }
+.vta-nv-crear { margin-top: 8px; }
+
+@media (max-width: 767px) {
+  .vta-vis-hoy-grid { grid-template-columns: 1fr; }
+  .vta-det-grid { grid-template-columns: 1fr; }
+  .vta-nota-input { flex-direction: column; align-items: stretch; }
+  .vta-nota-input textarea { font-size: 16px; }
+  .vta-nota-input .btn-pri { width: 100%; min-height: 44px; }
+}
+
+/* ==================== Sub-pestaña Calendario (Ventas) ==================== */
+.vca-cab { flex-wrap: wrap; gap: 12px; align-items: center; }
+.vca-nav { display: flex; align-items: center; gap: 8px; }
+.vca-flecha { padding: 6px 10px; line-height: 1; }
+.vca-titulo { font-size: 17px; font-weight: 700; min-width: 150px; text-align: center; text-transform: capitalize; }
+.vca-leyenda { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Puntos de color por estado de la visita */
+.vca-punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex: none; }
+.vca-punto.vta-bdg-visita { background: #4338ca; }   /* Programada */
+.vca-punto.vta-bdg-disp   { background: #047857; }   /* Realizada */
+.vca-punto.vta-bdg-cli-desc { background: #dc2626; } /* Cancelada */
+
+/* Grid mensual */
+.vca-grid-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.vca-semana { display: grid; grid-template-columns: repeat(7, 1fr); }
+.vca-cab-dias { background: #f9fafb; border-bottom: 1px solid var(--border); }
+.vca-dia-cab { padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+.vca-celda { min-height: 96px; border-right: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); padding: 4px; cursor: pointer; transition: background .12s; }
+.vca-celda:hover { background: #f9fafb; }
+.vca-semana .vca-celda:last-child { border-right: none; }
+.vca-relleno { background: #fcfcfd; cursor: default; }
+.vca-relleno:hover { background: #fcfcfd; }
+.vca-finde { background: #fef9f0; }
+.vca-finde:hover { background: #fdf3e2; }
+.vca-hoy { box-shadow: inset 0 0 0 2px var(--blue); border-radius: 6px; }
+.vca-num { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 3px; padding-left: 2px; }
+.vca-visitas { display: flex; flex-direction: column; gap: 2px; }
+
+/* Mini-card de visita dentro de la celda */
+.vca-mini { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 5px; border-radius: 5px; background: #f3f4f6; cursor: pointer; overflow: hidden; white-space: nowrap; }
+.vca-mini:hover { background: #e5e7eb; }
+.vca-mini-hora { font-weight: 600; color: #4b5563; flex: none; }
+.vca-mini-nom { overflow: hidden; text-overflow: ellipsis; }
+.vca-mas { font-size: 11px; font-weight: 600; color: var(--blue); cursor: pointer; padding: 1px 5px; }
+.vca-mas:hover { text-decoration: underline; }
+
+/* Popover "+X más" */
+.vca-popover { position: fixed; z-index: 60; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 8px; min-width: 240px; max-width: 320px; max-height: 60vh; overflow-y: auto; }
+.vca-pop-titulo { font-size: 13px; font-weight: 700; color: #374151; padding: 4px 6px 8px; text-transform: capitalize; }
+.vca-pop-item { display: flex; align-items: center; gap: 6px; padding: 7px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.vca-pop-item:hover { background: #f3f4f6; }
+.vca-pop-nom { font-weight: 600; }
+.vca-pop-ref { color: #6b7280; margin-left: auto; font-size: 12px; }
+
+/* Modo lista (móvil): oculto en escritorio */
+.vca-lista { display: none; }
+.vca-lista-dia { margin-bottom: 14px; }
+.vca-lista-fecha { font-size: 13px; font-weight: 700; color: #374151; padding: 6px 0; border-bottom: 1px solid var(--border-soft); margin-bottom: 6px; text-transform: capitalize; }
+.vca-lista-item { display: flex; align-items: center; gap: 8px; padding: 9px 8px; border-radius: 8px; background: #f9fafb; margin-bottom: 6px; cursor: pointer; }
+.vca-lista-item:hover { background: #f3f4f6; }
+.vca-lista-nom { font-weight: 600; }
+.vca-lista-ref { color: #6b7280; font-size: 13px; }
+.vca-lista-item .vta-bdg { margin-left: auto; }
+.vca-lista-vacia { padding: 24px; text-align: center; }
+
+@media (max-width: 767px) {
+  .vca-grid-wrap { display: none; }      /* oculta el grid en móvil */
+  .vca-lista { display: block; }         /* muestra la lista vertical */
+  .vca-titulo { min-width: 0; flex: 1; }
+  .vca-leyenda { width: 100%; }
+}
+
+/* ==================== Estadísticas › Mayoristas ==================== */
+.may-top { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.may-badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; text-transform: capitalize; }
+
+/* Grid de cards por mayorista */
+.may-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 18px; }
+.may-card { border: 1px solid var(--border); border-radius: 12px; padding: 18px; background: #fff; }
+.may-card-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.may-card-nombre { font-size: 18px; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: .02em; }
+.may-card-total { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+.may-card-total strong { color: var(--text); }
+.may-card-prog { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.may-card-pct { font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.may-prog { flex: 1; height: 10px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.may-prog-fill { display: block; height: 100%; border-radius: 999px; background: #10b981; }
+.may-card-cifras { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.may-card-prox { font-size: 13px; color: var(--muted); border-top: 1px solid var(--border-soft); padding-top: 10px; }
+
+/* Panel lateral: secciones del detalle del contrato */
+.may-d-seccion { margin-bottom: 22px; }
+.may-d-titulo-sec { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border-soft); }
+.may-d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+.may-tabla-pagos { font-size: 13px; }
+.may-tabla-pagos th, .may-tabla-pagos td { padding: 8px 10px; }
+.may-fact-link { font-weight: 600; color: var(--blue); }
+.may-btn-cobrar { background: #f0fdf4; color: #047857; border-color: #bbf7d0; }
+
+/* Modal nuevo contrato: plan de pagos */
+.mc-plan-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 10px; flex-wrap: wrap; }
+.mc-pagos { display: flex; flex-direction: column; gap: 8px; }
+.mc-pago-fila { display: flex; align-items: center; gap: 8px; }
+.mc-pago-num { width: 22px; height: 22px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--border-soft); font-size: 12px; font-weight: 700; color: var(--muted); }
+.mc-pago-fila input[type="date"] { flex: 1; }
+.mc-pago-fila input[type="number"] { width: 120px; flex: none; }
+.mc-contador { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; }
+.mc-ok { background: #f0fdf4; color: #047857; }
+.mc-mal { background: #fef2f2; color: #dc2626; }
+
+@media (max-width: 767px) {
+  .may-grid { grid-template-columns: 1fr; }
+  .may-d-grid { grid-template-columns: 1fr; }
+  .mc-pago-fila { flex-wrap: wrap; }
+  .mc-pago-fila input[type="number"] { width: 100%; }
+}

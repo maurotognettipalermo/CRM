@@ -1,0 +1,1870 @@
+// Módulo Ventas (inmobiliaria). Resumen + sub-pestañas Propiedades y Clientes
+// (tabla con filtros, ficha en panel lateral, alta/edición; importación de Idealista
+// en Propiedades; sugerencias y programación de visitas en Clientes). Visitas: placeholder.
+
+const Ventas = (() => {
+  let propiedades = [];        // propiedades cargadas
+  let fichaActual = null;      // propiedad abierta en el panel
+  let busqueda = '';
+  let subSel = [];             // File pendiente en el modal de importar
+
+  // Filtros de la sub-pestaña Propiedades.
+  const ESTADOS = ['Disponible', 'Reservada', 'Vendida', 'Retirada'];
+  const TIPOS = ['Piso', 'Ático', 'Casa', 'Villa', 'Otros'];
+  let fEstado = new Set(ESTADOS);
+  let fTipo = new Set();        // vacío = todos los tipos
+  let fPrecioMin = '';
+  let fPrecioMax = '';
+  let fDorm = '';              // '', '1','2','3','4' (4 = 4+)
+
+  // Estado de la sub-pestaña Clientes.
+  const ESTADOS_CLI = ['Nuevo', 'Contactado', 'Visitado', 'En negociación', 'Compró', 'Descartado'];
+  const TIPOS_CLI = ['Piso', 'Ático', 'Casa', 'Villa'];
+  let clientes = [];
+  let clienteFicha = null;     // cliente abierto en el panel
+  let cliConstruido = false;
+  let cliBusqueda = '';
+  let fEstadoCli = new Set(ESTADOS_CLI);
+  let fTipoCli = new Set();     // vacío = todos
+  let fPresMin = '';
+  let fPresMax = '';
+
+  // ==================== Helpers ====================
+  function euro(n) {
+    if (n === null || n === undefined || n === '') return '—';
+    const v = Math.round(Number(n));
+    if (!isFinite(v)) return '—';
+    return v.toLocaleString('de-DE') + ' €';
+  }
+  function estadoBadge(e) {
+    const map = {
+      Disponible: 'vta-bdg-disp', Reservada: 'vta-bdg-res',
+      Vendida: 'vta-bdg-vend', Retirada: 'vta-bdg-ret',
+    };
+    return `<span class="vta-bdg ${map[e] || 'vta-bdg-ret'}">${esc(e || '—')}</span>`;
+  }
+  function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+  function visitasRealizadas(p) {
+    if (!Array.isArray(p.visitas)) return p._visitas_realizadas || 0;
+    return p.visitas.filter((v) => v.estado === 'Realizada').length;
+  }
+
+  // ==================== Carga ====================
+  async function cargar() {
+    await Promise.all([cargarResumen(), cargarPropiedades()]);
+  }
+
+  async function cargarResumen() {
+    let r;
+    try { r = await API.get('/api/ventas/resumen'); } catch (e) { return; }
+    const cont = document.getElementById('vta-resumen');
+    if (!cont) return;
+    const card = (ico, valor, lbl, clase) =>
+      `<div class="vta-mini ${clase}"><div class="vta-mini-ico">${ico}</div><div class="vta-mini-val">${valor}</div><div class="vta-mini-lbl">${lbl}</div></div>`;
+    cont.innerHTML =
+      card('🏠', r.propiedades_disponibles || 0, 'Disponibles', 'vta-mini-azul') +
+      card('👤', r.clientes_activos || 0, 'Clientes activos', 'vta-mini-verde') +
+      card('📅', r.visitas_hoy || 0, 'Visitas hoy', 'vta-mini-naranja') +
+      card('💰', r.propiedades_vendidas || 0, 'Ventas', 'vta-mini-morado');
+  }
+
+  async function cargarPropiedades() {
+    const tbody = document.querySelector('#tabla-propiedades tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="vta-cargando">Cargando propiedades…</td></tr>';
+    try {
+      propiedades = await API.get('/api/ventas/propiedades');
+    } catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="vta-cargando">No se pudieron cargar las propiedades.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderTabla();
+  }
+
+  // ==================== Tabla + filtros ====================
+  function filtradas() {
+    const q = busqueda.trim().toLowerCase();
+    return propiedades.filter((p) => {
+      if (!fEstado.has(p.estado)) return false;
+      if (fTipo.size) {
+        const t = TIPOS.includes(p.tipo) ? p.tipo : 'Otros';
+        if (!fTipo.has(t)) return false;
+      }
+      if (fPrecioMin !== '' && Number(p.precio) < Number(fPrecioMin)) return false;
+      if (fPrecioMax !== '' && Number(p.precio) > Number(fPrecioMax)) return false;
+      if (fDorm !== '') {
+        const d = Number(p.dormitorios) || 0;
+        if (fDorm === '4') { if (d < 4) return false; }
+        else if (d !== Number(fDorm)) return false;
+      }
+      if (q) {
+        const txt = `${p.referencia || ''} ${p.calle || ''} ${p.zona || ''} ${p.localidad || ''}`.toLowerCase();
+        if (!txt.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderTabla() {
+    const tbody = document.querySelector('#tabla-propiedades tbody');
+    if (!tbody) return;
+    const lista = filtradas();
+    actualizarContador(lista.length);
+    actualizarBadgeFiltros();
+
+    if (!propiedades.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="vta-vacio">No hay propiedades. Importa el Excel de Idealista o crea una nueva.</td></tr>';
+      return;
+    }
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="11" class="vta-vacio">Ninguna propiedad coincide con los filtros.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.map(filaHTML).join('');
+
+    tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('[data-editar]') || e.target.closest('[data-borrar]') || e.target.closest('[data-ref]')) return;
+        abrirFicha(tr.dataset.ficha);
+      }));
+    tbody.querySelectorAll('[data-ref]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); abrirFicha(a.dataset.ref); }));
+    tbody.querySelectorAll('[data-editar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalFormulario(propiedades.find((p) => p.id == b.dataset.editar)); }));
+    tbody.querySelectorAll('[data-borrar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); borrar(propiedades.find((p) => p.id == b.dataset.borrar)); }));
+  }
+
+  function filaHTML(p) {
+    const dir = [p.calle, p.numero].filter(Boolean).join(' ') || '—';
+    const nv = visitasRealizadas(p);
+    const visitasCel = nv > 0 ? `<span class="vta-visitas-badge">${nv}</span>` : '<span class="vta-muted">0</span>';
+    return `
+      <tr data-ficha="${p.id}">
+        <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
+        <td>${esc(p.tipo) || '—'}</td>
+        <td>${esc(dir)}</td>
+        <td>${esc(p.zona) || '—'}</td>
+        <td class="vta-precio">${euro(p.precio)}</td>
+        <td>${p.dormitorios ?? '—'}</td>
+        <td>${p.banos ?? '—'}</td>
+        <td>${p.metros_cuadrados ?? '—'}</td>
+        <td>${estadoBadge(p.estado)}</td>
+        <td>${visitasCel}</td>
+        <td class="vta-acciones">
+          <button class="btn-icono" data-editar="${p.id}" title="Editar">✏️</button>
+          <button class="btn-icono" data-borrar="${p.id}" title="Eliminar">🗑</button>
+        </td>
+      </tr>`;
+  }
+
+  function actualizarContador(n) {
+    const c = document.getElementById('vta-prop-contador');
+    if (c) c.textContent = `${n} propiedad${n === 1 ? '' : 'es'}`;
+  }
+
+  function nFiltrosActivos() {
+    let n = 0;
+    if (fEstado.size !== ESTADOS.length) n++;
+    if (fTipo.size) n++;
+    if (fPrecioMin !== '' || fPrecioMax !== '') n++;
+    if (fDorm !== '') n++;
+    return n;
+  }
+  function actualizarBadgeFiltros() {
+    const b = document.getElementById('vta-filtros-badge');
+    if (!b) return;
+    const n = nFiltrosActivos();
+    b.textContent = n;
+    b.classList.toggle('oculto', n === 0);
+  }
+
+  function construirFiltros() {
+    const panel = document.getElementById('vta-filtros-panel');
+    if (!panel || panel.dataset.listo) return;
+    const estItems = ESTADOS.map((e) =>
+      `<label class="rsv-f-op"><input type="checkbox" data-f="estado" value="${e}" checked><span class="rsv-f-op-label">${e}</span></label>`).join('');
+    const tipoItems = TIPOS.map((t) =>
+      `<label class="rsv-f-op"><input type="checkbox" data-f="tipo" value="${t}"><span class="rsv-f-op-label">${t}</span></label>`).join('');
+    panel.innerHTML = `
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Estado</div>
+        <div class="rsv-f-ops">${estItems}</div>
+      </div>
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Tipo</div>
+        <div class="rsv-f-ops">${tipoItems}</div>
+      </div>
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Rango de precio (€)</div>
+        <div class="vta-f-precio">
+          <input type="number" id="vta-f-pmin" class="input-fecha" placeholder="Desde" min="0">
+          <input type="number" id="vta-f-pmax" class="input-fecha" placeholder="Hasta" min="0">
+        </div>
+      </div>
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Dormitorios</div>
+        <select id="vta-f-dorm" class="select-filtro">
+          <option value="">Todos</option><option value="1">1</option><option value="2">2</option>
+          <option value="3">3</option><option value="4">4+</option>
+        </select>
+      </div>
+      <div class="rsv-f-grupo"><button id="vta-f-limpiar" class="btn-sec">Limpiar filtros</button></div>`;
+    panel.dataset.listo = '1';
+
+    panel.addEventListener('change', (e) => {
+      const chk = e.target.closest('input[type="checkbox"][data-f]');
+      if (!chk) return;
+      const set = chk.dataset.f === 'estado' ? fEstado : fTipo;
+      if (chk.checked) set.add(chk.value); else set.delete(chk.value);
+      renderTabla();
+    });
+    panel.querySelector('#vta-f-pmin').addEventListener('input', (e) => { fPrecioMin = e.target.value; renderTabla(); });
+    panel.querySelector('#vta-f-pmax').addEventListener('input', (e) => { fPrecioMax = e.target.value; renderTabla(); });
+    panel.querySelector('#vta-f-dorm').addEventListener('change', (e) => { fDorm = e.target.value; renderTabla(); });
+    panel.querySelector('#vta-f-limpiar').addEventListener('click', resetFiltros);
+  }
+
+  function resetFiltros() {
+    fEstado = new Set(ESTADOS);
+    fTipo = new Set();
+    fPrecioMin = ''; fPrecioMax = ''; fDorm = '';
+    const panel = document.getElementById('vta-filtros-panel');
+    if (panel) {
+      panel.querySelectorAll('input[data-f="estado"]').forEach((c) => { c.checked = true; });
+      panel.querySelectorAll('input[data-f="tipo"]').forEach((c) => { c.checked = false; });
+      const pmin = panel.querySelector('#vta-f-pmin'); if (pmin) pmin.value = '';
+      const pmax = panel.querySelector('#vta-f-pmax'); if (pmax) pmax.value = '';
+      const dorm = panel.querySelector('#vta-f-dorm'); if (dorm) dorm.value = '';
+    }
+    renderTabla();
+  }
+
+  // ==================== Panel lateral (ficha) ====================
+  function crearPanel() {
+    if (document.getElementById('vta-panel')) return;
+    const fondo = document.createElement('div');
+    fondo.id = 'vta-panel-fondo';
+    fondo.className = 'panel-fondo';
+    const panel = document.createElement('aside');
+    panel.id = 'vta-panel';
+    panel.className = 'panel-lateral';
+    panel.setAttribute('aria-label', 'Ficha de propiedad');
+    panel.innerHTML = `
+      <header class="panel-cabecera">
+        <div class="rsv-titulo-grupo">
+          <h3 id="vta-d-titulo">Propiedad</h3>
+          <span id="vta-d-badges"></span>
+        </div>
+        <div class="panel-cabecera-acciones">
+          <button id="vta-d-editar" class="btn-sec">✏️ Editar</button>
+          <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
+        </div>
+      </header>
+      <div id="vta-d-cuerpo" class="panel-cuerpo"></div>`;
+    document.body.appendChild(fondo);
+    document.body.appendChild(panel);
+    fondo.addEventListener('click', cerrarPanel);
+    panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
+    panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
+      if (!modalAbierto && panel.classList.contains('abierto')) cerrarPanel();
+    }, true);
+  }
+  function abrirPanel() {
+    document.getElementById('vta-panel-fondo').classList.add('abierto');
+    document.getElementById('vta-panel').classList.add('abierto');
+  }
+  function cerrarPanel() {
+    document.getElementById('vta-panel-fondo')?.classList.remove('abierto');
+    document.getElementById('vta-panel')?.classList.remove('abierto');
+    fichaActual = null;
+  }
+
+  async function abrirFicha(id) {
+    crearPanel();
+    let d;
+    try { d = await API.get('/api/ventas/propiedades/' + id); }
+    catch (e) { return toast(e.message, 'error'); }
+    fichaActual = d;
+    document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
+    document.getElementById('vta-d-badges').innerHTML =
+      `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
+    renderCuerpo(d);
+    abrirPanel();
+  }
+  // Recarga la ficha tras editar sin cerrar el panel.
+  async function recargarFicha() {
+    if (!fichaActual) return;
+    await abrirFicha(fichaActual.id);
+  }
+
+  function dato(etq, valor) {
+    return `<div class="campo-ficha"><div class="etq">${etq}</div><div class="val">${valor}</div></div>`;
+  }
+
+  function renderCuerpo(d) {
+    const datos = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-precio">${euro(d.precio)}</div>
+        <div class="vta-d-grid">
+          ${dato('Referencia', esc(d.referencia) || '—')}
+          ${dato('Código Idealista', esc(d.codigo_idealista) || '—')}
+          ${dato('Tipo', esc(d.tipo) || '—')}
+          ${dato('Estado', estadoBadge(d.estado))}
+          ${dato('Dirección', esc([d.calle, d.numero].filter(Boolean).join(' ')) || '—')}
+          ${dato('Planta', esc(d.planta) || '—')}
+          ${dato('Zona', esc(d.zona) || '—')}
+          ${dato('Localidad', esc(d.localidad) || '—')}
+          ${dato('Dormitorios', d.dormitorios ?? '—')}
+          ${dato('Baños', d.banos ?? '—')}
+          ${dato('m² totales', d.metros_cuadrados ?? '—')}
+          ${dato('m² útiles', d.metros_utiles ?? '—')}
+          ${dato('Clase energética', esc(d.clase_energetica) || '—')}
+          ${dato('Garaje', esc(d.garaje) || '—')}
+          ${dato('Fotos en Idealista', d.num_fotos ?? 0)}
+          ${dato('Estado Idealista', esc(d.estado_idealista) || '—')}
+          ${dato('Fecha alta', fechaES(d.fecha_alta))}
+          ${dato('Fecha baja', fechaES(d.fecha_baja))}
+        </div>
+      </div>`;
+
+    const nomProp = [d.propietario_nombre, d.propietario_apellidos].filter(Boolean).join(' ') || '—';
+    const propietario = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">👤 Propietario</div>
+        <div class="vta-d-cli-nombre">${esc(nomProp)}</div>
+        ${d.propietario_telefono ? `<div class="vta-d-linea">📞 <a class="vta-link" href="tel:${esc(d.propietario_telefono)}">${esc(d.propietario_telefono)}</a></div>` : ''}
+        ${d.propietario_email ? `<div class="vta-d-linea">✉️ <a class="vta-link" href="mailto:${esc(d.propietario_email)}">${esc(d.propietario_email)}</a></div>` : ''}
+      </div>`;
+
+    const notas = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">📝 Notas y descripción</div>
+        <label class="vta-d-etq2">Descripción</label>
+        <textarea id="vta-d-desc" class="vta-d-textarea" rows="3" placeholder="Descripción de la propiedad...">${esc(d.descripcion)}</textarea>
+        <label class="vta-d-etq2">Notas internas</label>
+        <textarea id="vta-d-notas" class="vta-d-textarea" rows="3" placeholder="Notas internas (no se exportan)...">${esc(d.notas)}</textarea>
+        <div class="vta-d-guardar-wrap"><button class="btn-pri" id="vta-d-guardar-notas">Guardar</button></div>
+      </div>`;
+
+    const visitas = (d.visitas || []).map((v) => `
+      <div class="vta-visita-item">
+        <div class="vta-visita-top">
+          <span class="vta-visita-fecha">${fechaES(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</span>
+          <span class="vta-bdg vta-bdg-visita">${esc(v.estado)}</span>
+        </div>
+        <div class="vta-visita-cli">👤 ${esc([v.cliente_nombre, v.cliente_apellidos].filter(Boolean).join(' '))}</div>
+        ${v.valoracion ? `<div class="vta-visita-val">⭐ ${esc(v.valoracion)}</div>` : ''}
+      </div>`).join('') || '<div class="vta-muted">Sin visitas registradas</div>';
+    const histVisitas = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">📅 Historial de visitas</div>
+        ${visitas}
+      </div>`;
+
+    document.getElementById('vta-d-cuerpo').innerHTML = datos + propietario + notas + histVisitas;
+
+    document.getElementById('vta-d-guardar-notas').addEventListener('click', async () => {
+      const btn = document.getElementById('vta-d-guardar-notas');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.put('/api/ventas/propiedades/' + d.id, {
+          descripcion: val('vta-d-desc'), notas: val('vta-d-notas'),
+        });
+        toast('Guardado', 'ok');
+        fichaActual.descripcion = val('vta-d-desc');
+        fichaActual.notas = val('vta-d-notas');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+    });
+  }
+
+  // ==================== Modal nueva / editar ====================
+  function modalFormulario(p) {
+    const esNueva = !p;
+    p = p || {};
+    const optTipo = ['', 'Piso', 'Ático', 'Casa', 'Villa', 'Otros']
+      .map((t) => `<option value="${t}"${(p.tipo || '') === t ? ' selected' : ''}>${t || '— Tipo —'}</option>`).join('');
+    const optEstado = ESTADOS.map((e) => `<option value="${e}"${(p.estado || 'Disponible') === e ? ' selected' : ''}>${e}</option>`).join('');
+
+    abrirModal(`
+      <h3>${esNueva ? '＋ Nueva propiedad' : '✏️ Editar propiedad'}</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Referencia *</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? '' : ''}></div>
+        <div class="campo"><label>Tipo</label><select id="vf-tipo">${optTipo}</select></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Calle</label><input id="vf-calle" value="${esc(p.calle)}"></div>
+        <div class="campo"><label>Número</label><input id="vf-numero" value="${esc(p.numero)}"></div>
+        <div class="campo"><label>Planta</label><input id="vf-planta" value="${esc(p.planta)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Zona</label><input id="vf-zona" value="${esc(p.zona)}"></div>
+        <div class="campo"><label>Localidad</label><input id="vf-localidad" value="${esc(p.localidad)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Precio (€)</label><input id="vf-precio" type="number" min="0" value="${p.precio ?? ''}"></div>
+        <div class="campo"><label>Estado</label><select id="vf-estado">${optEstado}</select></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Dormitorios</label><input id="vf-dormitorios" type="number" min="0" value="${p.dormitorios ?? ''}"></div>
+        <div class="campo"><label>Baños</label><input id="vf-banos" type="number" min="0" value="${p.banos ?? ''}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>m² totales</label><input id="vf-metros_cuadrados" type="number" min="0" value="${p.metros_cuadrados ?? ''}"></div>
+        <div class="campo"><label>m² útiles</label><input id="vf-metros_utiles" type="number" min="0" value="${p.metros_utiles ?? ''}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Clase energética</label><input id="vf-clase_energetica" value="${esc(p.clase_energetica)}"></div>
+        <div class="campo"><label>Garaje</label><input id="vf-garaje" value="${esc(p.garaje)}"></div>
+      </div>
+      <div class="vta-modal-sub">Propietario</div>
+      <div class="fila-campos">
+        <div class="campo"><label>Nombre</label><input id="vf-propietario_nombre" value="${esc(p.propietario_nombre)}"></div>
+        <div class="campo"><label>Apellidos</label><input id="vf-propietario_apellidos" value="${esc(p.propietario_apellidos)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Teléfono</label><input id="vf-propietario_telefono" value="${esc(p.propietario_telefono)}"></div>
+        <div class="campo"><label>Email</label><input id="vf-propietario_email" value="${esc(p.propietario_email)}"></div>
+      </div>
+      <div class="campo"><label>Descripción</label><textarea id="vf-descripcion" rows="2">${esc(p.descripcion)}</textarea></div>
+      <div class="campo"><label>Notas internas</label><textarea id="vf-notas" rows="2">${esc(p.notas)}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vf-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vf-guardar">${esNueva ? 'Crear' : 'Guardar'}</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+    document.getElementById('vf-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vf-guardar').addEventListener('click', () => guardar(esNueva ? null : p.id));
+  }
+
+  const CAMPOS_FORM = [
+    'referencia', 'tipo', 'calle', 'numero', 'planta', 'zona', 'localidad', 'precio', 'estado',
+    'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje',
+    'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
+    'descripcion', 'notas',
+  ];
+
+  async function guardar(id) {
+    const referencia = val('vf-referencia').trim();
+    if (!referencia) return toast('La referencia es obligatoria', 'error');
+    const body = {};
+    for (const c of CAMPOS_FORM) body[c] = val('vf-' + c);
+    body.referencia = referencia;
+
+    const btn = document.getElementById('vf-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (id) await API.put('/api/ventas/propiedades/' + id, body);
+      else await API.post('/api/ventas/propiedades', body);
+      cerrarModal();
+      await cargarPropiedades();
+      cargarResumen();
+      if (fichaActual && id && fichaActual.id === id) await recargarFicha();
+      toast(id ? 'Propiedad actualizada' : 'Propiedad creada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = id ? 'Guardar' : 'Crear';
+    }
+  }
+
+  async function borrar(p) {
+    if (!p) return;
+    if (!confirm(`¿Eliminar la propiedad ${p.referencia}?`)) return;
+    try {
+      await API.del('/api/ventas/propiedades/' + p.id);
+      await cargarPropiedades();
+      cargarResumen();
+      toast('Propiedad eliminada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error'); // 409 → "tiene visitas registradas"
+    }
+  }
+
+  // ==================== Modal importar Idealista ====================
+  function modalImportar() {
+    subSel = [];
+    abrirModal(`
+      <h3>📥 Importar de Idealista</h3>
+      <div class="vta-import-aviso">ℹ️ Las notas y el estado de las propiedades existentes no se sobrescriben.</div>
+      <div class="alo-dropzone" id="vi-dz">
+        <div class="alo-dropzone-icono">📄</div>
+        <div>Arrastra el Excel aquí o <strong>haz clic para seleccionar</strong> (.xlsx / .xls)</div>
+        <input type="file" id="vi-file" accept=".xlsx,.xls" hidden>
+      </div>
+      <div id="vi-nombre" class="vta-import-nombre"></div>
+      <div id="vi-resultado" class="vta-import-resultado oculto"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vi-cancelar">Cerrar</button>
+        <button class="btn-pri" id="vi-importar" disabled>Importar</button>
+      </div>`);
+
+    const dz = document.getElementById('vi-dz');
+    const input = document.getElementById('vi-file');
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('arrastrando'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('arrastrando'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('arrastrando'); elegir(e.dataTransfer.files); });
+    input.addEventListener('change', () => elegir(input.files));
+    document.getElementById('vi-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vi-importar').addEventListener('click', importar);
+  }
+
+  function elegir(fileList) {
+    const f = Array.from(fileList)[0];
+    if (!f) return;
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (!['xlsx', 'xls'].includes(ext)) return toast('Formato no admitido (solo .xlsx / .xls)', 'error');
+    subSel = [f];
+    const nombre = document.getElementById('vi-nombre');
+    if (nombre) nombre.textContent = '📄 ' + f.name;
+    document.getElementById('vi-importar').disabled = false;
+  }
+
+  async function importar() {
+    if (!subSel.length) return;
+    const btn = document.getElementById('vi-importar');
+    const cancelar = document.getElementById('vi-cancelar');
+    btn.disabled = true; cancelar.disabled = true;
+    btn.innerHTML = '<span class="vta-spinner"></span> Importando propiedades…';
+    try {
+      const fd = new FormData();
+      fd.append('archivo', subSel[0]);
+      const r = await fetch('/api/ventas/propiedades/importar', { method: 'POST', body: fd, headers: authHeaders() });
+      if (!r.ok) {
+        let msg = 'Error al importar';
+        try { msg = (await r.json()).error || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+      const res = await r.json();
+      mostrarResultado(res);
+      await cargarPropiedades();
+      cargarResumen();
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false; cancelar.disabled = false; btn.textContent = 'Importar';
+    }
+  }
+
+  function mostrarResultado(res) {
+    const cont = document.getElementById('vi-resultado');
+    const btn = document.getElementById('vi-importar');
+    const cancelar = document.getElementById('vi-cancelar');
+    const errores = res.errores || [];
+    const erroresHTML = errores.length
+      ? `<div class="vta-import-errores"><strong>${errores.length} error(es):</strong><ul>${errores.slice(0, 20).map((e) =>
+          `<li>Fila ${e.fila}${e.referencia ? ' (' + esc(e.referencia) + ')' : ''}: ${esc(e.motivo)}</li>`).join('')}</ul></div>`
+      : '';
+    if (cont) {
+      cont.classList.remove('oculto');
+      cont.innerHTML = `
+        <div class="vta-import-ok">✅ Importación completada</div>
+        <div class="vta-import-stats">
+          <span><strong>${res.nuevas || 0}</strong> nuevas</span>
+          <span><strong>${res.actualizadas || 0}</strong> actualizadas</span>
+          <span><strong>${errores.length}</strong> errores</span>
+        </div>
+        ${erroresHTML}`;
+    }
+    if (btn) { btn.classList.add('oculto'); }
+    if (cancelar) { cancelar.disabled = false; cancelar.textContent = 'Cerrar'; }
+    toast(`${res.nuevas || 0} nuevas · ${res.actualizadas || 0} actualizadas`, 'ok');
+  }
+
+  // ============================================================
+  //                    SUB-PESTAÑA CLIENTES
+  // ============================================================
+  function estadoCliBadge(e) {
+    const map = {
+      'Nuevo': 'vta-bdg-cli-nuevo', 'Contactado': 'vta-bdg-cli-cont',
+      'Visitado': 'vta-bdg-cli-vis', 'En negociación': 'vta-bdg-cli-neg',
+      'Compró': 'vta-bdg-cli-compro', 'Descartado': 'vta-bdg-cli-desc',
+    };
+    return `<span class="vta-bdg ${map[e] || 'vta-bdg-cli-nuevo'}">${esc(e || '—')}</span>`;
+  }
+
+  // Resumen compacto de las preferencias de búsqueda.
+  function resumenBusca(c) {
+    const parts = [];
+    if (c.busca_tipo && c.busca_tipo !== 'Indiferente') parts.push(c.busca_tipo);
+    if (c.busca_dormitorios) parts.push(`${c.busca_dormitorios} dorm`);
+    if (c.busca_zona) parts.push(c.busca_zona);
+    if (c.busca_linea && c.busca_linea !== 'Indiferente') parts.push(c.busca_linea);
+    if (c.busca_frontal) parts.push('frontal');
+    if (c.busca_villa) parts.push('villa/casa');
+    let s = parts.join(', ');
+    if (c.presupuesto_max) s += (s ? ', ' : '') + 'máx ' + euro(c.presupuesto_max);
+    return s || '—';
+  }
+
+  // ---- Carga ----
+  async function cargarClientes() {
+    const tbody = document.querySelector('#tabla-clientes tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="vta-cargando">Cargando clientes…</td></tr>';
+    try {
+      // Una sola llamada extra para contar visitas realizadas por cliente.
+      const [cls, visR] = await Promise.all([
+        API.get('/api/ventas/clientes'),
+        API.get('/api/ventas/visitas?estado=Realizada'),
+      ]);
+      const cnt = {};
+      visR.forEach((v) => { cnt[v.cliente_id] = (cnt[v.cliente_id] || 0) + 1; });
+      clientes = cls.map((c) => ({ ...c, _visitas_realizadas: cnt[c.id] || 0 }));
+    } catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="vta-cargando">No se pudieron cargar los clientes.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderTablaCli();
+  }
+
+  // ---- Tabla + filtros ----
+  function filtradasCli() {
+    const q = cliBusqueda.trim().toLowerCase();
+    return clientes.filter((c) => {
+      if (!fEstadoCli.has(c.estado)) return false;
+      if (fTipoCli.size) {
+        if (!c.busca_tipo || !fTipoCli.has(c.busca_tipo)) return false;
+      }
+      if (fPresMin !== '' && Number(c.presupuesto_max || 0) < Number(fPresMin)) return false;
+      if (fPresMax !== '' && Number(c.presupuesto_max || 0) > Number(fPresMax)) return false;
+      if (q) {
+        const txt = `${c.nombre || ''} ${c.apellidos || ''} ${c.email || ''} ${c.telefono || ''}`.toLowerCase();
+        if (!txt.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderTablaCli() {
+    const tbody = document.querySelector('#tabla-clientes tbody');
+    if (!tbody) return;
+    const lista = filtradasCli();
+    const cont = document.getElementById('vcl-contador');
+    if (cont) cont.textContent = `${lista.length} cliente${lista.length === 1 ? '' : 's'}`;
+    actualizarBadgeCli();
+
+    if (!clientes.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="vta-vacio">No hay clientes. Crea el primero con “＋ Nuevo cliente”.</td></tr>';
+      return;
+    }
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="vta-vacio">Ningún cliente coincide con los filtros.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.map(filaCliHTML).join('');
+
+    tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('[data-editar]') || e.target.closest('[data-borrar]') || e.target.closest('[data-nom]')) return;
+        abrirFichaCli(tr.dataset.ficha);
+      }));
+    tbody.querySelectorAll('[data-nom]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); abrirFichaCli(a.dataset.nom); }));
+    tbody.querySelectorAll('[data-editar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalCliente(clientes.find((c) => c.id == b.dataset.editar)); }));
+    tbody.querySelectorAll('[data-borrar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); borrarCliente(clientes.find((c) => c.id == b.dataset.borrar)); }));
+  }
+
+  function filaCliHTML(c) {
+    const nom = [c.nombre, c.apellidos].filter(Boolean).join(' ');
+    const nv = c._visitas_realizadas || 0;
+    const visitasCel = nv > 0 ? `<span class="vta-visitas-badge">${nv}</span>` : '<span class="vta-muted">0</span>';
+    return `
+      <tr data-ficha="${c.id}">
+        <td><a class="vta-ref" data-nom="${c.id}">${esc(nom)}</a></td>
+        <td>${esc(c.telefono) || '—'}</td>
+        <td>${esc(c.email) || '—'}</td>
+        <td class="vta-busca-cel">${esc(resumenBusca(c))}</td>
+        <td class="vta-precio">${euro(c.presupuesto_max)}</td>
+        <td>${visitasCel}</td>
+        <td>${estadoCliBadge(c.estado)}</td>
+        <td class="vta-acciones">
+          <button class="btn-icono" data-editar="${c.id}" title="Editar">✏️</button>
+          <button class="btn-icono" data-borrar="${c.id}" title="Eliminar">🗑</button>
+        </td>
+      </tr>`;
+  }
+
+  function nFiltrosCli() {
+    let n = 0;
+    if (fEstadoCli.size !== ESTADOS_CLI.length) n++;
+    if (fTipoCli.size) n++;
+    if (fPresMin !== '' || fPresMax !== '') n++;
+    return n;
+  }
+  function actualizarBadgeCli() {
+    const b = document.getElementById('vcl-filtros-badge');
+    if (!b) return;
+    const n = nFiltrosCli();
+    b.textContent = n;
+    b.classList.toggle('oculto', n === 0);
+  }
+
+  // ---- Construye la UI de la sub-pestaña (una vez) ----
+  function construirClientes() {
+    if (cliConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="clientes"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vta-prop-cab">
+        <div class="reservas-controles">
+          <input type="search" id="vcl-buscar" class="input-buscar" placeholder="Buscar por nombre, email, teléfono..." autocomplete="off">
+          <div class="rsv-filtros-wrap">
+            <button id="vcl-filtros-btn" class="btn-sec">🔽 Filtros <span id="vcl-filtros-badge" class="rsv-filtros-badge oculto"></span></button>
+            <div id="vcl-filtros-panel" class="rsv-filtros-panel oculto"></div>
+          </div>
+          <span id="vcl-contador" class="alo-contador"></span>
+        </div>
+        <div class="vta-prop-acciones"><button id="vcl-nuevo" class="btn-pri">＋ Nuevo cliente</button></div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-clientes">
+          <thead><tr>
+            <th>Nombre</th><th>Teléfono</th><th>Email</th><th>Busca</th>
+            <th>Presupuesto</th><th>Visitas</th><th>Estado</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+
+    // Filtros.
+    const fpanel = document.getElementById('vcl-filtros-panel');
+    const estItems = ESTADOS_CLI.map((e) =>
+      `<label class="rsv-f-op"><input type="checkbox" data-f="estado" value="${e}" checked><span class="rsv-f-op-label">${e}</span></label>`).join('');
+    const tipoItems = TIPOS_CLI.map((t) =>
+      `<label class="rsv-f-op"><input type="checkbox" data-f="tipo" value="${t}"><span class="rsv-f-op-label">${t}</span></label>`).join('');
+    fpanel.innerHTML = `
+      <div class="rsv-f-grupo"><div class="rsv-f-titulo">Estado</div><div class="rsv-f-ops">${estItems}</div></div>
+      <div class="rsv-f-grupo"><div class="rsv-f-titulo">Qué busca · Tipo</div><div class="rsv-f-ops">${tipoItems}</div></div>
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Presupuesto (€)</div>
+        <div class="vta-f-precio">
+          <input type="number" id="vcl-f-pmin" class="input-fecha" placeholder="Desde" min="0">
+          <input type="number" id="vcl-f-pmax" class="input-fecha" placeholder="Hasta" min="0">
+        </div>
+      </div>
+      <div class="rsv-f-grupo"><button id="vcl-f-limpiar" class="btn-sec">Limpiar filtros</button></div>`;
+
+    fpanel.addEventListener('change', (e) => {
+      const chk = e.target.closest('input[type="checkbox"][data-f]');
+      if (!chk) return;
+      const set = chk.dataset.f === 'estado' ? fEstadoCli : fTipoCli;
+      if (chk.checked) set.add(chk.value); else set.delete(chk.value);
+      renderTablaCli();
+    });
+    fpanel.querySelector('#vcl-f-pmin').addEventListener('input', (e) => { fPresMin = e.target.value; renderTablaCli(); });
+    fpanel.querySelector('#vcl-f-pmax').addEventListener('input', (e) => { fPresMax = e.target.value; renderTablaCli(); });
+    fpanel.querySelector('#vcl-f-limpiar').addEventListener('click', () => {
+      fEstadoCli = new Set(ESTADOS_CLI); fTipoCli = new Set(); fPresMin = ''; fPresMax = '';
+      fpanel.querySelectorAll('input[data-f="estado"]').forEach((c) => { c.checked = true; });
+      fpanel.querySelectorAll('input[data-f="tipo"]').forEach((c) => { c.checked = false; });
+      fpanel.querySelector('#vcl-f-pmin').value = ''; fpanel.querySelector('#vcl-f-pmax').value = '';
+      renderTablaCli();
+    });
+
+    // Toggle del panel.
+    const fbtn = document.getElementById('vcl-filtros-btn');
+    const abrir = (v) => fpanel.classList.toggle('oculto', !v);
+    fbtn.addEventListener('click', (e) => { e.stopPropagation(); abrir(fpanel.classList.contains('oculto')); });
+    fpanel.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => abrir(false));
+
+    document.getElementById('vcl-buscar').addEventListener('input', (e) => { cliBusqueda = e.target.value; renderTablaCli(); });
+    document.getElementById('vcl-nuevo').addEventListener('click', () => modalCliente(null));
+
+    cliConstruido = true;
+  }
+
+  // ---- Panel lateral (ficha de cliente) ----
+  function crearPanelCli() {
+    if (document.getElementById('vcl-panel')) return;
+    const fondo = document.createElement('div');
+    fondo.id = 'vcl-panel-fondo';
+    fondo.className = 'panel-fondo';
+    const panel = document.createElement('aside');
+    panel.id = 'vcl-panel';
+    panel.className = 'panel-lateral';
+    panel.setAttribute('aria-label', 'Ficha de cliente');
+    panel.innerHTML = `
+      <header class="panel-cabecera">
+        <div class="rsv-titulo-grupo">
+          <h3 id="vcl-d-titulo">Cliente</h3>
+          <span id="vcl-d-badge"></span>
+        </div>
+        <div class="panel-cabecera-acciones">
+          <div class="vta-estado-drop">
+            <button id="vcl-d-estado" class="btn-sec">Cambiar estado ▾</button>
+            <div id="vcl-d-estado-menu" class="vta-estado-menu oculto"></div>
+          </div>
+          <button id="vcl-d-editar" class="btn-sec">✏️ Editar</button>
+          <button id="vcl-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
+        </div>
+      </header>
+      <div id="vcl-d-cuerpo" class="panel-cuerpo"></div>`;
+    document.body.appendChild(fondo);
+    document.body.appendChild(panel);
+    fondo.addEventListener('click', cerrarPanelCli);
+    panel.querySelector('#vcl-d-cerrar').addEventListener('click', cerrarPanelCli);
+    panel.querySelector('#vcl-d-editar').addEventListener('click', () => { if (clienteFicha) modalCliente(clienteFicha); });
+
+    const menu = panel.querySelector('#vcl-d-estado-menu');
+    menu.innerHTML = ESTADOS_CLI.map((e) => `<button class="vta-estado-op" data-est="${e}">${estadoCliBadge(e)}</button>`).join('');
+    panel.querySelector('#vcl-d-estado').addEventListener('click', (e) => {
+      e.stopPropagation(); menu.classList.toggle('oculto');
+    });
+    menu.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-est]');
+      if (!b) return;
+      menu.classList.add('oculto');
+      cambiarEstadoCli(b.dataset.est);
+    });
+    document.addEventListener('click', () => menu.classList.add('oculto'));
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
+      if (!modalAbierto && panel.classList.contains('abierto')) cerrarPanelCli();
+    }, true);
+  }
+  function abrirPanelCli() {
+    document.getElementById('vcl-panel-fondo').classList.add('abierto');
+    document.getElementById('vcl-panel').classList.add('abierto');
+  }
+  function cerrarPanelCli() {
+    document.getElementById('vcl-panel-fondo')?.classList.remove('abierto');
+    document.getElementById('vcl-panel')?.classList.remove('abierto');
+    clienteFicha = null;
+  }
+
+  async function abrirFichaCli(id) {
+    crearPanelCli();
+    let d;
+    try { d = await API.get('/api/ventas/clientes/' + id); }
+    catch (e) { return toast(e.message, 'error'); }
+    clienteFicha = d;
+    document.getElementById('vcl-d-titulo').textContent = [d.nombre, d.apellidos].filter(Boolean).join(' ') || 'Cliente';
+    document.getElementById('vcl-d-badge').innerHTML = estadoCliBadge(d.estado);
+    renderCuerpoCli(d);
+    abrirPanelCli();
+    cargarSugerencias(d);
+  }
+  async function recargarFichaCli() {
+    if (!clienteFicha) return;
+    const id = clienteFicha.id;
+    try { clienteFicha = await API.get('/api/ventas/clientes/' + id); }
+    catch (e) { return; }
+    document.getElementById('vcl-d-titulo').textContent = [clienteFicha.nombre, clienteFicha.apellidos].filter(Boolean).join(' ') || 'Cliente';
+    document.getElementById('vcl-d-badge').innerHTML = estadoCliBadge(clienteFicha.estado);
+    renderCuerpoCli(clienteFicha);
+    cargarSugerencias(clienteFicha);
+  }
+
+  async function cambiarEstadoCli(estado) {
+    if (!clienteFicha) return;
+    try {
+      await API.put('/api/ventas/clientes/' + clienteFicha.id, { estado });
+      clienteFicha.estado = estado;
+      document.getElementById('vcl-d-badge').innerHTML = estadoCliBadge(estado);
+      toast('Estado actualizado a ' + estado, 'ok');
+      cargarClientes();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function renderCuerpoCli(d) {
+    // DATOS PERSONALES
+    const datos = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">👤 Datos personales</div>
+        <div class="vta-d-grid">
+          ${dato('Nombre', esc(d.nombre) || '—')}
+          ${dato('Apellidos', esc(d.apellidos) || '—')}
+          ${dato('Teléfono', d.telefono ? `<a class="vta-link" href="tel:${esc(d.telefono)}">${esc(d.telefono)}</a>` : '—')}
+          ${dato('Email', d.email ? `<a class="vta-link" href="mailto:${esc(d.email)}">${esc(d.email)}</a>` : '—')}
+          ${dato('Origen', esc(d.origen) || '—')}
+          ${dato('Fecha alta', fechaES((d.created_at || '').slice(0, 10)))}
+        </div>
+      </div>`;
+
+    // QUÉ BUSCA
+    const chips = [];
+    if (d.busca_tipo && d.busca_tipo !== 'Indiferente') chips.push(`<span class="vta-busca-chip">${esc(d.busca_tipo)}</span>`);
+    if (d.busca_dormitorios) chips.push(`<span class="vta-busca-chip">${esc(d.busca_dormitorios)} dormitorios</span>`);
+    if (d.busca_zona) chips.push(`<span class="vta-busca-chip">📍 ${esc(d.busca_zona)}</span>`);
+    if (d.busca_linea && d.busca_linea !== 'Indiferente') chips.push(`<span class="vta-busca-chip">${esc(d.busca_linea)}</span>`);
+    if (d.busca_frontal) chips.push('<span class="vta-busca-chip vta-chip-on">Frontal</span>');
+    if (d.busca_villa) chips.push('<span class="vta-busca-chip vta-chip-on">Villa/Casa</span>');
+    const busca = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">🔎 Qué busca</div>
+        <div class="vta-busca-chips">${chips.join('') || '<span class="vta-muted">Sin preferencias definidas</span>'}</div>
+        ${d.presupuesto_max ? `<div class="vta-busca-pres">Hasta <strong>${euro(d.presupuesto_max)}</strong></div>` : ''}
+      </div>`;
+
+    // PROPIEDADES SUGERIDAS (relleno asíncrono)
+    const sugeridas = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">🏠 Propiedades sugeridas</div>
+        <div id="vcl-sugeridas"><div class="vta-muted">Buscando coincidencias…</div></div>
+      </div>`;
+
+    // HISTORIAL DE VISITAS
+    const visitas = (d.visitas || []).map((v) => `
+      <div class="vta-visita-item">
+        <div class="vta-visita-top">
+          <span class="vta-visita-fecha">${fechaES(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</span>
+          <span class="vta-bdg ${visitaBadgeClase(v.estado)}">${esc(v.estado)}</span>
+        </div>
+        <div class="vta-visita-cli">🏠 ${esc(v.propiedad_referencia)}${v.propiedad_calle ? ' · ' + esc(v.propiedad_calle) : ''}</div>
+        ${v.valoracion ? `<div class="vta-visita-val"><em>⭐ ${esc(v.valoracion)}</em></div>` : ''}
+      </div>`).join('') || '<div class="vta-muted">Sin visitas registradas</div>';
+    const histVisitas = `
+      <div class="vta-d-seccion"><div class="vta-d-titulo-sec">📅 Historial de visitas</div>${visitas}</div>`;
+
+    // NOTAS
+    const notas = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">📝 Notas</div>
+        <textarea id="vcl-d-notas" class="vta-d-textarea" rows="3" placeholder="Notas del cliente...">${esc(d.notas)}</textarea>
+        <div class="vta-d-guardar-wrap"><button class="btn-pri" id="vcl-d-guardar-notas">Guardar</button></div>
+      </div>`;
+
+    document.getElementById('vcl-d-cuerpo').innerHTML = datos + busca + sugeridas + histVisitas + notas;
+
+    document.getElementById('vcl-d-guardar-notas').addEventListener('click', async () => {
+      const btn = document.getElementById('vcl-d-guardar-notas');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.put('/api/ventas/clientes/' + d.id, { notas: val('vcl-d-notas') });
+        clienteFicha.notas = val('vcl-d-notas');
+        toast('Guardado', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+    });
+  }
+
+  function visitaBadgeClase(e) {
+    return e === 'Realizada' ? 'vta-bdg-disp' : e === 'Cancelada' ? 'vta-bdg-cli-desc' : 'vta-bdg-visita';
+  }
+
+  // Carga propiedades disponibles y muestra hasta 5 que cumplan las preferencias.
+  async function cargarSugerencias(c) {
+    const cont = document.getElementById('vcl-sugeridas');
+    if (!cont) return;
+    let disponibles;
+    try { disponibles = await API.get('/api/ventas/propiedades?estado=Disponible'); }
+    catch (e) { cont.innerHTML = '<div class="vta-muted">No se pudieron cargar las sugerencias.</div>'; return; }
+
+    const match = disponibles.filter((p) => {
+      if (c.busca_tipo && c.busca_tipo !== 'Indiferente' && p.tipo !== c.busca_tipo) return false;
+      if (c.busca_dormitorios && (Number(p.dormitorios) || 0) < Number(c.busca_dormitorios)) return false;
+      if (c.presupuesto_max && Number(p.precio || 0) > Number(c.presupuesto_max)) return false;
+      return true;
+    }).slice(0, 5);
+
+    if (!match.length) {
+      cont.innerHTML = '<div class="vta-muted">No hay propiedades que coincidan con las preferencias</div>';
+      return;
+    }
+    cont.innerHTML = match.map((p) => `
+      <div class="vta-sug-card">
+        <div class="vta-sug-info">
+          <div class="vta-sug-ref">${esc(p.referencia)} <span class="vta-sug-precio">${euro(p.precio)}</span></div>
+          <div class="vta-sug-detalle">${esc(p.calle) || '—'} · ${p.dormitorios ?? '—'} dorm · ${p.metros_cuadrados ?? '—'} m²</div>
+        </div>
+        <button class="btn-sec vta-sug-btn" data-visita="${p.id}">📅 Programar visita</button>
+      </div>`).join('');
+    cont.querySelectorAll('[data-visita]').forEach((b) =>
+      b.addEventListener('click', () => modalProgramarVisita(c, match.find((p) => p.id == b.dataset.visita))));
+  }
+
+  // ---- Modal programar visita (cliente + propiedad prerellenados) ----
+  function modalProgramarVisita(cliente, prop) {
+    if (!cliente || !prop) return;
+    const hoy = new Date();
+    const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+    abrirModal(`
+      <h3>📅 Programar visita</h3>
+      <div class="vta-pv-resumen">
+        <div>👤 <strong>${esc([cliente.nombre, cliente.apellidos].filter(Boolean).join(' '))}</strong></div>
+        <div>🏠 <strong>${esc(prop.referencia)}</strong> · ${esc(prop.calle) || '—'} · ${euro(prop.precio)}</div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha *</label><input type="date" id="pv-fecha" value="${hoyISO}"></div>
+        <div class="campo"><label>Hora</label><input type="time" id="pv-hora"></div>
+      </div>
+      <div class="campo"><label>Atendido por</label><input id="pv-atendido"></div>
+      <div class="campo"><label>Notas</label><textarea id="pv-notas" rows="2"></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pv-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pv-guardar">Programar</button>
+      </div>`);
+    document.getElementById('pv-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pv-guardar').addEventListener('click', async () => {
+      const fecha = val('pv-fecha');
+      if (!fecha) return toast('La fecha es obligatoria', 'error');
+      const btn = document.getElementById('pv-guardar');
+      btn.disabled = true; btn.textContent = 'Programando…';
+      try {
+        await API.post('/api/ventas/visitas', {
+          cliente_id: cliente.id, propiedad_id: prop.id, fecha,
+          hora: val('pv-hora'), atendido_por: val('pv-atendido'), notas: val('pv-notas'),
+        });
+        cerrarModal();
+        toast('Visita programada', 'ok');
+        if (clienteFicha && clienteFicha.id === cliente.id) await recargarFichaCli();
+        cargarClientes();
+      } catch (e) {
+        toast(e.message, 'error'); // 409 si ya existe esa visita en esa fecha
+        btn.disabled = false; btn.textContent = 'Programar';
+      }
+    });
+  }
+
+  // ---- Modal nuevo / editar cliente ----
+  // onSaved(nuevoId): callback opcional tras crear (lo usa Nueva visita para preseleccionar).
+  function modalCliente(c, onSaved) {
+    const esNuevo = !c;
+    c = c || {};
+    const selOrigen = ['', 'Idealista', 'Llamada', 'Referido', 'Oficina', 'Otro']
+      .map((o) => `<option value="${o}"${(c.origen || '') === o ? ' selected' : ''}>${o || '— Origen —'}</option>`).join('');
+    const selTipo = ['Indiferente', 'Piso', 'Ático', 'Casa', 'Villa']
+      .map((t) => `<option value="${t}"${(c.busca_tipo || 'Indiferente') === t ? ' selected' : ''}>${t}</option>`).join('');
+    const selDorm = [['', 'Indiferente'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4+']]
+      .map(([v, l]) => `<option value="${v}"${String(c.busca_dormitorios || '') === v ? ' selected' : ''}>${l}</option>`).join('');
+    const selLinea = ['Indiferente', '1ª Línea', '2ª Línea']
+      .map((l) => `<option value="${l}"${(c.busca_linea || 'Indiferente') === l ? ' selected' : ''}>${l}</option>`).join('');
+
+    abrirModal(`
+      <h3>${esNuevo ? '＋ Nuevo cliente' : '✏️ Editar cliente'}</h3>
+      <div class="vta-modal-sub">Datos personales</div>
+      <div class="fila-campos">
+        <div class="campo"><label>Nombre *</label><input id="cf-nombre" value="${esc(c.nombre)}"></div>
+        <div class="campo"><label>Apellidos</label><input id="cf-apellidos" value="${esc(c.apellidos)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Teléfono</label><input id="cf-telefono" value="${esc(c.telefono)}"></div>
+        <div class="campo"><label>Email</label><input id="cf-email" value="${esc(c.email)}"></div>
+      </div>
+      <div class="campo"><label>Origen</label><select id="cf-origen">${selOrigen}</select></div>
+      <div class="campo"><label>Notas</label><textarea id="cf-notas" rows="2">${esc(c.notas)}</textarea></div>
+      <div class="vta-modal-sub">Qué busca</div>
+      <div class="fila-campos">
+        <div class="campo"><label>Tipo preferido</label><select id="cf-busca_tipo">${selTipo}</select></div>
+        <div class="campo"><label>Dormitorios</label><select id="cf-busca_dormitorios">${selDorm}</select></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Zona</label><input id="cf-busca_zona" value="${esc(c.busca_zona)}"></div>
+        <div class="campo"><label>Línea</label><select id="cf-busca_linea">${selLinea}</select></div>
+      </div>
+      <div class="fila-campos">
+        <label class="toggle-campo"><input type="checkbox" id="cf-busca_frontal"${c.busca_frontal ? ' checked' : ''}><span>Busca frontal</span></label>
+        <label class="toggle-campo"><input type="checkbox" id="cf-busca_villa"${c.busca_villa ? ' checked' : ''}><span>Busca villa o casa independiente</span></label>
+      </div>
+      <div class="campo"><label>Presupuesto máximo (€)</label><input type="number" min="0" id="cf-presupuesto_max" value="${c.presupuesto_max ?? ''}"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="cf-cancelar">Cancelar</button>
+        <button class="btn-pri" id="cf-guardar">${esNuevo ? 'Crear' : 'Guardar'}</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+    document.getElementById('cf-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('cf-guardar').addEventListener('click', () => guardarCliente(esNuevo ? null : c.id, onSaved));
+  }
+
+  async function guardarCliente(id, onSaved) {
+    const nombre = val('cf-nombre').trim();
+    if (!nombre) return toast('El nombre es obligatorio', 'error');
+    const chk = (idc) => { const el = document.getElementById(idc); return el && el.checked ? 1 : 0; };
+    const tipo = val('cf-busca_tipo');
+    const linea = val('cf-busca_linea');
+    const body = {
+      nombre,
+      apellidos: val('cf-apellidos'),
+      telefono: val('cf-telefono'),
+      email: val('cf-email'),
+      origen: val('cf-origen'),
+      notas: val('cf-notas'),
+      busca_tipo: tipo === 'Indiferente' ? '' : tipo,
+      busca_dormitorios: val('cf-busca_dormitorios'),
+      busca_zona: val('cf-busca_zona'),
+      busca_linea: linea === 'Indiferente' ? '' : linea,
+      busca_frontal: chk('cf-busca_frontal'),
+      busca_villa: chk('cf-busca_villa'),
+      presupuesto_max: val('cf-presupuesto_max'),
+    };
+    const btn = document.getElementById('cf-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let nuevoId = null;
+      if (id) await API.put('/api/ventas/clientes/' + id, body);
+      else { const r = await API.post('/api/ventas/clientes', body); nuevoId = r && r.id; }
+      cerrarModal();
+      if (cliConstruido) await cargarClientes();
+      cargarResumen();
+      if (clienteFicha && id && clienteFicha.id === id) await recargarFichaCli();
+      toast(id ? 'Cliente actualizado' : 'Cliente creado', 'ok');
+      if (!id && nuevoId && typeof onSaved === 'function') onSaved(nuevoId);
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = id ? 'Guardar' : 'Crear';
+    }
+  }
+
+  async function borrarCliente(c) {
+    if (!c) return;
+    if (!confirm(`¿Eliminar el cliente ${[c.nombre, c.apellidos].filter(Boolean).join(' ')}?`)) return;
+    try {
+      await API.del('/api/ventas/clientes/' + c.id);
+      await cargarClientes();
+      cargarResumen();
+      toast('Cliente eliminado', 'ok');
+    } catch (e) { toast(e.message, 'error'); } // 409 si tiene visitas
+  }
+
+  // ============================================================
+  //                    SUB-PESTAÑA VISITAS
+  // ============================================================
+  let visitas = [];
+  let visConstruido = false;
+  let visModo = 'dia';            // 'dia' | 'semana' | 'mes'
+  let visFecha = hoyStr();        // día seleccionado (modo 'dia')
+  let visBusqueda = '';
+  let visEstado = '';             // '' = todas
+  // Estado del modal Nueva visita (para restaurar selección al crear cliente nuevo).
+  let nvCliente = null;
+  let nvProp = null;
+  let nvClientesCache = [];
+  let nvPropsCache = [];
+  let nvUsuarios = [];
+  let nvFechaPre = null;          // fecha preseleccionada (clic en celda del calendario)
+
+  function hoyStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function isoDe(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function rangoVisitas() {
+    if (visModo === 'dia') return [visFecha, visFecha];
+    const t = new Date();
+    if (visModo === 'semana') {
+      const dow = (t.getDay() + 6) % 7; // Lun=0
+      const lun = new Date(t); lun.setDate(t.getDate() - dow);
+      const dom = new Date(lun); dom.setDate(lun.getDate() + 6);
+      return [isoDe(lun), isoDe(dom)];
+    }
+    const ini = new Date(t.getFullYear(), t.getMonth(), 1);
+    const fin = new Date(t.getFullYear(), t.getMonth() + 1, 0);
+    return [isoDe(ini), isoDe(fin)];
+  }
+
+  function visitaBadge(e) {
+    return `<span class="vta-bdg ${visitaBadgeClase(e)}">${esc(e)}</span>`;
+  }
+  function valoracionBadge(v) {
+    if (!v) return '';
+    const m = {
+      'Le encantó': 'vta-bdg-disp', 'Interesado': 'vta-bdg-visita',
+      'Indiferente': 'vta-bdg-cli-nuevo', 'No le gustó': 'vta-bdg-cli-desc',
+    };
+    return `<span class="vta-bdg ${m[v] || 'vta-bdg-cli-nuevo'}">${esc(v)}</span>`;
+  }
+
+  async function cargarVisitas() {
+    const tbody = document.querySelector('#tabla-visitas tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">Cargando visitas…</td></tr>';
+    try { visitas = await API.get('/api/ventas/visitas'); }
+    catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">No se pudieron cargar las visitas.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderVisitas();
+    renderVisitasHoy();
+  }
+
+  function clienteNomVis(v) { return [v.cliente_nombre, v.cliente_apellidos].filter(Boolean).join(' '); }
+
+  function renderVisitas() {
+    const tbody = document.querySelector('#tabla-visitas tbody');
+    if (!tbody) return;
+    const [desde, hasta] = rangoVisitas();
+    const q = visBusqueda.trim().toLowerCase();
+    const lista = visitas.filter((v) => {
+      if (v.fecha < desde || v.fecha > hasta) return false;
+      if (visEstado && v.estado !== visEstado) return false;
+      if (q) {
+        const txt = `${clienteNomVis(v)} ${v.propiedad_referencia || ''} ${v.propiedad_calle || ''}`.toLowerCase();
+        if (!txt.includes(q)) return false;
+      }
+      return true;
+    });
+
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="vta-vacio">No hay visitas en este periodo.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.map((v) => `
+      <tr data-detalle="${v.id}">
+        <td>${fechaES(v.fecha)}</td>
+        <td>${esc(v.hora) || '—'}</td>
+        <td><a class="vta-ref" data-cli="${v.cliente_id}">${esc(clienteNomVis(v))}</a></td>
+        <td><a class="vta-ref" data-prop="${v.propiedad_id}">${esc(v.propiedad_referencia)}${v.propiedad_calle ? ' · ' + esc(v.propiedad_calle) : ''}</a></td>
+        <td>${v.estado === 'Realizada' ? valoracionBadge(v.valoracion) : '—'}</td>
+        <td>${visitaBadge(v.estado)}</td>
+        <td class="vta-acciones">
+          <button class="btn-icono" data-editar="${v.id}" title="Editar">✏️</button>
+          ${v.estado === 'Programada' ? `<button class="btn-icono" data-realizar="${v.id}" title="Marcar realizada">✅</button>` : ''}
+          <button class="btn-icono" data-borrar="${v.id}" title="Eliminar">🗑</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('tr[data-detalle]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('button') || e.target.closest('[data-cli]') || e.target.closest('[data-prop]')) return;
+        modalDetalleVisita(tr.dataset.detalle);
+      }));
+    tbody.querySelectorAll('[data-cli]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); irACliente(a.dataset.cli); }));
+    tbody.querySelectorAll('[data-prop]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); abrirFicha(a.dataset.prop); }));
+    tbody.querySelectorAll('[data-editar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalEditarVisita(visitas.find((v) => v.id == b.dataset.editar)); }));
+    tbody.querySelectorAll('[data-realizar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalRealizar(visitas.find((v) => v.id == b.dataset.realizar)); }));
+    tbody.querySelectorAll('[data-borrar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); borrarVisita(visitas.find((v) => v.id == b.dataset.borrar)); }));
+  }
+
+  // Sección destacada "Visitas de hoy" (solo cuando el modo es día y el día es hoy).
+  async function renderVisitasHoy() {
+    const cont = document.getElementById('vvi-hoy');
+    if (!cont) return;
+    if (!(visModo === 'dia' && visFecha === hoyStr())) { cont.innerHTML = ''; return; }
+    let hoy;
+    try { hoy = await API.get('/api/ventas/visitas/hoy'); }
+    catch (e) { cont.innerHTML = ''; return; }
+    if (!hoy.length) {
+      cont.innerHTML = '<div class="vta-vis-hoy-titulo">Visitas de hoy</div><div class="vta-muted vta-vis-hoy-vacio">Sin visitas programadas para hoy</div>';
+      return;
+    }
+    cont.innerHTML = '<div class="vta-vis-hoy-titulo">Visitas de hoy</div>' +
+      '<div class="vta-vis-hoy-grid">' + hoy.map(cardHoyHTML).join('') + '</div>';
+    cont.querySelectorAll('[data-realizar]').forEach((b) =>
+      b.addEventListener('click', () => modalRealizar(hoy.find((v) => v.id == b.dataset.realizar))));
+    cont.querySelectorAll('[data-cancelar]').forEach((b) =>
+      b.addEventListener('click', () => cancelarVisita(hoy.find((v) => v.id == b.dataset.cancelar))));
+  }
+
+  function cardHoyHTML(v) {
+    const tel = v.cliente_telefono
+      ? ` — 📞 <a class="vta-link" href="tel:${esc(v.cliente_telefono)}">${esc(v.cliente_telefono)}</a>` : '';
+    return `
+      <div class="vta-hoy-card">
+        <div class="vta-hoy-top">
+          <span class="vta-hoy-hora">📅 ${esc(v.hora) || 'Sin hora'}</span>
+          ${visitaBadge(v.estado)}
+        </div>
+        <div class="vta-hoy-cli">👤 ${esc(clienteNomVis(v))}${tel}</div>
+        <div class="vta-hoy-prop">🏠 ${esc(v.propiedad_referencia)}${v.propiedad_calle ? ' — ' + esc(v.propiedad_calle) : ''} · ${euro(v.propiedad_precio)}</div>
+        ${v.atendido_por ? `<div class="vta-hoy-aten">Atendido por: ${esc(v.atendido_por)}</div>` : ''}
+        <div class="vta-hoy-acc">
+          <button class="btn-pri vta-hoy-btn" data-realizar="${v.id}">✅ Marcar realizada</button>
+          <button class="btn-sec vta-hoy-btn" data-cancelar="${v.id}">❌ Cancelar</button>
+        </div>
+      </div>`;
+  }
+
+  function irACliente(id) {
+    const tab = document.querySelector('#vta-subtabs .subtab[data-sub="clientes"]');
+    if (tab) tab.click();
+    abrirFichaCli(id);
+  }
+
+  // ---- Marcar realizada ----
+  function modalRealizar(v) {
+    if (!v) return;
+    abrirModal(`
+      <h3>✅ Marcar visita como realizada</h3>
+      <div class="vta-pv-resumen">
+        <div>👤 <strong>${esc(clienteNomVis(v))}</strong></div>
+        <div>🏠 <strong>${esc(v.propiedad_referencia)}</strong>${v.propiedad_calle ? ' · ' + esc(v.propiedad_calle) : ''}</div>
+      </div>
+      <div class="campo"><label>Valoración</label>
+        <select id="vr-valoracion">
+          <option value="">— Sin valorar —</option>
+          <option value="Le encantó">Le encantó</option>
+          <option value="Interesado">Interesado</option>
+          <option value="Indiferente">Indiferente</option>
+          <option value="No le gustó">No le gustó</option>
+        </select></div>
+      <div class="campo"><label>Notas</label>
+        <textarea id="vr-notas" rows="3" placeholder="¿Cómo fue la visita? ¿Qué comentó el cliente?"></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vr-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vr-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('vr-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vr-guardar').addEventListener('click', async () => {
+      const btn = document.getElementById('vr-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.post(`/api/ventas/visitas/${v.id}/realizar`, { valoracion: val('vr-valoracion'), notas: val('vr-notas') });
+        cerrarModal();
+        await cargarVisitas();
+        cargarResumen();
+        toast('Visita marcada como realizada', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Guardar';
+      }
+    });
+  }
+
+  async function cancelarVisita(v) {
+    if (!v) return;
+    if (!confirm('¿Cancelar esta visita?')) return;
+    try {
+      await API.put('/api/ventas/visitas/' + v.id, { estado: 'Cancelada' });
+      await cargarVisitas();
+      cargarResumen();
+      toast('Visita cancelada', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function borrarVisita(v) {
+    if (!v) return;
+    if (!confirm('¿Eliminar esta visita?')) return;
+    try {
+      await API.del('/api/ventas/visitas/' + v.id);
+      await cargarVisitas();
+      cargarResumen();
+      toast('Visita eliminada', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // ---- Editar visita (estado / valoración / fecha / hora) ----
+  function modalEditarVisita(v) {
+    if (!v) return;
+    const selEstado = ['Programada', 'Realizada', 'Cancelada']
+      .map((e) => `<option value="${e}"${v.estado === e ? ' selected' : ''}>${e}</option>`).join('');
+    const selVal = ['', 'Le encantó', 'Interesado', 'Indiferente', 'No le gustó']
+      .map((o) => `<option value="${o}"${(v.valoracion || '') === o ? ' selected' : ''}>${o || '— Sin valorar —'}</option>`).join('');
+    abrirModal(`
+      <h3>✏️ Editar visita</h3>
+      <div class="vta-pv-resumen">
+        <div>👤 <strong>${esc(clienteNomVis(v))}</strong></div>
+        <div>🏠 <strong>${esc(v.propiedad_referencia)}</strong></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha</label><input type="date" id="ve-fecha" value="${esc(v.fecha)}"></div>
+        <div class="campo"><label>Hora</label><input type="time" id="ve-hora" value="${esc(v.hora)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Estado</label><select id="ve-estado">${selEstado}</select></div>
+        <div class="campo"><label>Valoración</label><select id="ve-valoracion">${selVal}</select></div>
+      </div>
+      <div class="campo"><label>Atendido por</label><input id="ve-atendido" value="${esc(v.atendido_por)}"></div>
+      <div class="campo"><label>Notas</label><textarea id="ve-notas" rows="2">${esc(v.notas)}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ve-cancelar">Cancelar</button>
+        <button class="btn-pri" id="ve-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('ve-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ve-guardar').addEventListener('click', async () => {
+      const btn = document.getElementById('ve-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.put('/api/ventas/visitas/' + v.id, {
+          fecha: val('ve-fecha'), hora: val('ve-hora'), estado: val('ve-estado'),
+          valoracion: val('ve-valoracion'), atendido_por: val('ve-atendido'), notas: val('ve-notas'),
+        });
+        cerrarModal();
+        await cargarVisitas();
+        toast('Visita actualizada', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Guardar';
+      }
+    });
+  }
+
+  // ---- Modal detalle de visita (con notas tipo chat) ----
+  async function modalDetalleVisita(id) {
+    let v, cli, prop;
+    try {
+      v = await API.get('/api/ventas/visitas/' + id);
+      [cli, prop] = await Promise.all([
+        API.get('/api/ventas/clientes/' + v.cliente_id).catch(() => null),
+        API.get('/api/ventas/propiedades/' + v.propiedad_id).catch(() => null),
+      ]);
+    } catch (e) { return toast(e.message, 'error'); }
+
+    const buscaTxt = cli ? resumenBusca(cli) : '—';
+    const notasHTML = (v.notas_lista_render = (v.notas || []).map((n) => `
+      <div class="vta-nota">
+        <div class="vta-nota-cab"><strong>${esc(n.usuario_nombre) || 'Usuario'}</strong>
+          <span class="vta-nota-fecha">${fmtFechaHora(n.fecha)}</span></div>
+        <div class="vta-nota-texto">${esc(n.texto).replace(/\n/g, '<br>')}</div>
+      </div>`).join('')) || '<div class="vta-muted">Sin notas todavía.</div>';
+
+    abrirModal(`
+      <h3>Visita · ${fechaES(v.fecha)}${v.hora ? ' ' + esc(v.hora) : ''}</h3>
+      <div class="vta-det-grid">
+        <div class="vta-det-col">
+          <div class="vta-d-titulo-sec">Datos de la visita</div>
+          <div class="vta-det-linea">Estado: ${visitaBadge(v.estado)}</div>
+          <div class="vta-det-linea">Fecha: ${fechaES(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</div>
+          <div class="vta-det-linea">Atendido por: ${esc(v.atendido_por) || '—'}</div>
+          ${v.estado === 'Realizada' ? `<div class="vta-det-linea">Valoración: ${valoracionBadge(v.valoracion) || '—'}</div>` : ''}
+        </div>
+        <div class="vta-det-col">
+          <div class="vta-d-titulo-sec">Cliente</div>
+          <div class="vta-det-linea"><strong>${esc(clienteNomVis(v))}</strong></div>
+          ${v.cliente_telefono ? `<div class="vta-det-linea">📞 <a class="vta-link" href="tel:${esc(v.cliente_telefono)}">${esc(v.cliente_telefono)}</a></div>` : ''}
+          ${cli && cli.email ? `<div class="vta-det-linea">✉️ <a class="vta-link" href="mailto:${esc(cli.email)}">${esc(cli.email)}</a></div>` : ''}
+          <div class="vta-det-linea vta-muted">Busca: ${esc(buscaTxt)}</div>
+        </div>
+        <div class="vta-det-col">
+          <div class="vta-d-titulo-sec">Propiedad</div>
+          <div class="vta-det-linea"><strong>${esc(v.propiedad_referencia)}</strong></div>
+          <div class="vta-det-linea">${esc(v.propiedad_calle) || '—'}</div>
+          <div class="vta-det-linea">${euro(v.propiedad_precio)}${prop ? ` · ${esc(prop.tipo) || '—'} · ${prop.dormitorios ?? '—'} dorm` : ''}</div>
+        </div>
+      </div>
+      <div class="vta-d-titulo-sec" style="margin-top:14px">📝 Notas</div>
+      <div class="vta-notas-lista" id="vd-notas">${notasHTML}</div>
+      <div class="vta-nota-input">
+        <textarea id="vd-nota-texto" rows="2" placeholder="Añadir una nota..."></textarea>
+        <button class="btn-pri" id="vd-nota-enviar">Enviar</button>
+      </div>
+      <div class="modal-acciones"><button class="btn-sec" id="vd-cerrar">Cerrar</button></div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+    document.getElementById('vd-cerrar').addEventListener('click', cerrarModal);
+
+    const enviar = async () => {
+      const ta = document.getElementById('vd-nota-texto');
+      const texto = (ta.value || '').trim();
+      if (!texto) return;
+      const btn = document.getElementById('vd-nota-enviar');
+      btn.disabled = true;
+      try {
+        await API.post(`/api/ventas/visitas/${id}/notas`, { texto });
+        modalDetalleVisita(id); // recarga el modal con la nota nueva
+      } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+    };
+    document.getElementById('vd-nota-enviar').addEventListener('click', enviar);
+    document.getElementById('vd-nota-texto').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
+    });
+  }
+
+  // ---- Modal nueva visita (typeahead cliente + propiedad) ----
+  async function modalNuevaVisita() {
+    // Carga de catálogos (clientes, propiedades disponibles, usuarios) bajo demanda.
+    try {
+      const [cls, props, usr] = await Promise.all([
+        API.get('/api/ventas/clientes'),
+        API.get('/api/ventas/propiedades?estado=Disponible'),
+        API.get('/api/usuarios').catch(() => []),
+      ]);
+      nvClientesCache = cls; nvPropsCache = props; nvUsuarios = usr;
+    } catch (e) { return toast(e.message, 'error'); }
+
+    const optUsr = '<option value="">— Sin asignar —</option>' +
+      nvUsuarios.filter((u) => u.activo).map((u) => `<option value="${esc(u.nombre)}">${esc(u.nombre)}</option>`).join('');
+    const hoy = nvFechaPre || hoyStr();
+    nvFechaPre = null;
+
+    abrirModal(`
+      <h3>📅 Nueva visita</h3>
+      <div class="campo vta-ta">
+        <label>Cliente *</label>
+        <input id="nv-cli-input" class="input-buscar" autocomplete="off" placeholder="Buscar cliente..." value="${nvCliente ? esc([nvCliente.nombre, nvCliente.apellidos].filter(Boolean).join(' ')) : ''}">
+        <div id="nv-cli-res" class="vta-ta-res oculto"></div>
+        <button type="button" class="btn-sec vta-nv-crear" id="nv-cli-crear">＋ Crear cliente nuevo</button>
+      </div>
+      <div class="campo vta-ta">
+        <label>Propiedad *</label>
+        <input id="nv-prop-input" class="input-buscar" autocomplete="off" placeholder="Buscar por referencia o calle..." value="${nvProp ? esc(nvProp.referencia + ' · ' + (nvProp.calle || '')) : ''}">
+        <div id="nv-prop-res" class="vta-ta-res oculto"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha *</label><input type="date" id="nv-fecha" value="${hoy}"></div>
+        <div class="campo"><label>Hora</label><input type="time" id="nv-hora"></div>
+      </div>
+      <div class="campo"><label>Atendido por</label><select id="nv-atendido">${optUsr}</select></div>
+      <div class="campo"><label>Notas</label><textarea id="nv-notas" rows="2"></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="nv-cancelar">Cancelar</button>
+        <button class="btn-pri" id="nv-guardar">Programar</button>
+      </div>`);
+
+    const cliInput = document.getElementById('nv-cli-input');
+    const cliRes = document.getElementById('nv-cli-res');
+    cliInput.addEventListener('input', () => { nvCliente = null; renderTA(cliRes, nvClientesCache.filter((c) =>
+      `${c.nombre} ${c.apellidos || ''} ${c.telefono || ''} ${c.email || ''}`.toLowerCase().includes(cliInput.value.trim().toLowerCase())),
+      (c) => `${esc([c.nombre, c.apellidos].filter(Boolean).join(' '))}${c.telefono ? ' · ' + esc(c.telefono) : ''}`,
+      (c) => { nvCliente = c; cliInput.value = [c.nombre, c.apellidos].filter(Boolean).join(' '); cliRes.classList.add('oculto'); }); });
+
+    const propInput = document.getElementById('nv-prop-input');
+    const propRes = document.getElementById('nv-prop-res');
+    propInput.addEventListener('input', () => { nvProp = null; renderTA(propRes, nvPropsCache.filter((p) =>
+      `${p.referencia} ${p.calle || ''}`.toLowerCase().includes(propInput.value.trim().toLowerCase())),
+      (p) => `${esc(p.referencia)} · ${esc(p.calle) || '—'} · ${euro(p.precio)}`,
+      (p) => { nvProp = p; propInput.value = `${p.referencia} · ${p.calle || ''}`; propRes.classList.add('oculto'); }); });
+
+    document.getElementById('modal-contenido').addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) { cliRes.classList.add('oculto'); propRes.classList.add('oculto'); }
+    });
+
+    document.getElementById('nv-cli-crear').addEventListener('click', () => {
+      // Abre el modal de cliente; al crear, vuelve a Nueva visita con ese cliente preseleccionado.
+      modalCliente(null, async (nuevoId) => {
+        try { nvCliente = await API.get('/api/ventas/clientes/' + nuevoId); } catch (e) {}
+        modalNuevaVisita();
+      });
+    });
+
+    document.getElementById('nv-cancelar').addEventListener('click', () => { nvCliente = null; nvProp = null; cerrarModal(); });
+    document.getElementById('nv-guardar').addEventListener('click', guardarNuevaVisita);
+  }
+
+  // Typeahead genérico: pinta resultados y cablea la selección.
+  function renderTA(cont, lista, label, onPick) {
+    if (!cont) return;
+    const items = lista.slice(0, 8);
+    if (!items.length) { cont.classList.add('oculto'); cont.innerHTML = ''; return; }
+    cont.innerHTML = items.map((it, i) => `<div class="vta-ta-item" data-i="${i}">${label(it)}</div>`).join('');
+    cont.classList.remove('oculto');
+    cont.querySelectorAll('.vta-ta-item').forEach((el) =>
+      el.addEventListener('click', () => onPick(items[Number(el.dataset.i)])));
+  }
+
+  async function guardarNuevaVisita() {
+    if (!nvCliente) return toast('Selecciona un cliente', 'error');
+    if (!nvProp) return toast('Selecciona una propiedad', 'error');
+    const fecha = val('nv-fecha');
+    if (!fecha) return toast('La fecha es obligatoria', 'error');
+    const btn = document.getElementById('nv-guardar');
+    btn.disabled = true; btn.textContent = 'Programando…';
+    try {
+      await API.post('/api/ventas/visitas', {
+        cliente_id: nvCliente.id, propiedad_id: nvProp.id, fecha,
+        hora: val('nv-hora'), atendido_por: val('nv-atendido'), notas: val('nv-notas'),
+      });
+      nvCliente = null; nvProp = null;
+      cerrarModal();
+      await cargarVisitas();
+      cargarResumen();
+      toast('Visita programada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error'); // 409 si ya existe
+      btn.disabled = false; btn.textContent = 'Programar';
+    }
+  }
+
+  // ---- Construye la UI de Visitas (una vez) ----
+  function construirVisitas() {
+    if (visConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="visitas"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vta-vis-cab">
+        <div class="reservas-controles">
+          <input type="date" id="vvi-fecha" class="input-fecha" value="${visFecha}">
+          <div class="filtro-tih-btns" id="vvi-rango">
+            <button class="btn-filtro-tih activo" data-rango="dia">Hoy</button>
+            <button class="btn-filtro-tih" data-rango="semana">Esta semana</button>
+            <button class="btn-filtro-tih" data-rango="mes">Este mes</button>
+          </div>
+          <input type="search" id="vvi-buscar" class="input-buscar" placeholder="Buscar por cliente o propiedad..." autocomplete="off">
+          <div class="filtro-tih-btns" id="vvi-estado">
+            <button class="btn-filtro-tih activo" data-est="">Todas</button>
+            <button class="btn-filtro-tih" data-est="Programada">Programadas</button>
+            <button class="btn-filtro-tih" data-est="Realizada">Realizadas</button>
+            <button class="btn-filtro-tih" data-est="Cancelada">Canceladas</button>
+          </div>
+        </div>
+        <div class="vta-prop-acciones"><button id="vvi-nueva" class="btn-pri">＋ Nueva visita</button></div>
+      </div>
+      <div id="vvi-hoy" class="vta-vis-hoy"></div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-visitas">
+          <thead><tr>
+            <th>Fecha</th><th>Hora</th><th>Cliente</th><th>Propiedad</th><th>Valoración</th><th>Estado</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+
+    const fechaInp = document.getElementById('vvi-fecha');
+    fechaInp.addEventListener('change', (e) => {
+      visFecha = e.target.value || hoyStr();
+      visModo = 'dia';
+      document.querySelectorAll('#vvi-rango .btn-filtro-tih').forEach((x) => x.classList.toggle('activo', x.dataset.rango === 'dia'));
+      cargarVisitas();
+    });
+    document.querySelectorAll('#vvi-rango .btn-filtro-tih').forEach((b) =>
+      b.addEventListener('click', () => {
+        visModo = b.dataset.rango;
+        if (visModo === 'dia') { visFecha = hoyStr(); fechaInp.value = visFecha; }
+        document.querySelectorAll('#vvi-rango .btn-filtro-tih').forEach((x) => x.classList.toggle('activo', x === b));
+        cargarVisitas();
+      }));
+    document.querySelectorAll('#vvi-estado .btn-filtro-tih').forEach((b) =>
+      b.addEventListener('click', () => {
+        visEstado = b.dataset.est;
+        document.querySelectorAll('#vvi-estado .btn-filtro-tih').forEach((x) => x.classList.toggle('activo', x === b));
+        renderVisitas();
+      }));
+    document.getElementById('vvi-buscar').addEventListener('input', (e) => { visBusqueda = e.target.value; renderVisitas(); });
+    document.getElementById('vvi-nueva').addEventListener('click', () => { nvCliente = null; nvProp = null; modalNuevaVisita(); });
+
+    visConstruido = true;
+  }
+
+  // Formato fecha+hora para las notas (igual que en mantenimiento).
+  function fmtFechaHora(s) {
+    if (!s) return '—';
+    const [d, t] = String(s).split(' ');
+    const p = d.split('-');
+    if (p.length !== 3) return s;
+    return `${p[2]}/${p[1]}/${p[0]}${t ? ' ' + t.slice(0, 5) : ''}`;
+  }
+
+  // ============================================================
+  //                    SUB-PESTAÑA CALENDARIO
+  // ============================================================
+  let calConstruido = false;
+  let calVisitas = [];            // todas las visitas (se filtran por mes en cliente)
+  const _calIni = new Date();
+  let calAnio = _calIni.getFullYear();
+  let calMes = _calIni.getMonth(); // 0-11
+
+  const CAL_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const CAL_DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  function hoyPartes() {
+    const d = new Date();
+    return { a: d.getFullYear(), m: d.getMonth(), d: d.getDate() };
+  }
+  function apellidoCorto(v) {
+    return (v.cliente_apellidos || v.cliente_nombre || '').trim() || '—';
+  }
+  function puntoEstado(e) {
+    return `<span class="vca-punto ${visitaBadgeClase(e)}"></span>`;
+  }
+
+  function construirCalendario() {
+    if (calConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="calendario"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vca-cab">
+        <div class="vca-nav">
+          <button class="btn-sec vca-flecha" id="vca-prev" title="Mes anterior">◀</button>
+          <span class="vca-titulo" id="vca-titulo"></span>
+          <button class="btn-sec vca-flecha" id="vca-next" title="Mes siguiente">▶</button>
+          <button class="btn-sec" id="vca-hoy">Hoy</button>
+        </div>
+        <div class="vca-leyenda">
+          <span class="vta-bdg vta-bdg-visita">Programada</span>
+          <span class="vta-bdg vta-bdg-disp">Realizada</span>
+          <span class="vta-bdg vta-bdg-cli-desc">Cancelada</span>
+        </div>
+      </div>
+      <div class="vca-grid-wrap">
+        <div class="vca-semana vca-cab-dias">${CAL_DIAS.map((d) => `<div class="vca-dia-cab">${d}</div>`).join('')}</div>
+        <div id="vca-grid"></div>
+      </div>
+      <div id="vca-lista" class="vca-lista"></div>`;
+
+    panel.querySelector('#vca-prev').addEventListener('click', () => moverMes(-1));
+    panel.querySelector('#vca-next').addEventListener('click', () => moverMes(1));
+    panel.querySelector('#vca-hoy').addEventListener('click', () => {
+      const h = hoyPartes(); calAnio = h.a; calMes = h.m; renderCalendario();
+    });
+    calConstruido = true;
+  }
+
+  function moverMes(delta) {
+    calMes += delta;
+    if (calMes < 0) { calMes = 11; calAnio--; }
+    else if (calMes > 11) { calMes = 0; calAnio++; }
+    renderCalendario();
+  }
+
+  async function cargarCalendario() {
+    // No tocamos backend: cargamos todas las visitas y filtramos por mes en el cliente.
+    try { calVisitas = await API.get('/api/ventas/visitas'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderCalendario();
+  }
+
+  // Agrupa las visitas del mes mostrado por día (ISO -> [visitas] ordenadas por hora).
+  function visitasPorDia() {
+    const mesStr = `${calAnio}-${String(calMes + 1).padStart(2, '0')}`;
+    const porDia = {};
+    calVisitas.forEach((v) => {
+      if (!v.fecha || String(v.fecha).slice(0, 7) !== mesStr) return;
+      (porDia[v.fecha] = porDia[v.fecha] || []).push(v);
+    });
+    Object.values(porDia).forEach((arr) =>
+      arr.sort((a, b) => String(a.hora || '').localeCompare(String(b.hora || ''))));
+    return porDia;
+  }
+
+  function renderCalendario() {
+    const titulo = document.getElementById('vca-titulo');
+    if (titulo) titulo.textContent = `${CAL_MESES[calMes]} ${calAnio}`;
+    const porDia = visitasPorDia();
+    renderGrid(porDia);
+    renderLista(porDia);
+  }
+
+  function renderGrid(porDia) {
+    const grid = document.getElementById('vca-grid');
+    if (!grid) return;
+    const hoy = hoyPartes();
+    const offset = (new Date(calAnio, calMes, 1).getDay() + 6) % 7; // Lun=0
+    const diasMes = new Date(calAnio, calMes + 1, 0).getDate();
+
+    const celdas = [];
+    for (let i = 0; i < offset; i++) celdas.push('<div class="vca-celda vca-relleno"></div>');
+    for (let d = 1; d <= diasMes; d++) {
+      const iso = `${calAnio}-${String(calMes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dow = (offset + d - 1) % 7;
+      const finde = dow >= 5;
+      const esHoy = (calAnio === hoy.a && calMes === hoy.m && d === hoy.d);
+      const vis = porDia[iso] || [];
+      const cards = vis.slice(0, 3).map((v) => `
+        <div class="vca-mini" data-vis="${v.id}" title="${esc(clienteNomVis(v))} · ${esc(v.propiedad_referencia)}">
+          ${puntoEstado(v.estado)}<span class="vca-mini-hora">${esc(v.hora) || ''}</span><span class="vca-mini-nom">${esc(apellidoCorto(v))}</span>
+        </div>`).join('');
+      const resto = vis.length - Math.min(vis.length, 3);
+      const mas = resto > 0 ? `<div class="vca-mas" data-mas="${iso}">+${resto} más</div>` : '';
+      celdas.push(`
+        <div class="vca-celda${finde ? ' vca-finde' : ''}${esHoy ? ' vca-hoy' : ''}" data-dia="${iso}">
+          <div class="vca-num">${d}</div>
+          <div class="vca-visitas">${cards}${mas}</div>
+        </div>`);
+    }
+    while (celdas.length % 7 !== 0) celdas.push('<div class="vca-celda vca-relleno"></div>');
+
+    let html = '';
+    for (let i = 0; i < celdas.length; i += 7) html += `<div class="vca-semana">${celdas.slice(i, i + 7).join('')}</div>`;
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.vca-mini').forEach((el) =>
+      el.addEventListener('click', (e) => { e.stopPropagation(); modalDetalleVisita(el.dataset.vis); }));
+    grid.querySelectorAll('.vca-mas').forEach((el) =>
+      el.addEventListener('click', (e) => { e.stopPropagation(); abrirPopoverDia(el, porDia[el.dataset.mas] || []); }));
+    grid.querySelectorAll('.vca-celda[data-dia]').forEach((el) =>
+      el.addEventListener('click', () => nuevaVisitaEnFecha(el.dataset.dia)));
+  }
+
+  // Modo lista (móvil): solo días con visitas.
+  function renderLista(porDia) {
+    const cont = document.getElementById('vca-lista');
+    if (!cont) return;
+    const dias = Object.keys(porDia).sort();
+    if (!dias.length) {
+      cont.innerHTML = '<div class="vta-muted vca-lista-vacia">No hay visitas este mes.</div>';
+      return;
+    }
+    cont.innerHTML = dias.map((iso) => `
+      <div class="vca-lista-dia">
+        <div class="vca-lista-fecha">${fechaES(iso)}</div>
+        ${porDia[iso].map((v) => `
+          <div class="vca-lista-item" data-vis="${v.id}">
+            ${puntoEstado(v.estado)}
+            <span class="vca-mini-hora">${esc(v.hora) || '—'}</span>
+            <span class="vca-lista-nom">${esc(clienteNomVis(v))}</span>
+            <span class="vca-lista-ref">${esc(v.propiedad_referencia)}</span>
+            ${visitaBadge(v.estado)}
+          </div>`).join('')}
+      </div>`).join('');
+    cont.querySelectorAll('[data-vis]').forEach((el) =>
+      el.addEventListener('click', () => modalDetalleVisita(el.dataset.vis)));
+  }
+
+  function nuevaVisitaEnFecha(iso) {
+    nvCliente = null; nvProp = null; nvFechaPre = iso;
+    modalNuevaVisita();
+  }
+
+  // Popover con todas las visitas de un día (botón "+X más").
+  function cerrarPopoverCal() { document.getElementById('vca-popover')?.remove(); }
+  function abrirPopoverDia(anchor, visitas) {
+    cerrarPopoverCal();
+    const pop = document.createElement('div');
+    pop.id = 'vca-popover';
+    pop.className = 'vca-popover';
+    pop.innerHTML = `
+      <div class="vca-pop-titulo">${fechaES(anchor.dataset.mas)} · ${visitas.length} visita${visitas.length === 1 ? '' : 's'}</div>
+      ${visitas.map((v) => `
+        <div class="vca-pop-item" data-vis="${v.id}">
+          ${puntoEstado(v.estado)}<span class="vca-mini-hora">${esc(v.hora) || '—'}</span>
+          <span class="vca-pop-nom">${esc(clienteNomVis(v))}</span>
+          <span class="vca-pop-ref">${esc(v.propiedad_referencia)}</span>
+        </div>`).join('')}`;
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = `${Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8)}px`;
+    pop.style.left = `${Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)}px`;
+    pop.querySelectorAll('[data-vis]').forEach((el) =>
+      el.addEventListener('click', () => { cerrarPopoverCal(); modalDetalleVisita(el.dataset.vis); }));
+    setTimeout(() => document.addEventListener('click', cerrarPopoverCal, { once: true }), 0);
+  }
+
+  // ==================== Init ====================
+  function init() {
+    construirFiltros();
+
+    document.getElementById('vta-buscar')?.addEventListener('input', (e) => { busqueda = e.target.value; renderTabla(); });
+    document.getElementById('vta-nueva')?.addEventListener('click', () => modalFormulario(null));
+    document.getElementById('vta-importar')?.addEventListener('click', modalImportar);
+
+    // Toggle del panel de filtros.
+    const fbtn = document.getElementById('vta-filtros-btn');
+    const fpanel = document.getElementById('vta-filtros-panel');
+    if (fbtn && fpanel) {
+      const abrir = (v) => fpanel.classList.toggle('oculto', !v);
+      fbtn.addEventListener('click', (e) => { e.stopPropagation(); abrir(fpanel.classList.contains('oculto')); });
+      fpanel.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', () => abrir(false));
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
+    }
+
+    // Inyecta la sub-pestaña Calendario (no está en index.html).
+    const subtabs = document.getElementById('vta-subtabs');
+    const scroll = document.querySelector('#vista-ventas .vta-scroll');
+    if (subtabs && scroll && !subtabs.querySelector('[data-sub="calendario"]')) {
+      const btn = document.createElement('button');
+      btn.className = 'subtab';
+      btn.dataset.sub = 'calendario';
+      btn.textContent = 'Calendario';
+      subtabs.appendChild(btn);
+      const panel = document.createElement('div');
+      panel.className = 'sub-panel';
+      panel.dataset.panelSub = 'calendario';
+      scroll.appendChild(panel);
+    }
+
+    // Sub-pestañas Propiedades / Clientes / Visitas / Calendario.
+    document.querySelectorAll('#vta-subtabs .subtab').forEach((b) =>
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#vta-subtabs .subtab').forEach((x) => x.classList.toggle('activo', x === b));
+        document.querySelectorAll('#vista-ventas .sub-panel').forEach((p) =>
+          p.classList.toggle('activo', p.dataset.panelSub === b.dataset.sub));
+        if (b.dataset.sub === 'clientes') { construirClientes(); cargarClientes(); }
+        if (b.dataset.sub === 'visitas') { construirVisitas(); cargarVisitas(); }
+        if (b.dataset.sub === 'calendario') { construirCalendario(); cargarCalendario(); }
+      }));
+  }
+
+  return { init, cargar, abrirFicha };
+})();

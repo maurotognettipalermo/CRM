@@ -84,6 +84,7 @@ function arrancarApp() {
   Estadisticas.init();
   Limpieza.init();
   Mantenimiento.init();
+  Ventas.init();
 
   // Vista por defecto: su propio módulo para roles de acceso único, Dashboard para el resto.
   if (soloTab) activarTab(soloTab);
@@ -158,6 +159,7 @@ function activarTab(nombre) {
   if (nombre === 'contratos')    Contratos.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'facturacion')  Facturas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'tarifas')      Tarifas.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'ventas')       Ventas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'propietarios') Propietarios.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'reservas')     Reservas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'estadisticas') Estadisticas.cargar().catch((e) => toast(e.message, 'error'));

@@ -516,6 +516,143 @@ CREATE TABLE IF NOT EXISTS mantenimiento_fotos (
 );
 CREATE INDEX IF NOT EXISTS idx_mantenimiento_fotos_tarea ON mantenimiento_fotos(tarea_id);
 
+-- ===================== Módulo de Ventas (inmobiliaria) =====================
+
+-- Propiedades en venta. Se importan desde el Excel de Idealista (upsert por referencia);
+-- los campos estado/notas/descripcion son del CRM y la importación no los pisa.
+CREATE TABLE IF NOT EXISTS propiedades_venta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  referencia TEXT UNIQUE NOT NULL,
+  codigo_idealista TEXT,
+  tipo TEXT,
+  calle TEXT,
+  numero TEXT,
+  planta TEXT,
+  zona TEXT,
+  localidad TEXT,
+  precio REAL,
+  dormitorios INTEGER,
+  banos INTEGER,
+  metros_cuadrados REAL,
+  metros_utiles REAL,
+  clase_energetica TEXT,
+  garaje TEXT,
+  num_fotos INTEGER DEFAULT 0,
+  estado TEXT DEFAULT 'Disponible' CHECK(estado IN ('Disponible','Reservada','Vendida','Retirada')),
+  estado_idealista TEXT,
+  fecha_alta TEXT,
+  fecha_baja TEXT,
+  propietario_nombre TEXT,
+  propietario_apellidos TEXT,
+  propietario_telefono TEXT,
+  propietario_email TEXT,
+  descripcion TEXT,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_propiedades_venta_estado ON propiedades_venta(estado);
+CREATE INDEX IF NOT EXISTS idx_propiedades_venta_zona ON propiedades_venta(zona);
+
+-- Clientes compradores (demanda) con sus criterios de búsqueda.
+CREATE TABLE IF NOT EXISTS clientes_compradores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  apellidos TEXT,
+  telefono TEXT,
+  email TEXT,
+  presupuesto_max REAL,
+  busca_tipo TEXT,
+  busca_dormitorios INTEGER,
+  busca_zona TEXT,
+  busca_linea TEXT,
+  busca_frontal INTEGER DEFAULT 0,
+  busca_villa INTEGER DEFAULT 0,
+  notas TEXT,
+  estado TEXT DEFAULT 'Nuevo' CHECK(estado IN ('Nuevo','Contactado','Visitado','En negociación','Compró','Descartado')),
+  origen TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_clientes_compradores_estado ON clientes_compradores(estado);
+
+-- Visitas de un cliente a una propiedad.
+CREATE TABLE IF NOT EXISTS visitas_venta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cliente_id INTEGER NOT NULL REFERENCES clientes_compradores(id) ON DELETE CASCADE,
+  propiedad_id INTEGER NOT NULL REFERENCES propiedades_venta(id) ON DELETE CASCADE,
+  fecha TEXT NOT NULL,
+  hora TEXT,
+  estado TEXT DEFAULT 'Programada' CHECK(estado IN ('Programada','Realizada','Cancelada')),
+  valoracion TEXT,
+  notas TEXT,
+  atendido_por TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(cliente_id, propiedad_id, fecha)
+);
+CREATE INDEX IF NOT EXISTS idx_visitas_venta_fecha ON visitas_venta(fecha);
+CREATE INDEX IF NOT EXISTS idx_visitas_venta_cliente ON visitas_venta(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_visitas_venta_propiedad ON visitas_venta(propiedad_id);
+
+-- Hilo de notas de una visita.
+CREATE TABLE IF NOT EXISTS visitas_notas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visita_id INTEGER NOT NULL REFERENCES visitas_venta(id) ON DELETE CASCADE,
+  texto TEXT NOT NULL,
+  usuario_nombre TEXT,
+  fecha TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_visitas_notas_visita ON visitas_notas(visita_id);
+
+-- ===================== Pagos de Mayoristas =====================
+
+-- Mayoristas (turoperadores / agencias con contrato anual de cupo).
+CREATE TABLE IF NOT EXISTS mayoristas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  cif TEXT,
+  direccion TEXT,
+  telefono TEXT,
+  email TEXT,
+  contacto_nombre TEXT,
+  notas TEXT,
+  activo INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Contrato anual con un mayorista (importe total comprometido del año).
+CREATE TABLE IF NOT EXISTS mayorista_contratos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mayorista_id INTEGER NOT NULL REFERENCES mayoristas(id) ON DELETE CASCADE,
+  anio INTEGER NOT NULL,
+  descripcion TEXT,
+  importe_total REAL NOT NULL,
+  estado TEXT DEFAULT 'activo' CHECK(estado IN ('activo','finalizado','cancelado')),
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(mayorista_id, anio)
+);
+CREATE INDEX IF NOT EXISTS idx_mayorista_contratos_mayorista ON mayorista_contratos(mayorista_id);
+CREATE INDEX IF NOT EXISTS idx_mayorista_contratos_anio ON mayorista_contratos(anio);
+
+-- Plan de pagos de un contrato de mayorista (cuotas previstas).
+CREATE TABLE IF NOT EXISTS mayorista_pagos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contrato_id INTEGER NOT NULL REFERENCES mayorista_contratos(id) ON DELETE CASCADE,
+  numero_pago INTEGER NOT NULL,
+  fecha_prevista TEXT NOT NULL,
+  importe REAL NOT NULL,
+  pagado INTEGER DEFAULT 0,
+  fecha_pago TEXT,
+  metodo_pago TEXT CHECK(metodo_pago IN ('transferencia','cheque','efectivo')),
+  numero_factura TEXT,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mayorista_pagos_contrato ON mayorista_pagos(contrato_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);
