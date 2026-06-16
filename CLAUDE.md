@@ -222,7 +222,8 @@ public/                Frontend vanilla. Sin build, servido estático.
                        (fuera/trabajando/pausa) con contador en vivo (setInterval 1s, cálculo local),
                        botones ≥64px, timeline del día (con duración de pausa) y, para admin, "Resumen
                        del equipo" (selector fecha + minis + tabla con detalle de pausas) desde
-                       /resumen-dia. **Empleados** (admin/usuario): tabla con avatar+estado hoy, ficha
+                       /resumen-dia + botón "Exportar fichajes" (modal con checkboxes de empleados y
+                       meses + trimestres → descarga CSV vía fetch con token). **Empleados** (admin/usuario): tabla con avatar+estado hoy, ficha
                        lateral (#per-panel, datos + resumen anual: vacaciones/horas extra/fichajes del
                        mes), modal alta/edición (select de usuario CRM para vincular). **Ausencias**
                        (admin/usuario): calendario mensual empleados×días coloreado por tipo + leyenda,
@@ -337,6 +338,7 @@ Patrones clave:
 | GET/POST | /api/personal/horas-extra[?empleado_id=&anio=&pagada=] | Lista (admin todas / empleado las suyas) / crear (del usuario logueado) |
 | PUT/DELETE | /api/personal/horas-extra/:id | Admin: pago (pagada/importe/fecha_pago). Empleado: solo fecha/horas/descripción de las suyas no pagadas; DELETE admin o propio si no pagada |
 | GET | /api/personal/resumen-dia?fecha= | **Solo admin**. `{empleados_fichados, en_pausa, ausentes_hoy[], fichajes[]}` (fichajes con entrada/salida/estado/horas/pausas[]) |
+| GET | /api/personal/fichajes/exportar?empleado_ids=&meses=&anio= | **Solo admin**. CSV (`;`, BOM UTF-8) de fichajes; `meses`/`empleado_ids` listas por coma (vacío=todos); una fila por día laborable, columnas de pausa dinámicas, TOTAL por empleado; filename según rango. **Antes de /fichajes** |
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD razones sociales |
 | POST | /api/ajustes/razones-sociales/:id/logo | Multipart campo `logo`; .jpg/.jpeg/.png/.webp/.svg |
 | GET/POST/PUT/DELETE | /api/ajustes/estados-reserva[/:id] | CRUD estados de reserva (orden por `orden`). DELETE→409 si `es_sistema=1` o si alguna reserva usa ese nombre |
@@ -368,7 +370,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 
 **Orden en `routes/ventas.js`**: `/visitas/hoy` debe declararse **antes** de `/visitas/:id` (igual que `/resumen` y `/propiedades/importar` van antes de sus `/:id`; y `/propietarios-venta/importar-alquiler` antes de `/propietarios-venta/:id`).
 
-**Orden en `routes/personal.js`**: `/fichajes/estado` y `/fichajes/resumen` antes de cualquier `/fichajes/...`; `/ausencias/calendario` y `/ausencias/saldo` antes de `/ausencias/:id`; `/horas-extra/resumen` antes de `/horas-extra/:id`.
+**Orden en `routes/personal.js`**: `/fichajes/estado`, `/fichajes/resumen` y `/fichajes/exportar` antes de la genérica `/fichajes`; `/ausencias/calendario` y `/ausencias/saldo` antes de `/ausencias/:id`; `/horas-extra/resumen` antes de `/horas-extra/:id`.
 
 **Orden en `server.js`**: los sub-routers `/api/reservas/:id/pagos` y `/api/reservas/:id/extras` se montan **antes** de `/api/reservas` (igual que `/api/apartamentos/:id/gastos` y `/api/apartamentos/:id/fotos` antes de `/api/apartamentos`) para que `/:id` no capture esos prefijos.
 

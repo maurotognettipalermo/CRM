@@ -645,45 +645,45 @@ const Personal = (() => {
     const mesAhora = new Date().getMonth() + 1;
 
     const empItems = emps.map((e) =>
-      `<label class="pex-chk" style="display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:14px">
+      `<label class="pex-chk">
         <input type="checkbox" class="pex-emp" value="${e.id}" checked>
-        <span>${esc(nom(e))}${e.puesto ? ` <span style="color:var(--muted);font-size:12px">· ${esc(e.puesto)}</span>` : ''}</span>
-      </label>`).join('') || '<div style="color:var(--muted);padding:8px">No hay empleados.</div>';
+        <span>${esc(nom(e))}${e.puesto ? ` <span class="pex-puesto">· ${esc(e.puesto)}</span>` : ''}</span>
+      </label>`).join('') || '<div class="pex-vacio">No hay empleados.</div>';
 
     const mesItems = MESES_CORTO.map((m, i) =>
-      `<label class="pex-chk" style="display:flex;align-items:center;gap:6px;font-size:14px">
-        <input type="checkbox" class="pex-mes" value="${i + 1}"${(i + 1) === mesAhora ? ' checked' : ''}> ${m}
+      `<label class="pex-chk">
+        <input type="checkbox" class="pex-mes" value="${i + 1}"${(i + 1) === mesAhora ? ' checked' : ''}>
+        <span>${m}</span>
       </label>`).join('');
 
     abrirModal(`
       <h3>📥 Exportar fichajes</h3>
-      <div class="campo">
-        <label>Empleados</label>
-        <label class="pex-chk" style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:4px">
-          <input type="checkbox" id="pex-emp-all" checked> Seleccionar todos
-        </label>
-        <div id="pex-emp-lista" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">${empItems}</div>
-        <div id="pex-emp-cont" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+      <div class="pex-sec">
+        <div class="pex-titulo">Empleados</div>
+        <label class="pex-chk pex-chk-all"><input type="checkbox" id="pex-emp-all" checked><span>Seleccionar todos</span></label>
+        <div id="pex-emp-lista" class="pex-emp-lista">${empItems}</div>
+        <div id="pex-emp-cont" class="pex-cont"></div>
       </div>
-      <div class="campo">
-        <label>Meses</label>
-        <label class="pex-chk" style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px">
-          <input type="checkbox" id="pex-mes-all"> Todo el año
-        </label>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${mesItems}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-          <button type="button" class="btn-sec" data-tri="1" style="font-size:12px;padding:4px 8px">1er trim.</button>
-          <button type="button" class="btn-sec" data-tri="2" style="font-size:12px;padding:4px 8px">2º trim.</button>
-          <button type="button" class="btn-sec" data-tri="3" style="font-size:12px;padding:4px 8px">3er trim.</button>
-          <button type="button" class="btn-sec" data-tri="4" style="font-size:12px;padding:4px 8px">4º trim.</button>
+      <div class="pex-sec">
+        <div class="pex-titulo">Meses</div>
+        <label class="pex-chk pex-chk-all"><input type="checkbox" id="pex-mes-all"><span>Todo el año</span></label>
+        <div class="pex-meses-grid">${mesItems}</div>
+        <div class="pex-trimestres">
+          <button type="button" class="btn-sec pex-tri" data-tri="1">1er trim.</button>
+          <button type="button" class="btn-sec pex-tri" data-tri="2">2º trim.</button>
+          <button type="button" class="btn-sec pex-tri" data-tri="3">3er trim.</button>
+          <button type="button" class="btn-sec pex-tri" data-tri="4">4º trim.</button>
         </div>
       </div>
-      <div class="campo" style="max-width:160px"><label>Año</label><select id="pex-anio">${optAnios(new Date().getFullYear())}</select></div>
+      <div class="pex-sec">
+        <div class="pex-titulo">Año</div>
+        <select id="pex-anio" class="pex-anio">${optAnios(new Date().getFullYear())}</select>
+      </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="pex-cancelar">Cancelar</button>
         <button class="btn-pri" id="pex-descargar">📥 Descargar CSV</button>
       </div>`);
-    document.querySelector('.modal').classList.add('modal-ancho');
+    document.querySelector('.modal').classList.add('pex-modal');
 
     const empAll = document.getElementById('pex-emp-all');
     const empChks = () => Array.from(document.querySelectorAll('.pex-emp'));

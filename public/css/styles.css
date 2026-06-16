@@ -3321,3 +3321,27 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
   .hx-tabla .vta-acciones { justify-content: flex-end; }
   .hx-tabla .btn-icono { min-height: 44px; min-width: 44px; }
 }
+
+/* ===== Modal Exportar fichajes ===== */
+.modal.pex-modal { width: 500px; max-width: 95vw; }
+.pex-sec { padding: 16px 0; text-align: left; border-bottom: 1px solid var(--border-soft); }
+.pex-sec:last-of-type { border-bottom: none; }
+.pex-titulo { font-weight: 700; font-size: 13px; color: #374151; margin-bottom: 8px; text-align: left; }
+.pex-chk { display: flex; align-items: center; gap: 8px; font-size: 14px; text-align: left; padding: 5px 8px; cursor: pointer; }
+/* El input global del CRM es width:100%; aquí el checkbox debe quedar a su tamaño y a la izquierda */
+.pex-chk input[type="checkbox"] { width: auto; flex: none; margin: 0; }
+.pex-chk-all { font-weight: 600; padding: 0 0 6px; }
+.pex-emp-lista { max-height: 170px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.pex-puesto { color: var(--muted); font-size: 12px; }
+.pex-vacio { color: var(--muted); padding: 8px; }
+.pex-cont { font-size: 12px; color: var(--muted); margin-top: 4px; text-align: left; }
+.pex-meses-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pex-meses-grid .pex-chk { padding: 4px 6px; gap: 6px; }
+.pex-trimestres { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; justify-content: flex-start; }
+.pex-tri { font-size: 12px; padding: 4px 10px; }
+.pex-anio { max-width: 160px; }
+
+@media (max-width: 600px) {
+  .modal.pex-modal { width: 95%; }
+  .pex-meses-grid { grid-template-columns: repeat(3, 1fr); }
+}
