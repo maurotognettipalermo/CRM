@@ -75,11 +75,12 @@ const PROP_CAMPOS = [
   'precio', 'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica',
   'garaje', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
   'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
+  'propietario_venta_id',
   'descripcion', 'notas',
   'fecha_venta', 'fecha_escritura', 'precio_venta_final',
   'comprador_nombre', 'comprador_telefono', 'comprador_email',
 ];
-const PROP_INT = ['dormitorios', 'banos', 'num_fotos'];
+const PROP_INT = ['dormitorios', 'banos', 'num_fotos', 'propietario_venta_id'];
 const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final'];
 
 function normalizaPropCampo(campo, valor) {
@@ -105,7 +106,14 @@ router.get('/propiedades', (req, res) => {
 
 // GET /api/ventas/propiedades/:id — ficha + historial de visitas.
 router.get('/propiedades/:id', (req, res) => {
-  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  const prop = db.prepare(`
+    SELECT p.*,
+           pv.nombre AS pv_nombre, pv.apellidos AS pv_apellidos, pv.telefono AS pv_telefono,
+           pv.email AS pv_email, pv.dni AS pv_dni
+    FROM propiedades_venta p
+    LEFT JOIN propietarios_venta pv ON pv.id = p.propietario_venta_id
+    WHERE p.id = ?
+  `).get(req.params.id);
   if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
   const visitas = db.prepare(`
     SELECT v.*, c.nombre AS cliente_nombre, c.apellidos AS cliente_apellidos, c.telefono AS cliente_telefono
@@ -203,6 +211,108 @@ router.post('/propiedades/:id/vender', (req, res) => {
     txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), aReal(b.precio_venta_final),
     txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), prop.id);
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id, `Vendida ${prop.referencia}`);
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Propietarios de venta (cartera de ventas / inmobiliaria)
+// ============================================================
+const PRV_CAMPOS = [
+  'nombre', 'apellidos', 'telefono', 'telefono2', 'email', 'dni',
+  'direccion', 'ciudad', 'codigo_postal', 'notas',
+];
+
+// GET /api/ventas/propietarios-venta — lista con búsqueda opcional + nº de propiedades.
+router.get('/propietarios-venta', (req, res) => {
+  const buscar = txt(req.query.buscar);
+  let sql = `
+    SELECT pv.*,
+           (SELECT COUNT(*) FROM propiedades_venta p WHERE p.propietario_venta_id = pv.id) AS num_propiedades
+    FROM propietarios_venta pv WHERE 1 = 1`;
+  const params = [];
+  if (buscar) {
+    sql += ' AND (pv.nombre LIKE ? OR pv.apellidos LIKE ? OR pv.email LIKE ? OR pv.telefono LIKE ?)';
+    const t = '%' + buscar + '%';
+    params.push(t, t, t, t);
+  }
+  sql += ' ORDER BY pv.nombre COLLATE NOCASE, pv.apellidos COLLATE NOCASE';
+  res.json(db.prepare(sql).all(...params));
+});
+
+// POST /api/ventas/propietarios-venta/importar-alquiler — copia de un propietario de alquiler
+// (declarar ANTES de /:id). Body { propietario_id }.
+router.post('/propietarios-venta/importar-alquiler', (req, res) => {
+  const propId = aEntero((req.body || {}).propietario_id);
+  if (propId === null) return res.status(400).json({ error: 'propietario_id es obligatorio' });
+  const p = db.prepare('SELECT * FROM propietarios WHERE id = ?').get(propId);
+  if (!p) return res.status(404).json({ error: 'El propietario de alquiler no existe' });
+  if (db.prepare('SELECT id FROM propietarios_venta WHERE propietario_alquiler_id = ?').get(propId)) {
+    return res.status(409).json({ error: 'Este propietario ya fue importado' });
+  }
+  const apellidos = [p.apellidos, p.segundo_apellido].filter(Boolean).join(' ') || null;
+  const dni = p.numero_documento || p.dni || null;
+  const info = db.prepare(`
+    INSERT INTO propietarios_venta
+      (nombre, apellidos, telefono, email, dni, direccion, ciudad, codigo_postal, propietario_alquiler_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(p.nombre, apellidos, txt(p.telefono), txt(p.email), dni,
+    txt(p.direccion), txt(p.ciudad), txt(p.codigo_postal), propId);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'propietario-venta', info.lastInsertRowid, `Importado de alquileres: ${p.nombre}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// GET /api/ventas/propietarios-venta/:id — ficha + propiedades asociadas.
+router.get('/propietarios-venta/:id', (req, res) => {
+  const pv = db.prepare('SELECT * FROM propietarios_venta WHERE id = ?').get(req.params.id);
+  if (!pv) return res.status(404).json({ error: 'Propietario no encontrado' });
+  const propiedades = db.prepare(`
+    SELECT id, referencia, calle, numero, zona, precio, estado
+    FROM propiedades_venta WHERE propietario_venta_id = ?
+    ORDER BY referencia COLLATE NOCASE
+  `).all(pv.id);
+  res.json({ ...pv, propiedades });
+});
+
+// POST /api/ventas/propietarios-venta — crear.
+router.post('/propietarios-venta', (req, res) => {
+  const b = req.body || {};
+  if (!txt(b.nombre)) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  const datos = {};
+  for (const c of PRV_CAMPOS) if (c in b) datos[c] = txt(b[c]);
+  datos.nombre = txt(b.nombre);
+  const claves = Object.keys(datos);
+  const cols = claves.join(', ');
+  const ph = claves.map((c) => '@' + c).join(', ');
+  const info = db.prepare(`INSERT INTO propietarios_venta (${cols}) VALUES (${ph})`).run(datos);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'propietario-venta', info.lastInsertRowid, datos.nombre);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// PUT /api/ventas/propietarios-venta/:id — editar.
+router.put('/propietarios-venta/:id', (req, res) => {
+  const pv = db.prepare('SELECT id FROM propietarios_venta WHERE id = ?').get(req.params.id);
+  if (!pv) return res.status(404).json({ error: 'Propietario no encontrado' });
+  const b = req.body || {};
+  if ('nombre' in b && !txt(b.nombre)) return res.status(400).json({ error: 'El nombre no puede quedar vacío' });
+  const sets = [];
+  const vals = {};
+  for (const c of PRV_CAMPOS) {
+    if (c in b) { sets.push(`${c} = @${c}`); vals[c] = txt(b[c]); }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+  vals.id = pv.id;
+  db.prepare(`UPDATE propietarios_venta SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = @id`).run(vals);
+  res.json({ ok: true });
+});
+
+// DELETE /api/ventas/propietarios-venta/:id — 409 si tiene propiedades asociadas.
+router.delete('/propietarios-venta/:id', (req, res) => {
+  const pv = db.prepare('SELECT id, nombre FROM propietarios_venta WHERE id = ?').get(req.params.id);
+  if (!pv) return res.status(404).json({ error: 'Propietario no encontrado' });
+  const n = db.prepare('SELECT COUNT(*) AS c FROM propiedades_venta WHERE propietario_venta_id = ?').get(pv.id).c;
+  if (n > 0) return res.status(409).json({ error: 'No se puede borrar: el propietario tiene propiedades asociadas' });
+  db.prepare('DELETE FROM propietarios_venta WHERE id = ?').run(pv.id);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'eliminar', 'propietario-venta', pv.id, pv.nombre);
   res.json({ ok: true });
 });
 

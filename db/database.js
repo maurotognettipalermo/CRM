@@ -164,6 +164,8 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   comprador_nombre: 'TEXT',
   comprador_telefono: 'TEXT',
   comprador_email: 'TEXT',
+  // Vínculo al propietario de ventas (tabla propietarios_venta, creada por schema.sql).
+  propietario_venta_id: 'INTEGER REFERENCES propietarios_venta(id) ON DELETE SET NULL',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

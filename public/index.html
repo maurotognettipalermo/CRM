@@ -70,6 +70,9 @@
       <button class="nav-item" data-tab="mantenimiento" title="Mantenimiento">
         <span class="nav-icono">🔧</span><span class="nav-texto">Mantenimiento</span>
       </button>
+      <button class="nav-item" data-tab="personal" title="Personal">
+        <span class="nav-icono">👥</span><span class="nav-texto">Personal</span>
+      </button>
       <button class="nav-item" data-tab="ajustes" title="Ajustes">
         <span class="nav-icono">⚙️</span><span class="nav-texto">Ajustes</span>
       </button>
@@ -318,6 +321,7 @@
       <div class="vta-subtabs" id="vta-subtabs">
         <button class="subtab activo" data-sub="propiedades">Propiedades</button>
         <button class="subtab" data-sub="clientes">Clientes</button>
+        <button class="subtab" data-sub="propietarios">Propietarios</button>
         <button class="subtab" data-sub="visitas">Visitas</button>
       </div>
       <div class="vta-scroll">
@@ -351,6 +355,7 @@
         <div class="sub-panel" data-panel-sub="clientes">
           <div class="vta-placeholder">La gestión de clientes compradores se añadirá en la próxima entrega.</div>
         </div>
+        <div class="sub-panel" data-panel-sub="propietarios"></div>
         <div class="sub-panel" data-panel-sub="visitas">
           <div class="vta-placeholder">La gestión de visitas se añadirá en la próxima entrega.</div>
         </div>
@@ -415,6 +420,51 @@
       </div>
       <div class="mant-resumen" id="mant-resumen"></div>
       <div class="mant-tablero" id="mant-tablero"></div>
+    </section>
+
+    <!-- ============ PERSONAL ============ -->
+    <section id="vista-personal" class="vista">
+      <div class="barra-herramientas">
+        <h2>Personal</h2>
+      </div>
+      <div class="vta-subtabs" id="per-subtabs">
+        <button class="subtab" data-sub="fichaje">Fichaje</button>
+        <button class="subtab activo" data-sub="empleados">Empleados</button>
+        <button class="subtab" data-sub="ausencias">Ausencias</button>
+        <button class="subtab" data-sub="horas">Horas extra</button>
+      </div>
+      <div class="vta-scroll">
+        <div class="sub-panel" data-panel-sub="fichaje">
+          <div class="vta-placeholder">El fichaje se añadirá en la próxima entrega.</div>
+        </div>
+        <div class="sub-panel activo" data-panel-sub="empleados">
+          <div class="barra-herramientas vta-prop-cab">
+            <div class="reservas-controles">
+              <input type="search" id="per-buscar" class="input-buscar" placeholder="Buscar por nombre, puesto..." autocomplete="off">
+              <span id="per-contador" class="alo-contador"></span>
+            </div>
+            <div class="vta-prop-acciones">
+              <button id="per-nuevo" class="btn-pri">＋ Nuevo empleado</button>
+            </div>
+          </div>
+          <div class="tabla-scroll">
+            <table class="tabla" id="tabla-empleados">
+              <thead>
+                <tr>
+                  <th></th><th>Nombre</th><th>Puesto</th><th>Teléfono</th><th>Email</th><th>Hoy</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="sub-panel" data-panel-sub="ausencias">
+          <div class="vta-placeholder">La gestión de ausencias se añadirá en la próxima entrega.</div>
+        </div>
+        <div class="sub-panel" data-panel-sub="horas">
+          <div class="vta-placeholder">El registro de horas extra se añadirá en la próxima entrega.</div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ AJUSTES ============ -->
@@ -529,6 +579,7 @@
   <script src="js/limpieza.js"></script>
   <script src="js/mantenimiento.js"></script>
   <script src="js/ventas.js"></script>
+  <script src="js/personal.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

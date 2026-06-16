@@ -606,6 +606,27 @@ CREATE TABLE IF NOT EXISTS visitas_notas (
 );
 CREATE INDEX IF NOT EXISTS idx_visitas_notas_visita ON visitas_notas(visita_id);
 
+-- Propietarios del módulo de ventas (inmobiliaria). Pueden importarse desde los
+-- propietarios de alquiler (propietario_alquiler_id apunta al original para no duplicar)
+-- o crearse como propietarios exclusivos de ventas (propietario_alquiler_id NULL).
+CREATE TABLE IF NOT EXISTS propietarios_venta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  apellidos TEXT,
+  telefono TEXT,
+  telefono2 TEXT,
+  email TEXT,
+  dni TEXT,
+  direccion TEXT,
+  ciudad TEXT,
+  codigo_postal TEXT,
+  notas TEXT,
+  propietario_alquiler_id INTEGER REFERENCES propietarios(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_propietarios_venta_alquiler ON propietarios_venta(propietario_alquiler_id);
+
 -- ===================== Pagos de Mayoristas =====================
 
 -- Mayoristas (turoperadores / agencias con contrato anual de cupo).
@@ -652,6 +673,68 @@ CREATE TABLE IF NOT EXISTS mayorista_pagos (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_mayorista_pagos_contrato ON mayorista_pagos(contrato_id);
+
+-- ===================== Módulo de Personal (RRHH) =====================
+
+-- Empleados de la oficina. usuario_id (opcional) vincula con el usuario del CRM
+-- para que ese usuario pueda fichar como este empleado.
+CREATE TABLE IF NOT EXISTS empleados (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  usuario_id INTEGER UNIQUE REFERENCES usuarios(id) ON DELETE SET NULL,
+  nombre TEXT NOT NULL,
+  apellidos TEXT,
+  dni TEXT,
+  telefono TEXT,
+  email TEXT,
+  puesto TEXT,
+  fecha_inicio TEXT,
+  dias_vacaciones_anio INTEGER DEFAULT 30,
+  activo INTEGER DEFAULT 1,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Registro de fichajes (control horario). Una fila por evento del día.
+CREATE TABLE IF NOT EXISTS fichajes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  fecha TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK(tipo IN ('entrada','pausa','reanudacion','salida')),
+  hora TEXT NOT NULL,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_fichajes_empleado_fecha ON fichajes(empleado_id, fecha);
+
+-- Ausencias (vacaciones, días libres, bajas...).
+CREATE TABLE IF NOT EXISTS ausencias (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL CHECK(tipo IN ('vacaciones','dia_libre','dia_gracia','baja_medica','asuntos_propios')),
+  fecha_inicio TEXT NOT NULL,
+  fecha_fin TEXT NOT NULL,
+  dias INTEGER NOT NULL,
+  estado TEXT DEFAULT 'aprobada' CHECK(estado IN ('pendiente','aprobada','rechazada')),
+  aprobado_por TEXT,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ausencias_empleado ON ausencias(empleado_id);
+
+-- Horas extra registradas por empleado.
+CREATE TABLE IF NOT EXISTS horas_extra (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id INTEGER NOT NULL REFERENCES empleados(id) ON DELETE CASCADE,
+  fecha TEXT NOT NULL,
+  horas REAL NOT NULL,
+  descripcion TEXT,
+  pagada INTEGER DEFAULT 0,
+  importe REAL,
+  fecha_pago TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_horas_extra_empleado ON horas_extra(empleado_id);
 
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);

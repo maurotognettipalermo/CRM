@@ -2868,6 +2868,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-bdg-vend { background: #eff6ff; color: #1d4ed8; }
 .vta-bdg-ret  { background: #f3f4f6; color: #6b7280; }
 .vta-bdg-visita { background: #eef2ff; color: #4338ca; }
+.vta-bdg-prv { background: #eff6ff; color: #1d4ed8; }
 .vta-badge-tipo { display: inline-block; font-size: 12px; background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 2px 9px; }
 
 /* Panel ficha */
@@ -2893,6 +2894,9 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 
 /* Modal nueva/editar */
 .vta-modal-sub { font-weight: 700; font-size: 13px; color: #374151; margin: 14px 0 6px; }
+.vta-modal-nota { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.vta-prv-sel { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 8px 12px; font-size: 13.5px; color: #1e3a8a; margin-top: 6px; }
+.vta-prv-quitar { margin-left: auto; padding: 2px 10px; font-size: 12px; }
 
 /* Modal importar */
 .vta-import-aviso { background: #f0fdf4; color: #047857; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
@@ -3125,4 +3129,195 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   .may-d-grid { grid-template-columns: 1fr; }
   .mc-pago-fila { flex-wrap: wrap; }
   .mc-pago-fila input[type="number"] { width: 100%; }
+}
+
+/* ==================== Módulo Personal (RRHH) ==================== */
+/* Avatar con inicial */
+.per-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; font-weight: 700; flex: none; }
+.per-avatar-cel { width: 46px; }
+.per-nombre { font-weight: 700; }
+
+/* Badges */
+.per-bdg { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.per-bdg-trab { background: #f0fdf4; color: #047857; }
+.per-bdg-pausa { background: #fffbeb; color: #b45309; }
+.per-bdg-fuera { background: #f3f4f6; color: #6b7280; }
+.per-bdg-activo { background: #f0fdf4; color: #047857; }
+.per-bdg-inactivo { background: #fef2f2; color: #dc2626; }
+.per-bdg-puesto { display: inline-block; font-size: 12px; background: #f3f4f6; color: #4b5563; border-radius: 999px; padding: 2px 9px; }
+.per-bdg-vinc { background: #eff6ff; color: #1d4ed8; }
+
+/* Mini-tarjetas del resumen anual en la ficha */
+.per-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.per-mini { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: #fff; }
+.per-mini-val { font-size: 20px; font-weight: 700; color: var(--text); }
+.per-mini-lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.per-barra { height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; margin-bottom: 8px; }
+.per-barra-fill { height: 100%; background: var(--green); border-radius: 999px; }
+
+/* Tabla de empleados en cards en móvil */
+@media (max-width: 767px) {
+  #tabla-empleados thead { display: none; }
+  #tabla-empleados, #tabla-empleados tbody, #tabla-empleados tr, #tabla-empleados td { display: block; width: 100%; }
+  #tabla-empleados tr { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; position: relative; }
+  #tabla-empleados td { border: none; padding: 3px 0; }
+  #tabla-empleados .per-avatar-cel { position: absolute; top: 12px; right: 12px; width: auto; }
+  #tabla-empleados .vta-acciones { margin-top: 8px; }
+  .per-mini-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ===== Sub-pestaña Fichaje ===== */
+.per-fichaje-wrap { max-width: 500px; margin: 0 auto; }
+.per-fichaje-main {
+  border: 1px solid var(--border); border-radius: 16px; background: #fff;
+  padding: 28px 22px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.per-fichaje-main.per-confirm { transform: scale(1.02); box-shadow: 0 6px 22px rgba(16,185,129,.25); }
+.per-fic-saludo { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 20px; }
+.per-fic-estado { font-size: 17px; font-weight: 600; color: #4b5563; margin-bottom: 6px; }
+.per-fic-timer { font-size: 34px; font-weight: 800; color: var(--green); margin-bottom: 22px; letter-spacing: .01em; }
+.per-fic-timer-pausa { color: #b45309; }
+.per-fic-info { font-size: 14px; color: var(--muted); margin-top: 18px; }
+.per-fic-acciones { display: flex; gap: 12px; }
+.per-fic-btn {
+  flex: 1; min-height: 64px; font-size: 18px; font-weight: 700; border-radius: 12px;
+  border: none; color: #fff; cursor: pointer; transition: filter .15s, transform .1s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+}
+.per-fic-btn:hover { filter: brightness(1.06); }
+.per-fic-btn:active { transform: scale(.98); }
+.per-fic-btn:disabled { opacity: .6; cursor: default; }
+.per-fic-verde { background: #10b981; }
+.per-fic-rojo { background: #ef4444; }
+.per-fic-naranja { background: #f59e0b; }
+.per-fic-azul { background: #3b82f6; }
+.per-sin-ficha { text-align: center; padding: 30px 18px; color: #b45309; font-weight: 600; }
+.per-sin-ficha-sub { font-weight: 400; color: var(--muted); font-size: 14px; margin-top: 8px; }
+
+/* Timeline del día */
+.per-timeline { max-width: 500px; margin: 22px auto 0; }
+.per-tl-titulo { font-size: 13px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.per-tl-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; position: relative; padding-left: 6px; }
+.per-tl-item:not(:last-child)::before {
+  content: ''; position: absolute; left: 51px; top: 26px; bottom: -8px; width: 2px; background: var(--border);
+}
+.per-tl-hora { width: 44px; font-weight: 700; color: var(--text); font-size: 14px; text-align: right; }
+.per-tl-punto { width: 26px; height: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: #f3f4f6; border-radius: 50%; font-size: 13px; z-index: 1; }
+.per-tl-tipo { font-size: 14px; color: #4b5563; }
+.per-tl-vacio { text-align: center; color: var(--muted); padding: 18px; }
+
+/* Resumen del equipo (admin) */
+.per-eq { max-width: 760px; margin: 0 auto; }
+.per-eq-sep { display: flex; align-items: center; gap: 12px; margin: 30px 0 16px; color: #6b7280; font-weight: 700; font-size: 14px; }
+.per-eq-sep::before, .per-eq-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.per-eq-cab { margin-bottom: 14px; }
+.per-eq-fecha-lbl { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+.per-eq-minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+.per-eq-mini { border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; background: #fff; }
+.per-eq-mini-ico { font-size: 20px; }
+.per-eq-mini-val { font-size: 24px; font-weight: 800; }
+.per-eq-mini-lbl { font-size: 12px; color: var(--muted); }
+.per-eq-verde .per-eq-mini-val { color: #047857; }
+.per-eq-naranja .per-eq-mini-val { color: #b45309; }
+.per-eq-rojo .per-eq-mini-val { color: #dc2626; }
+.per-eq-ausente td { background: #fef9f9; }
+.per-bdg-ausente { background: #fef2f2; color: #dc2626; text-transform: capitalize; }
+
+@media (max-width: 767px) {
+  .per-fichaje-wrap, .per-timeline, .per-eq { max-width: 100%; }
+  .per-fichaje-main { padding: 22px 16px; }
+  .per-fic-saludo { font-size: 22px; }
+  .per-fic-timer { font-size: 38px; }
+  .per-fic-btn { min-height: 64px; font-size: 18px; }
+  .per-tl-item { padding: 10px 0 10px 6px; }
+  .per-tl-hora, .per-tl-tipo { font-size: 16px; }
+  .per-eq-minis { grid-template-columns: 1fr 1fr; }
+  /* Tabla del equipo en cards */
+  .per-eq-tabla thead { display: none; }
+  .per-eq-tabla, .per-eq-tabla tbody, .per-eq-tabla tr, .per-eq-tabla td { display: block; width: 100%; }
+  .per-eq-tabla tr { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+  .per-eq-tabla td { border: none; padding: 4px 0; display: flex; justify-content: space-between; gap: 12px; font-size: 16px; }
+  .per-eq-tabla td::before { content: attr(data-lbl); font-weight: 600; color: var(--muted); }
+}
+
+/* ===== Sub-pestaña Ausencias ===== */
+.aus-cab { flex-wrap: wrap; gap: 12px; }
+.aus-leyenda { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 14px; }
+.aus-ley-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #4b5563; }
+.aus-ley-color { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.aus-sec-titulo { font-size: 14px; font-weight: 700; color: #374151; margin: 24px 0 10px; }
+.aus-sec-lista { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+/* Calendario (empleados × días) */
+.aus-cal-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.aus-cal-tabla { border-collapse: collapse; width: 100%; }
+.aus-cal-tabla th, .aus-cal-tabla td { border: 1px solid var(--border-soft); text-align: center; }
+.aus-cal-emp {
+  position: sticky; left: 0; z-index: 2; background: #fff; text-align: left !important;
+  padding: 6px 10px; min-width: 150px; white-space: nowrap;
+}
+thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
+.aus-cal-nom { display: block; font-weight: 600; font-size: 13px; }
+.aus-cal-saldo { display: block; font-size: 11px; color: var(--muted); }
+.aus-cal-dia { width: 26px; min-width: 26px; padding: 4px 0; font-size: 12px; font-weight: 600; color: #6b7280; background: #f9fafb; }
+.aus-cal-cell { width: 26px; min-width: 26px; height: 30px; }
+.aus-finde { background: #f6f7f9; }
+.aus-today { box-shadow: inset 0 0 0 2px var(--blue); }
+.aus-cell-on { border-color: rgba(0,0,0,.06) !important; }
+
+/* Tabla de saldo */
+.aus-saldo-tabla th, .aus-saldo-tabla td { padding: 8px 10px; font-size: 13px; }
+.aus-bar { height: 8px; border-radius: 999px; background: var(--border-soft); overflow: hidden; min-width: 90px; display: inline-block; vertical-align: middle; }
+.aus-bar-fill { height: 100%; background: var(--green); border-radius: 999px; }
+.aus-bar-txt { font-size: 12px; color: var(--muted); margin-left: 8px; }
+.aus-tot td { font-weight: 700; background: #f9fafb; }
+
+/* Lista de ausencias */
+.aus-bdg-tipo { color: #fff; }
+.aus-lista-tabla th, .aus-lista-tabla td { padding: 8px 10px; font-size: 13px; }
+.aus-dias-info { font-size: 13px; color: var(--blue); font-weight: 600; margin: 4px 0 10px; }
+
+@media (max-width: 767px) {
+  /* Calendario: ya tiene scroll horizontal por .aus-cal-wrap */
+  .aus-desglose { display: none; }
+  .aus-sec-lista select { width: 100%; }
+
+  /* Lista de ausencias en cards */
+  .aus-lista-tabla thead { display: none; }
+  .aus-lista-tabla, .aus-lista-tabla tbody, .aus-lista-tabla tr, .aus-lista-tabla td { display: block; width: 100%; }
+  .aus-lista-tabla tr { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+  .aus-lista-tabla td { border: none; padding: 4px 0; display: flex; justify-content: space-between; gap: 12px; font-size: 16px; }
+  .aus-lista-tabla td::before { content: attr(data-lbl); font-weight: 600; color: var(--muted); }
+  .aus-lista-tabla .vta-acciones { justify-content: flex-end; }
+}
+
+@media (max-width: 600px) {
+  .modal.modal-ancho { width: 95%; }
+}
+
+/* ===== Sub-pestaña Horas extra ===== */
+.hx-titulo { font-size: 18px; font-weight: 700; margin: 0; }
+.hx-minis { max-width: 640px; }
+.hx-mini-azul .per-eq-mini-val { color: #1d4ed8; }
+.hx-tabla th, .hx-tabla td { padding: 8px 10px; font-size: 13px; }
+.hx-adm-res { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+.hx-adm-res strong { color: var(--text); }
+
+@media (max-width: 767px) {
+  .hx-minis { grid-template-columns: 1fr 1fr; }
+  .hx-titulo { width: 100%; }
+  #hx-adm-emp, #hx-adm-anio, #hx-anio { width: 100%; }
+  .aus-cab .reservas-controles { width: 100%; }
+
+  /* Tabla de horas en cards */
+  .hx-tabla thead { display: none; }
+  .hx-tabla, .hx-tabla tbody, .hx-tabla tr, .hx-tabla td { display: block; width: 100%; }
+  .hx-tabla tfoot, .hx-tabla tfoot tr, .hx-tabla tfoot td { display: block; width: 100%; }
+  .hx-tabla tr { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+  .hx-tabla td { border: none; padding: 4px 0; display: flex; justify-content: space-between; gap: 12px; font-size: 16px; }
+  .hx-tabla td::before { content: attr(data-lbl); font-weight: 600; color: var(--muted); }
+  .hx-tabla td[colspan] { display: none; }
+  .hx-tabla .vta-acciones { justify-content: flex-end; }
+  .hx-tabla .btn-icono { min-height: 44px; min-width: 44px; }
 }

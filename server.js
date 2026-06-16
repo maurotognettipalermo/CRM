@@ -45,6 +45,7 @@ app.use('/api/limpieza', require('./routes/limpieza'));
 app.use('/api/mantenimiento', require('./routes/mantenimiento'));
 app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/mayoristas', require('./routes/mayoristas'));
+app.use('/api/personal', require('./routes/personal'));
 
 // Manejador de errores genérico.
 app.use((err, req, res, next) => {

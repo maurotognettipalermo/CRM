@@ -66,10 +66,10 @@ function arrancarApp() {
   // - Estadísticas: solo administradores.
   // - Roles de acceso único (limpieza, mantenimiento): solo ven su propio módulo.
   document.getElementById('nav-estadisticas').classList.toggle('oculto', rol !== 'administrador');
-  const soloTab = SOLO_TAB[rol];
-  if (soloTab) {
+  const restr = ROL_RESTRINGIDO[rol];
+  if (restr) {
     document.querySelectorAll('.nav-item').forEach((it) =>
-      it.classList.toggle('oculto', it.dataset.tab !== soloTab));
+      it.classList.toggle('oculto', !restr.permitidas.includes(it.dataset.tab)));
   }
 
   Dashboard.init();
@@ -85,14 +85,19 @@ function arrancarApp() {
   Limpieza.init();
   Mantenimiento.init();
   Ventas.init();
+  Personal.init();
 
-  // Vista por defecto: su propio módulo para roles de acceso único, Dashboard para el resto.
-  if (soloTab) activarTab(soloTab);
+  // Vista por defecto: su módulo principal para roles restringidos, Dashboard para el resto.
+  if (restr) activarTab(restr.principal);
   else Dashboard.cargar().catch((e) => toast(e.message, 'error'));
 }
 
-// Roles con acceso restringido a un único módulo (clave = rol, valor = pestaña permitida).
-const SOLO_TAB = { limpieza: 'limpieza', mantenimiento: 'mantenimiento' };
+// Roles con acceso restringido. `principal` = vista por defecto; `permitidas` = pestañas
+// que pueden ver (su módulo + Personal, para poder fichar).
+const ROL_RESTRINGIDO = {
+  limpieza: { principal: 'limpieza', permitidas: ['limpieza', 'personal'] },
+  mantenimiento: { principal: 'mantenimiento', permitidas: ['mantenimiento', 'personal'] },
+};
 
 // En móvil cierra el sidebar (en móvil la clase .colapsado = abierto, así que cerrar
 // = quitarla). No-op en escritorio, donde .colapsado es el modo "icono".
@@ -131,11 +136,11 @@ function pintarBadgeRol(rol) {
 function activarTab(nombre) {
   const rol = (Auth.sesion() || {}).rol;
 
-  // Roles de acceso único (limpieza, mantenimiento): solo su propio módulo.
-  const soloTab = SOLO_TAB[rol];
-  if (soloTab && nombre !== soloTab) {
+  // Roles restringidos (limpieza, mantenimiento): solo sus pestañas permitidas.
+  const restr = ROL_RESTRINGIDO[rol];
+  if (restr && !restr.permitidas.includes(nombre)) {
     toast('No tienes acceso a esta sección', 'error');
-    nombre = soloTab;
+    nombre = restr.principal;
   }
 
   // Estadísticas está restringida a administradores (también frente a acceso directo).
@@ -165,5 +170,6 @@ function activarTab(nombre) {
   if (nombre === 'estadisticas') Estadisticas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'limpieza')     Limpieza.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'mantenimiento') Mantenimiento.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'personal')     Personal.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'ajustes')      Ajustes.cargar().catch((e) => toast(e.message, 'error'));
 }

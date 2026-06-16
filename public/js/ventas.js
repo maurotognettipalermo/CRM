@@ -31,6 +31,15 @@ const Ventas = (() => {
   let fPresMin = '';
   let fPresMax = '';
 
+  // Estado de la sub-pestaña Propietarios (cartera de ventas).
+  let propvent = [];           // propietarios de venta cargados
+  let prvFicha = null;         // propietario abierto en el panel
+  let prvConstruido = false;
+  let prvBusqueda = '';
+  let prvCache = [];           // caché para el typeahead del modal de propiedad
+  let prvCacheOk = false;
+  let vfPropVentaId = null;    // propietario_venta_id seleccionado en el modal de propiedad
+
   // ==================== Helpers ====================
   function euro(n) {
     if (n === null || n === undefined || n === '') return '—';
@@ -338,14 +347,30 @@ const Ventas = (() => {
         </div>
       </div>`;
 
-    const nomProp = [d.propietario_nombre, d.propietario_apellidos].filter(Boolean).join(' ') || '—';
-    const propietario = `
-      <div class="vta-d-seccion">
-        <div class="vta-d-titulo-sec">👤 Propietario</div>
-        <div class="vta-d-cli-nombre">${esc(nomProp)}</div>
-        ${d.propietario_telefono ? `<div class="vta-d-linea">📞 <a class="vta-link" href="tel:${esc(d.propietario_telefono)}">${esc(d.propietario_telefono)}</a></div>` : ''}
-        ${d.propietario_email ? `<div class="vta-d-linea">✉️ <a class="vta-link" href="mailto:${esc(d.propietario_email)}">${esc(d.propietario_email)}</a></div>` : ''}
-      </div>`;
+    let propietario;
+    if (d.propietario_venta_id) {
+      // Propietario vinculado de la cartera de ventas.
+      const nomPV = [d.pv_nombre, d.pv_apellidos].filter(Boolean).join(' ') || '—';
+      propietario = `
+        <div class="vta-d-seccion">
+          <div class="vta-d-titulo-sec">👤 Propietario <span class="vta-bdg vta-bdg-prv">🔗 Cartera de ventas</span></div>
+          <div class="vta-d-cli-nombre">${esc(nomPV)}</div>
+          ${d.pv_telefono ? `<div class="vta-d-linea">📞 <a class="vta-link" href="tel:${esc(d.pv_telefono)}">${esc(d.pv_telefono)}</a></div>` : ''}
+          ${d.pv_email ? `<div class="vta-d-linea">✉️ <a class="vta-link" href="mailto:${esc(d.pv_email)}">${esc(d.pv_email)}</a></div>` : ''}
+          ${d.pv_dni ? `<div class="vta-d-linea">🪪 ${esc(d.pv_dni)}</div>` : ''}
+          <div class="vta-d-guardar-wrap"><button class="btn-sec" id="vta-d-ver-prv">Ver ficha</button></div>
+        </div>`;
+    } else {
+      // Datos del propietario en texto plano (snapshot del Idealista).
+      const nomProp = [d.propietario_nombre, d.propietario_apellidos].filter(Boolean).join(' ') || '—';
+      propietario = `
+        <div class="vta-d-seccion">
+          <div class="vta-d-titulo-sec">👤 Propietario</div>
+          <div class="vta-d-cli-nombre">${esc(nomProp)}</div>
+          ${d.propietario_telefono ? `<div class="vta-d-linea">📞 <a class="vta-link" href="tel:${esc(d.propietario_telefono)}">${esc(d.propietario_telefono)}</a></div>` : ''}
+          ${d.propietario_email ? `<div class="vta-d-linea">✉️ <a class="vta-link" href="mailto:${esc(d.propietario_email)}">${esc(d.propietario_email)}</a></div>` : ''}
+        </div>`;
+    }
 
     const notas = `
       <div class="vta-d-seccion">
@@ -402,6 +427,9 @@ const Ventas = (() => {
     const btnEscritura = document.getElementById('vta-add-escritura');
     if (btnEscritura) btnEscritura.addEventListener('click', () => modalAnadirEscritura(d));
 
+    const btnVerPrv = document.getElementById('vta-d-ver-prv');
+    if (btnVerPrv) btnVerPrv.addEventListener('click', () => abrirFichaPropvent(d.propietario_venta_id));
+
     document.getElementById('vta-d-guardar-notas').addEventListener('click', async () => {
       const btn = document.getElementById('vta-d-guardar-notas');
       btn.disabled = true; btn.textContent = 'Guardando…';
@@ -418,9 +446,11 @@ const Ventas = (() => {
   }
 
   // ==================== Modal nueva / editar ====================
-  function modalFormulario(p) {
+  async function modalFormulario(p) {
     const esNueva = !p;
     p = p || {};
+    vfPropVentaId = p.propietario_venta_id || null;
+    await cargarPrvCache();
     const optTipo = ['', 'Piso', 'Ático', 'Casa', 'Villa', 'Otros']
       .map((t) => `<option value="${t}"${(p.tipo || '') === t ? ' selected' : ''}>${t || '— Tipo —'}</option>`).join('');
     const optEstado = ESTADOS.map((e) => `<option value="${e}"${(p.estado || 'Disponible') === e ? ' selected' : ''}>${e}</option>`).join('');
@@ -457,6 +487,13 @@ const Ventas = (() => {
         <div class="campo"><label>Garaje</label><input id="vf-garaje" value="${esc(p.garaje)}"></div>
       </div>
       <div class="vta-modal-sub">Propietario</div>
+      <div class="campo vta-ta">
+        <label>Propietario de la cartera de ventas</label>
+        <input id="vf-prv-input" class="input-buscar" autocomplete="off" placeholder="Buscar propietario por nombre, teléfono o email...">
+        <div id="vf-prv-res" class="vta-ta-res oculto"></div>
+        <div id="vf-prv-sel" class="vta-prv-sel oculto"></div>
+      </div>
+      <div class="vta-modal-nota">Datos del propietario en Idealista (solo referencia, no es el vínculo):</div>
       <div class="fila-campos">
         <div class="campo"><label>Nombre</label><input id="vf-propietario_nombre" value="${esc(p.propietario_nombre)}"></div>
         <div class="campo"><label>Apellidos</label><input id="vf-propietario_apellidos" value="${esc(p.propietario_apellidos)}"></div>
@@ -474,6 +511,47 @@ const Ventas = (() => {
     document.querySelector('.modal').classList.add('modal-ancho');
     document.getElementById('vf-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('vf-guardar').addEventListener('click', () => guardar(esNueva ? null : p.id));
+
+    // Typeahead de propietario de la cartera de ventas.
+    const prvInp = document.getElementById('vf-prv-input');
+    const prvRes = document.getElementById('vf-prv-res');
+    const setPrvSel = (pv) => {
+      const sel = document.getElementById('vf-prv-sel');
+      if (pv) {
+        vfPropVentaId = pv.id;
+        prvInp.classList.add('oculto');
+        sel.classList.remove('oculto');
+        sel.innerHTML = `🔗 <strong>${esc([pv.nombre, pv.apellidos].filter(Boolean).join(' '))}</strong>
+          ${pv.telefono ? '· ' + esc(pv.telefono) : ''}
+          <button type="button" class="btn-sec vta-prv-quitar" id="vf-prv-quitar">Quitar</button>`;
+        document.getElementById('vf-prv-quitar').addEventListener('click', () => setPrvSel(null));
+      } else {
+        vfPropVentaId = null;
+        sel.classList.add('oculto'); sel.innerHTML = '';
+        prvInp.classList.remove('oculto'); prvInp.value = '';
+      }
+    };
+    prvInp.addEventListener('input', () => {
+      const q = prvInp.value.trim().toLowerCase();
+      renderTA(prvRes,
+        prvCache.filter((pv) => `${pv.nombre} ${pv.apellidos || ''} ${pv.telefono || ''} ${pv.email || ''}`.toLowerCase().includes(q)),
+        (pv) => `${esc([pv.nombre, pv.apellidos].filter(Boolean).join(' '))}${pv.telefono ? ' · ' + esc(pv.telefono) : ''}`,
+        (pv) => { setPrvSel(pv); prvRes.classList.add('oculto'); });
+    });
+    document.getElementById('modal-contenido')?.addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) prvRes.classList.add('oculto');
+    });
+    if (vfPropVentaId) {
+      const actual = prvCache.find((pv) => pv.id == vfPropVentaId);
+      if (actual) setPrvSel(actual);
+    }
+  }
+
+  // Carga el catálogo de propietarios de venta para el typeahead (cacheado).
+  async function cargarPrvCache() {
+    if (prvCacheOk) return;
+    try { prvCache = await API.get('/api/ventas/propietarios-venta'); prvCacheOk = true; }
+    catch (e) { prvCache = prvCache || []; }
   }
 
   const CAMPOS_FORM = [
@@ -489,6 +567,7 @@ const Ventas = (() => {
     const body = {};
     for (const c of CAMPOS_FORM) body[c] = val('vf-' + c);
     body.referencia = referencia;
+    body.propietario_venta_id = vfPropVentaId; // null = sin vínculo
 
     const btn = document.getElementById('vf-guardar');
     btn.disabled = true; btn.textContent = 'Guardando…';
@@ -2116,6 +2195,356 @@ const Ventas = (() => {
       b.addEventListener('click', (e) => { e.stopPropagation(); modalFormulario(vendidos.find((p) => p.id == b.dataset.editar)); }));
   }
 
+  // ============================================================
+  //                    SUB-PESTAÑA PROPIETARIOS
+  // ============================================================
+  function nomPrv(p) { return [p.nombre, p.apellidos].filter(Boolean).join(' '); }
+
+  // ---- Construye la UI (una vez) ----
+  function construirPropvent() {
+    if (prvConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="propietarios"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vta-prop-cab">
+        <div class="reservas-controles">
+          <input type="search" id="prv-buscar" class="input-buscar" placeholder="Buscar por nombre, teléfono, email..." autocomplete="off">
+          <span id="prv-contador" class="alo-contador"></span>
+        </div>
+        <div class="vta-prop-acciones">
+          <button id="prv-importar" class="btn-sec">📥 Importar de alquileres</button>
+          <button id="prv-nuevo" class="btn-pri">＋ Nuevo propietario</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-propvent">
+          <thead><tr>
+            <th>Nombre</th><th>Teléfono</th><th>Email</th><th>DNI</th><th>Propiedades</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.getElementById('prv-buscar').addEventListener('input', (e) => { prvBusqueda = e.target.value; renderTablaPrv(); });
+    document.getElementById('prv-nuevo').addEventListener('click', () => modalPropvent(null));
+    document.getElementById('prv-importar').addEventListener('click', modalImportarAlquiler);
+    prvConstruido = true;
+  }
+
+  // ---- Carga + tabla ----
+  async function cargarPropvent() {
+    const tbody = document.querySelector('#tabla-propvent tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">Cargando propietarios…</td></tr>';
+    try { propvent = await API.get('/api/ventas/propietarios-venta'); }
+    catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">No se pudieron cargar los propietarios.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderTablaPrv();
+  }
+
+  function filtradasPrv() {
+    const q = prvBusqueda.trim().toLowerCase();
+    if (!q) return propvent;
+    return propvent.filter((p) =>
+      `${p.nombre || ''} ${p.apellidos || ''} ${p.email || ''} ${p.telefono || ''} ${p.dni || ''}`.toLowerCase().includes(q));
+  }
+
+  function renderTablaPrv() {
+    const tbody = document.querySelector('#tabla-propvent tbody');
+    if (!tbody) return;
+    const lista = filtradasPrv();
+    const cont = document.getElementById('prv-contador');
+    if (cont) cont.textContent = `${lista.length} propietario${lista.length === 1 ? '' : 's'}`;
+
+    if (!propvent.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="vta-vacio">No hay propietarios. Crea uno nuevo o impórtalo de alquileres.</td></tr>';
+      return;
+    }
+    if (!lista.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="vta-vacio">Ningún propietario coincide con la búsqueda.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lista.map((p) => {
+      const np = p.num_propiedades || 0;
+      const propCel = np > 0 ? `<span class="vta-visitas-badge">${np}</span>` : '<span class="vta-muted">0</span>';
+      return `
+        <tr data-ficha="${p.id}">
+          <td><a class="vta-ref" data-nom="${p.id}">${esc(nomPrv(p)) || '—'}</a>${p.propietario_alquiler_id ? ' <span class="vta-bdg vta-bdg-prv" title="Importado de alquileres">🔗</span>' : ''}</td>
+          <td>${esc(p.telefono) || '—'}</td>
+          <td>${esc(p.email) || '—'}</td>
+          <td>${esc(p.dni) || '—'}</td>
+          <td>${propCel}</td>
+          <td class="vta-acciones">
+            <button class="btn-icono" data-editar="${p.id}" title="Editar">✏️</button>
+            <button class="btn-icono" data-borrar="${p.id}" title="Eliminar">🗑</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('[data-editar]') || e.target.closest('[data-borrar]') || e.target.closest('[data-nom]')) return;
+        abrirFichaPropvent(tr.dataset.ficha);
+      }));
+    tbody.querySelectorAll('[data-nom]').forEach((a) =>
+      a.addEventListener('click', (e) => { e.stopPropagation(); abrirFichaPropvent(a.dataset.nom); }));
+    tbody.querySelectorAll('[data-editar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalPropvent(propvent.find((p) => p.id == b.dataset.editar)); }));
+    tbody.querySelectorAll('[data-borrar]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); borrarPropvent(propvent.find((p) => p.id == b.dataset.borrar)); }));
+  }
+
+  // ---- Panel lateral (ficha) ----
+  function crearPanelPrv() {
+    if (document.getElementById('prv-panel')) return;
+    const fondo = document.createElement('div');
+    fondo.id = 'prv-panel-fondo';
+    fondo.className = 'panel-fondo';
+    const panel = document.createElement('aside');
+    panel.id = 'prv-panel';
+    panel.className = 'panel-lateral';
+    panel.setAttribute('aria-label', 'Ficha de propietario');
+    panel.innerHTML = `
+      <header class="panel-cabecera">
+        <div class="rsv-titulo-grupo">
+          <h3 id="prv-d-titulo">Propietario</h3>
+          <span id="prv-d-badge"></span>
+        </div>
+        <div class="panel-cabecera-acciones">
+          <button id="prv-d-editar" class="btn-sec">✏️ Editar</button>
+          <button id="prv-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
+        </div>
+      </header>
+      <div id="prv-d-cuerpo" class="panel-cuerpo"></div>`;
+    document.body.appendChild(fondo);
+    document.body.appendChild(panel);
+    fondo.addEventListener('click', cerrarPanelPrv);
+    panel.querySelector('#prv-d-cerrar').addEventListener('click', cerrarPanelPrv);
+    panel.querySelector('#prv-d-editar').addEventListener('click', () => { if (prvFicha) modalPropvent(prvFicha); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
+      if (!modalAbierto && panel.classList.contains('abierto')) cerrarPanelPrv();
+    }, true);
+  }
+  function abrirPanelPrv() {
+    document.getElementById('prv-panel-fondo').classList.add('abierto');
+    document.getElementById('prv-panel').classList.add('abierto');
+  }
+  function cerrarPanelPrv() {
+    document.getElementById('prv-panel-fondo')?.classList.remove('abierto');
+    document.getElementById('prv-panel')?.classList.remove('abierto');
+    prvFicha = null;
+  }
+
+  async function abrirFichaPropvent(id) {
+    crearPanelPrv();
+    let d;
+    try { d = await API.get('/api/ventas/propietarios-venta/' + id); }
+    catch (e) { return toast(e.message, 'error'); }
+    prvFicha = d;
+    document.getElementById('prv-d-titulo').textContent = nomPrv(d) || 'Propietario';
+    document.getElementById('prv-d-badge').innerHTML = d.propietario_alquiler_id
+      ? '<span class="vta-bdg vta-bdg-prv">🔗 Importado de alquileres</span>' : '';
+    renderCuerpoPrv(d);
+    abrirPanelPrv();
+  }
+
+  function renderCuerpoPrv(d) {
+    const datos = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">👤 Datos personales</div>
+        <div class="vta-d-grid">
+          ${dato('Nombre', esc(d.nombre) || '—')}
+          ${dato('Apellidos', esc(d.apellidos) || '—')}
+          ${dato('Teléfono', d.telefono ? `<a class="vta-link" href="tel:${esc(d.telefono)}">${esc(d.telefono)}</a>` : '—')}
+          ${dato('Teléfono 2', d.telefono2 ? `<a class="vta-link" href="tel:${esc(d.telefono2)}">${esc(d.telefono2)}</a>` : '—')}
+          ${dato('Email', d.email ? `<a class="vta-link" href="mailto:${esc(d.email)}">${esc(d.email)}</a>` : '—')}
+          ${dato('DNI', esc(d.dni) || '—')}
+          ${dato('Dirección', esc(d.direccion) || '—')}
+          ${dato('Ciudad', esc(d.ciudad) || '—')}
+          ${dato('Código postal', esc(d.codigo_postal) || '—')}
+        </div>
+      </div>`;
+
+    const props = (d.propiedades || []).map((p) => {
+      const dir = [p.calle, p.numero].filter(Boolean).join(' ') || p.zona || '';
+      return `
+        <div class="vta-sug-card" data-prop="${p.id}" style="cursor:pointer">
+          <div class="vta-sug-info">
+            <div class="vta-sug-ref">${esc(p.referencia)} <span class="vta-sug-precio">${euro(p.precio)}</span></div>
+            <div class="vta-sug-detalle">${esc(dir) || '—'}</div>
+          </div>
+          ${estadoBadge(p.estado)}
+        </div>`;
+    }).join('') || '<div class="vta-muted">Sin propiedades asociadas</div>';
+    const propsSec = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">🏠 Propiedades en venta</div>
+        ${props}
+      </div>`;
+
+    const notas = `
+      <div class="vta-d-seccion">
+        <div class="vta-d-titulo-sec">📝 Notas</div>
+        <textarea id="prv-d-notas" class="vta-d-textarea" rows="3" placeholder="Notas del propietario...">${esc(d.notas)}</textarea>
+        <div class="vta-d-guardar-wrap"><button class="btn-pri" id="prv-d-guardar-notas">Guardar</button></div>
+      </div>`;
+
+    document.getElementById('prv-d-cuerpo').innerHTML = datos + propsSec + notas;
+
+    document.querySelectorAll('#prv-d-cuerpo [data-prop]').forEach((el) =>
+      el.addEventListener('click', () => abrirFicha(el.dataset.prop)));
+
+    document.getElementById('prv-d-guardar-notas').addEventListener('click', async () => {
+      const btn = document.getElementById('prv-d-guardar-notas');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await API.put('/api/ventas/propietarios-venta/' + d.id, { notas: val('prv-d-notas') });
+        prvFicha.notas = val('prv-d-notas');
+        toast('Guardado', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+    });
+  }
+
+  // ---- Modal nuevo / editar ----
+  function modalPropvent(p) {
+    const esNuevo = !p;
+    p = p || {};
+    abrirModal(`
+      <h3>${esNuevo ? '＋ Nuevo propietario' : '✏️ Editar propietario'}</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Nombre *</label><input id="prf-nombre" value="${esc(p.nombre)}"></div>
+        <div class="campo"><label>Apellidos</label><input id="prf-apellidos" value="${esc(p.apellidos)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Teléfono</label><input id="prf-telefono" value="${esc(p.telefono)}"></div>
+        <div class="campo"><label>Teléfono 2</label><input id="prf-telefono2" value="${esc(p.telefono2)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Email</label><input id="prf-email" value="${esc(p.email)}"></div>
+        <div class="campo"><label>DNI</label><input id="prf-dni" value="${esc(p.dni)}"></div>
+      </div>
+      <div class="campo"><label>Dirección</label><input id="prf-direccion" value="${esc(p.direccion)}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Ciudad</label><input id="prf-ciudad" value="${esc(p.ciudad)}"></div>
+        <div class="campo"><label>Código postal</label><input id="prf-codigo_postal" value="${esc(p.codigo_postal)}"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="prf-notas" rows="2">${esc(p.notas)}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="prf-cancelar">Cancelar</button>
+        <button class="btn-pri" id="prf-guardar">${esNuevo ? 'Crear' : 'Guardar'}</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+    document.getElementById('prf-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('prf-guardar').addEventListener('click', () => guardarPropvent(esNuevo ? null : p.id));
+  }
+
+  const CAMPOS_PRV = ['nombre', 'apellidos', 'telefono', 'telefono2', 'email', 'dni', 'direccion', 'ciudad', 'codigo_postal', 'notas'];
+
+  async function guardarPropvent(id) {
+    const nombre = val('prf-nombre').trim();
+    if (!nombre) return toast('El nombre es obligatorio', 'error');
+    const body = {};
+    for (const c of CAMPOS_PRV) body[c] = val('prf-' + c);
+    body.nombre = nombre;
+    const btn = document.getElementById('prf-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (id) await API.put('/api/ventas/propietarios-venta/' + id, body);
+      else await API.post('/api/ventas/propietarios-venta', body);
+      cerrarModal();
+      prvCacheOk = false; // invalida la caché del typeahead de propiedad
+      if (prvConstruido) await cargarPropvent();
+      if (prvFicha && id && prvFicha.id === id) await abrirFichaPropvent(id);
+      toast(id ? 'Propietario actualizado' : 'Propietario creado', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = id ? 'Guardar' : 'Crear';
+    }
+  }
+
+  async function borrarPropvent(p) {
+    if (!p) return;
+    if (!confirm(`¿Eliminar el propietario ${nomPrv(p)}?`)) return;
+    try {
+      await API.del('/api/ventas/propietarios-venta/' + p.id);
+      await cargarPropvent();
+      toast('Propietario eliminado', 'ok');
+    } catch (e) { toast(e.message, 'error'); } // 409 si tiene propiedades
+  }
+
+  // ---- Modal importar de alquileres (typeahead sobre /api/propietarios) ----
+  function modalImportarAlquiler() {
+    let elegido = null;        // propietario de alquiler seleccionado
+    let catalogo = [];         // propietarios de alquiler
+    abrirModal(`
+      <h3>📥 Importar de alquileres</h3>
+      <div class="vta-import-aviso">ℹ️ Copia los datos de un propietario de alquiler a la cartera de ventas.</div>
+      <div class="campo vta-ta">
+        <label>Buscar propietario de alquiler</label>
+        <input id="pia-input" class="input-buscar" autocomplete="off" placeholder="Buscar por nombre, teléfono o email...">
+        <div id="pia-res" class="vta-ta-res oculto"></div>
+      </div>
+      <div id="pia-preview" class="vta-import-resultado oculto"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pia-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pia-importar" disabled>Importar</button>
+      </div>`);
+
+    const input = document.getElementById('pia-input');
+    const res = document.getElementById('pia-res');
+    const preview = document.getElementById('pia-preview');
+    const btn = document.getElementById('pia-importar');
+
+    const mostrarPreview = (p) => {
+      const dni = p.numero_documento || p.dni || '';
+      const nom = [p.nombre, p.apellidos, p.segundo_apellido].filter(Boolean).join(' ');
+      preview.classList.remove('oculto');
+      preview.innerHTML = `
+        <div class="vta-d-titulo-sec" style="border:none">Se importará:</div>
+        <div class="vta-d-grid">
+          ${dato('Nombre', esc(nom) || '—')}
+          ${dato('Teléfono', esc(p.telefono) || '—')}
+          ${dato('Email', esc(p.email) || '—')}
+          ${dato('DNI', esc(dni) || '—')}
+        </div>`;
+      btn.disabled = false;
+    };
+
+    input.addEventListener('input', async () => {
+      elegido = null; btn.disabled = true; preview.classList.add('oculto');
+      const q = input.value.trim().toLowerCase();
+      if (!catalogo.length) {
+        try { catalogo = await API.get('/api/propietarios'); } catch (e) { return toast(e.message, 'error'); }
+      }
+      renderTA(res,
+        catalogo.filter((p) => `${p.nombre || ''} ${p.apellidos || ''} ${p.telefono || ''} ${p.email || ''}`.toLowerCase().includes(q)),
+        (p) => `${esc([p.nombre, p.apellidos].filter(Boolean).join(' '))}${p.telefono ? ' · ' + esc(p.telefono) : ''}`,
+        (p) => { elegido = p; input.value = [p.nombre, p.apellidos].filter(Boolean).join(' '); res.classList.add('oculto'); mostrarPreview(p); });
+    });
+    document.getElementById('modal-contenido')?.addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) res.classList.add('oculto');
+    });
+
+    document.getElementById('pia-cancelar').addEventListener('click', cerrarModal);
+    btn.addEventListener('click', async () => {
+      if (!elegido) return toast('Selecciona un propietario', 'error');
+      btn.disabled = true; btn.textContent = 'Importando…';
+      try {
+        await API.post('/api/ventas/propietarios-venta/importar-alquiler', { propietario_id: elegido.id });
+        cerrarModal();
+        prvCacheOk = false;
+        if (prvConstruido) await cargarPropvent();
+        toast('Propietario importado', 'ok');
+      } catch (e) {
+        toast(e.message, 'error'); // 409 → "Este propietario ya fue importado"
+        btn.disabled = false; btn.textContent = 'Importar';
+      }
+    });
+  }
+
   // ==================== Init ====================
   function init() {
     construirFiltros();
@@ -2163,6 +2592,7 @@ const Ventas = (() => {
         document.querySelectorAll('#vista-ventas .sub-panel').forEach((p) =>
           p.classList.toggle('activo', p.dataset.panelSub === b.dataset.sub));
         if (b.dataset.sub === 'clientes') { construirClientes(); cargarClientes(); }
+        if (b.dataset.sub === 'propietarios') { construirPropvent(); cargarPropvent(); }
         if (b.dataset.sub === 'visitas') { construirVisitas(); cargarVisitas(); }
         if (b.dataset.sub === 'calendario') { construirCalendario(); cargarCalendario(); }
         if (b.dataset.sub === 'vendidos') { construirVendidos(); cargarVendidos(); }
