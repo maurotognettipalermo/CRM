@@ -293,21 +293,24 @@ router.get('/fichajes/resumen', (req, res) => {
   res.json({ mes, anio, empleados: resultado });
 });
 
-// GET /api/personal/fichajes/exportar?empleado_id=&mes=&anio= — CSV del mes (solo admin).
-// (antes de la ruta genérica /fichajes)
+// GET /api/personal/fichajes/exportar?empleado_ids=&meses=&anio= — CSV (solo admin).
+// meses/empleado_ids: listas separadas por coma; vacío = todos. (antes de /fichajes)
 router.get('/fichajes/exportar', (req, res) => {
   if (!esAdmin(req)) return res.status(403).json({ error: 'Solo disponible para administradores' });
-  const mes = aEntero(req.query.mes) || (new Date().getMonth() + 1);
   const anio = aEntero(req.query.anio) || new Date().getFullYear();
-  const pedido = aEntero(req.query.empleado_id);
 
-  const empleados = pedido
-    ? db.prepare('SELECT * FROM empleados WHERE id = ?').all(pedido)
+  const parseNums = (v) => String(v || '').split(',').map((x) => parseInt(x, 10)).filter((n) => !isNaN(n));
+  let meses = [...new Set(parseNums(req.query.meses).filter((m) => m >= 1 && m <= 12))].sort((a, b) => a - b);
+  if (!meses.length) meses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const ids = [...new Set(parseNums(req.query.empleado_ids))];
+
+  let empleados = ids.length
+    ? ids.map((id) => db.prepare('SELECT * FROM empleados WHERE id = ?').get(id)).filter(Boolean)
     : db.prepare('SELECT * FROM empleados ORDER BY nombre COLLATE NOCASE, apellidos COLLATE NOCASE').all();
+  if (ids.length) empleados.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
 
   const pad = (n) => String(n).padStart(2, '0');
   const durHHMM = (sec) => `${pad(Math.floor(sec / 3600))}:${pad(Math.floor((sec % 3600) / 60))}`;
-  const diasMes = new Date(anio, mes, 0).getDate();
 
   // Pausas de un día: [{ini, fin}] (fin null si quedó en curso).
   function pausasDelDia(rows) {
@@ -320,32 +323,35 @@ router.get('/fichajes/exportar', (req, res) => {
     return res;
   }
 
-  // 1ª pasada: construye las filas y calcula el nº máximo de pausas/día.
+  // 1ª pasada: construye las filas (por empleado, meses asc y días asc) y el máximo de pausas/día.
   let maxPausas = 0;
   const bloques = empleados.map((emp) => {
     const nombre = [emp.nombre, emp.apellidos].filter(Boolean).join(' ');
-    let totalMes = 0;
+    let total = 0;
     const filas = [];
-    for (let d = 1; d <= diasMes; d++) {
-      const dow = new Date(anio, mes - 1, d).getDay();
-      if (dow === 0 || dow === 6) continue; // solo laborables
-      const fecha = `${anio}-${pad(mes)}-${pad(d)}`;
-      const rows = fichajesDelDia(emp.id, fecha);
-      const fechaTxt = `${pad(d)}/${pad(mes)}/${anio}`;
-      if (!rows.length) { filas.push({ fechaTxt, vacio: true }); continue; }
-      const entrada = (rows.find((f) => f.tipo === 'entrada') || {}).hora || '';
-      const salida = [...rows].reverse().find((f) => f.tipo === 'salida');
-      const pausas = pausasDelDia(rows).map((p) => ({
-        ini: (p.ini || '').slice(0, 5),
-        fin: p.fin ? p.fin.slice(0, 5) : '',
-        dur: p.fin ? durHHMM(horaASegundos(p.fin) - horaASegundos(p.ini)) : '',
-      }));
-      if (pausas.length > maxPausas) maxPausas = pausas.length;
-      const horas = resumenDia(rows, null).horas_trabajadas;
-      totalMes += horas;
-      filas.push({ fechaTxt, entrada: entrada.slice(0, 5), salida: salida ? salida.hora.slice(0, 5) : '', pausas, horas });
+    for (const mes of meses) {
+      const diasMes = new Date(anio, mes, 0).getDate();
+      for (let d = 1; d <= diasMes; d++) {
+        const dow = new Date(anio, mes - 1, d).getDay();
+        if (dow === 0 || dow === 6) continue; // solo laborables
+        const fecha = `${anio}-${pad(mes)}-${pad(d)}`;
+        const rows = fichajesDelDia(emp.id, fecha);
+        const fechaTxt = `${pad(d)}/${pad(mes)}/${anio}`;
+        if (!rows.length) { filas.push({ fechaTxt, vacio: true }); continue; }
+        const entrada = (rows.find((f) => f.tipo === 'entrada') || {}).hora || '';
+        const salida = [...rows].reverse().find((f) => f.tipo === 'salida');
+        const pausas = pausasDelDia(rows).map((p) => ({
+          ini: (p.ini || '').slice(0, 5),
+          fin: p.fin ? p.fin.slice(0, 5) : '',
+          dur: p.fin ? durHHMM(horaASegundos(p.fin) - horaASegundos(p.ini)) : '',
+        }));
+        if (pausas.length > maxPausas) maxPausas = pausas.length;
+        const horas = resumenDia(rows, null).horas_trabajadas;
+        total += horas;
+        filas.push({ fechaTxt, entrada: entrada.slice(0, 5), salida: salida ? salida.hora.slice(0, 5) : '', pausas, horas });
+      }
     }
-    return { nombre, filas, totalMes: Math.round(totalMes * 100) / 100 };
+    return { nombre, filas, total: Math.round(total * 100) / 100 };
   });
 
   // Cabecera con columnas de pausa dinámicas.
@@ -380,15 +386,22 @@ router.get('/fichajes/exportar', (req, res) => {
       }
       lineas.push(fila.map(cell).join(';'));
     }
-    // Fila de totales del mes para este empleado.
+    // Fila de totales del periodo para este empleado.
     const tot = [b.nombre, 'TOTAL'];
     for (let k = 0; k < 1 + nPausasCols * 3; k++) tot.push(''); // Entrada + columnas de pausa
-    tot.push('', b.totalMes.toFixed(2));                         // Salida vacía + Total
+    tot.push('', b.total.toFixed(2));                            // Salida vacía + Total
     lineas.push(tot.map(cell).join(';'));
   }
 
+  // Nombre de archivo según el rango de meses.
+  const ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  let sufijo;
+  if (meses.length === 12) sufijo = 'completo';
+  else if (meses.length === 1) sufijo = ABBR[meses[0] - 1];
+  else sufijo = `${ABBR[meses[0] - 1]}-a-${ABBR[meses[meses.length - 1] - 1]}`;
+
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="fichajes-${anio}-${pad(mes)}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="fichajes-${anio}-${sufijo}.csv"`);
   res.write('\uFEFF'); // BOM para que Excel reconozca UTF-8
   res.end(lineas.join('\r\n'));
 });

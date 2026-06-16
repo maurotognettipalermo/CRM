@@ -636,39 +636,102 @@ const Personal = (() => {
     document.getElementById('per-eq-exportar').addEventListener('click', modalExportarFichajes);
   }
 
-  // Modal de exportación de fichajes a CSV (admin).
+  const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+  // Modal de exportación de fichajes a CSV (admin): empleados y meses múltiples.
   async function modalExportarFichajes() {
     let emps = [];
-    try { emps = await API.get('/api/personal/empleados'); } catch (e) { /* el select queda solo con "Todos" */ }
-    const optEmp = '<option value="">Todos los empleados</option>' +
-      emps.map((e) => `<option value="${e.id}">${esc(nom(e))}</option>`).join('');
+    try { emps = await API.get('/api/personal/empleados'); } catch (e) { /* lista vacía */ }
     const mesAhora = new Date().getMonth() + 1;
-    const optMes = AUS_MESES.map((m, i) => `<option value="${i + 1}"${(i + 1) === mesAhora ? ' selected' : ''}>${m}</option>`).join('');
+
+    const empItems = emps.map((e) =>
+      `<label class="pex-chk" style="display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:14px">
+        <input type="checkbox" class="pex-emp" value="${e.id}" checked>
+        <span>${esc(nom(e))}${e.puesto ? ` <span style="color:var(--muted);font-size:12px">· ${esc(e.puesto)}</span>` : ''}</span>
+      </label>`).join('') || '<div style="color:var(--muted);padding:8px">No hay empleados.</div>';
+
+    const mesItems = MESES_CORTO.map((m, i) =>
+      `<label class="pex-chk" style="display:flex;align-items:center;gap:6px;font-size:14px">
+        <input type="checkbox" class="pex-mes" value="${i + 1}"${(i + 1) === mesAhora ? ' checked' : ''}> ${m}
+      </label>`).join('');
 
     abrirModal(`
       <h3>📥 Exportar fichajes</h3>
-      <div class="campo"><label>Empleado</label><select id="pex-emp">${optEmp}</select></div>
-      <div class="fila-campos">
-        <div class="campo"><label>Mes</label><select id="pex-mes">${optMes}</select></div>
-        <div class="campo"><label>Año</label><select id="pex-anio">${optAnios(new Date().getFullYear())}</select></div>
+      <div class="campo">
+        <label>Empleados</label>
+        <label class="pex-chk" style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:4px">
+          <input type="checkbox" id="pex-emp-all" checked> Seleccionar todos
+        </label>
+        <div id="pex-emp-lista" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">${empItems}</div>
+        <div id="pex-emp-cont" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
       </div>
+      <div class="campo">
+        <label>Meses</label>
+        <label class="pex-chk" style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px">
+          <input type="checkbox" id="pex-mes-all"> Todo el año
+        </label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${mesItems}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+          <button type="button" class="btn-sec" data-tri="1" style="font-size:12px;padding:4px 8px">1er trim.</button>
+          <button type="button" class="btn-sec" data-tri="2" style="font-size:12px;padding:4px 8px">2º trim.</button>
+          <button type="button" class="btn-sec" data-tri="3" style="font-size:12px;padding:4px 8px">3er trim.</button>
+          <button type="button" class="btn-sec" data-tri="4" style="font-size:12px;padding:4px 8px">4º trim.</button>
+        </div>
+      </div>
+      <div class="campo" style="max-width:160px"><label>Año</label><select id="pex-anio">${optAnios(new Date().getFullYear())}</select></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="pex-cancelar">Cancelar</button>
         <button class="btn-pri" id="pex-descargar">📥 Descargar CSV</button>
       </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+
+    const empAll = document.getElementById('pex-emp-all');
+    const empChks = () => Array.from(document.querySelectorAll('.pex-emp'));
+    const mesAll = document.getElementById('pex-mes-all');
+    const mesChks = () => Array.from(document.querySelectorAll('.pex-mes'));
+
+    const refrescarEmp = () => {
+      const chk = empChks(); const n = chk.filter((c) => c.checked).length;
+      document.getElementById('pex-emp-cont').textContent = `${n} empleado${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`;
+      empAll.checked = n === chk.length && n > 0;
+      empAll.indeterminate = n > 0 && n < chk.length;
+    };
+    const refrescarMes = () => {
+      const chk = mesChks(); const n = chk.filter((c) => c.checked).length;
+      mesAll.checked = n === 12;
+      mesAll.indeterminate = n > 0 && n < 12;
+    };
+
+    empAll.addEventListener('change', () => { empChks().forEach((c) => { c.checked = empAll.checked; }); refrescarEmp(); });
+    document.getElementById('pex-emp-lista').addEventListener('change', refrescarEmp);
+    mesAll.addEventListener('change', () => { mesChks().forEach((c) => { c.checked = mesAll.checked; }); refrescarMes(); });
+    document.querySelectorAll('.pex-mes').forEach((c) => c.addEventListener('change', refrescarMes));
+    document.querySelectorAll('[data-tri]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const t = Number(b.dataset.tri);
+        const ini = (t - 1) * 3 + 1, fin = ini + 2;
+        mesChks().forEach((c) => { const v = Number(c.value); c.checked = v >= ini && v <= fin; });
+        refrescarMes();
+      }));
+
+    refrescarEmp(); refrescarMes();
     document.getElementById('pex-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('pex-descargar').addEventListener('click', descargarFichajesCSV);
   }
 
   async function descargarFichajesCSV() {
-    const emp = val('pex-emp');
-    const mes = val('pex-mes');
     const anio = val('pex-anio');
+    const ids = Array.from(document.querySelectorAll('.pex-emp')).filter((c) => c.checked).map((c) => c.value);
+    const meses = Array.from(document.querySelectorAll('.pex-mes')).filter((c) => c.checked).map((c) => Number(c.value)).sort((a, b) => a - b);
+    if (!ids.length) return toast('Selecciona al menos un empleado', 'error');
+    if (!meses.length) return toast('Selecciona al menos un mes', 'error');
+    const todos = ids.length === document.querySelectorAll('.pex-emp').length;
+
     const btn = document.getElementById('pex-descargar');
     btn.disabled = true; btn.textContent = 'Generando…';
     try {
-      let url = `/api/personal/fichajes/exportar?mes=${mes}&anio=${anio}`;
-      if (emp) url += `&empleado_id=${emp}`;
+      let url = `/api/personal/fichajes/exportar?anio=${anio}&meses=${meses.join(',')}`;
+      if (!todos) url += `&empleado_ids=${ids.join(',')}`;
       const r = await fetch(url, { headers: { 'X-Auth-Token': Auth.sesion().token } });
       if (!r.ok) {
         let msg = 'No se pudo exportar';
@@ -676,9 +739,13 @@ const Personal = (() => {
         throw new Error(msg);
       }
       const blob = await r.blob();
+      const abbr = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const suf = meses.length === 12 ? 'completo'
+        : meses.length === 1 ? abbr[meses[0] - 1]
+          : `${abbr[meses[0] - 1]}-a-${abbr[meses[meses.length - 1] - 1]}`;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `fichajes-${anio}-${String(mes).padStart(2, '0')}.csv`;
+      a.download = `fichajes-${anio}-${suf}.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(a.href);
       cerrarModal();
