@@ -616,6 +616,7 @@ const Personal = (() => {
         <label class="per-eq-fecha-lbl">Fecha
           <input type="date" id="per-eq-fecha" class="input-fecha" value="${esc(equipoFecha)}">
         </label>
+        <button id="per-eq-exportar" class="btn-sec">📥 Exportar fichajes</button>
       </div>
       <div class="per-eq-minis">
         ${card('👥', r.empleados_fichados || 0, 'Fichados', 'per-eq-verde')}
@@ -632,6 +633,60 @@ const Personal = (() => {
       equipoFecha = e.target.value || hoyStr();
       cargarEquipo();
     });
+    document.getElementById('per-eq-exportar').addEventListener('click', modalExportarFichajes);
+  }
+
+  // Modal de exportación de fichajes a CSV (admin).
+  async function modalExportarFichajes() {
+    let emps = [];
+    try { emps = await API.get('/api/personal/empleados'); } catch (e) { /* el select queda solo con "Todos" */ }
+    const optEmp = '<option value="">Todos los empleados</option>' +
+      emps.map((e) => `<option value="${e.id}">${esc(nom(e))}</option>`).join('');
+    const mesAhora = new Date().getMonth() + 1;
+    const optMes = AUS_MESES.map((m, i) => `<option value="${i + 1}"${(i + 1) === mesAhora ? ' selected' : ''}>${m}</option>`).join('');
+
+    abrirModal(`
+      <h3>📥 Exportar fichajes</h3>
+      <div class="campo"><label>Empleado</label><select id="pex-emp">${optEmp}</select></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Mes</label><select id="pex-mes">${optMes}</select></div>
+        <div class="campo"><label>Año</label><select id="pex-anio">${optAnios(new Date().getFullYear())}</select></div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pex-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pex-descargar">📥 Descargar CSV</button>
+      </div>`);
+    document.getElementById('pex-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pex-descargar').addEventListener('click', descargarFichajesCSV);
+  }
+
+  async function descargarFichajesCSV() {
+    const emp = val('pex-emp');
+    const mes = val('pex-mes');
+    const anio = val('pex-anio');
+    const btn = document.getElementById('pex-descargar');
+    btn.disabled = true; btn.textContent = 'Generando…';
+    try {
+      let url = `/api/personal/fichajes/exportar?mes=${mes}&anio=${anio}`;
+      if (emp) url += `&empleado_id=${emp}`;
+      const r = await fetch(url, { headers: { 'X-Auth-Token': Auth.sesion().token } });
+      if (!r.ok) {
+        let msg = 'No se pudo exportar';
+        try { msg = (await r.json()).error || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `fichajes-${anio}-${String(mes).padStart(2, '0')}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+      cerrarModal();
+      toast('CSV descargado', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false; btn.textContent = '📥 Descargar CSV';
+    }
   }
 
   // ============================================================

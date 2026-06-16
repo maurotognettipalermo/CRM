@@ -293,6 +293,106 @@ router.get('/fichajes/resumen', (req, res) => {
   res.json({ mes, anio, empleados: resultado });
 });
 
+// GET /api/personal/fichajes/exportar?empleado_id=&mes=&anio= — CSV del mes (solo admin).
+// (antes de la ruta genérica /fichajes)
+router.get('/fichajes/exportar', (req, res) => {
+  if (!esAdmin(req)) return res.status(403).json({ error: 'Solo disponible para administradores' });
+  const mes = aEntero(req.query.mes) || (new Date().getMonth() + 1);
+  const anio = aEntero(req.query.anio) || new Date().getFullYear();
+  const pedido = aEntero(req.query.empleado_id);
+
+  const empleados = pedido
+    ? db.prepare('SELECT * FROM empleados WHERE id = ?').all(pedido)
+    : db.prepare('SELECT * FROM empleados ORDER BY nombre COLLATE NOCASE, apellidos COLLATE NOCASE').all();
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const durHHMM = (sec) => `${pad(Math.floor(sec / 3600))}:${pad(Math.floor((sec % 3600) / 60))}`;
+  const diasMes = new Date(anio, mes, 0).getDate();
+
+  // Pausas de un día: [{ini, fin}] (fin null si quedó en curso).
+  function pausasDelDia(rows) {
+    const res = [];
+    let abierta = null;
+    for (const f of rows) {
+      if (f.tipo === 'pausa') { abierta = { ini: f.hora, fin: null }; res.push(abierta); }
+      else if (f.tipo === 'reanudacion' && abierta) { abierta.fin = f.hora; abierta = null; }
+    }
+    return res;
+  }
+
+  // 1ª pasada: construye las filas y calcula el nº máximo de pausas/día.
+  let maxPausas = 0;
+  const bloques = empleados.map((emp) => {
+    const nombre = [emp.nombre, emp.apellidos].filter(Boolean).join(' ');
+    let totalMes = 0;
+    const filas = [];
+    for (let d = 1; d <= diasMes; d++) {
+      const dow = new Date(anio, mes - 1, d).getDay();
+      if (dow === 0 || dow === 6) continue; // solo laborables
+      const fecha = `${anio}-${pad(mes)}-${pad(d)}`;
+      const rows = fichajesDelDia(emp.id, fecha);
+      const fechaTxt = `${pad(d)}/${pad(mes)}/${anio}`;
+      if (!rows.length) { filas.push({ fechaTxt, vacio: true }); continue; }
+      const entrada = (rows.find((f) => f.tipo === 'entrada') || {}).hora || '';
+      const salida = [...rows].reverse().find((f) => f.tipo === 'salida');
+      const pausas = pausasDelDia(rows).map((p) => ({
+        ini: (p.ini || '').slice(0, 5),
+        fin: p.fin ? p.fin.slice(0, 5) : '',
+        dur: p.fin ? durHHMM(horaASegundos(p.fin) - horaASegundos(p.ini)) : '',
+      }));
+      if (pausas.length > maxPausas) maxPausas = pausas.length;
+      const horas = resumenDia(rows, null).horas_trabajadas;
+      totalMes += horas;
+      filas.push({ fechaTxt, entrada: entrada.slice(0, 5), salida: salida ? salida.hora.slice(0, 5) : '', pausas, horas });
+    }
+    return { nombre, filas, totalMes: Math.round(totalMes * 100) / 100 };
+  });
+
+  // Cabecera con columnas de pausa dinámicas.
+  const cab = ['Empleado', 'Fecha', 'Entrada'];
+  for (let k = 1; k <= Math.max(1, maxPausas); k++) {
+    const suf = k === 1 ? '' : ' ' + k;
+    cab.push(`Pausa${suf} inicio`, `Pausa${suf} fin`, `Duración pausa${suf}`);
+  }
+  cab.push('Salida', 'Total horas');
+  const nPausasCols = Math.max(1, maxPausas);
+
+  const cell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lineas = [cab.map(cell).join(';')];
+
+  for (const b of bloques) {
+    for (const f of b.filas) {
+      const fila = [b.nombre, f.fechaTxt];
+      if (f.vacio) {
+        fila.push('—');                                  // Entrada
+        for (let k = 0; k < nPausasCols; k++) fila.push('', '', '');
+        fila.push('—', '—');                             // Salida, Total
+      } else {
+        fila.push(f.entrada || '—');
+        for (let k = 0; k < nPausasCols; k++) {
+          const p = f.pausas[k];
+          fila.push(p ? p.ini : '', p ? p.fin : '', p ? p.dur : '');
+        }
+        fila.push(f.salida || '—', f.horas.toFixed(2));
+      }
+      lineas.push(fila.map(cell).join(';'));
+    }
+    // Fila de totales del mes para este empleado.
+    const tot = [b.nombre, 'TOTAL'];
+    for (let k = 0; k < 1 + nPausasCols * 3; k++) tot.push(''); // Entrada + columnas de pausa
+    tot.push('', b.totalMes.toFixed(2));                         // Salida vacía + Total
+    lineas.push(tot.map(cell).join(';'));
+  }
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="fichajes-${anio}-${pad(mes)}.csv"`);
+  res.write('\uFEFF'); // BOM para que Excel reconozca UTF-8
+  res.end(lineas.join('\r\n'));
+});
+
 // GET /api/personal/fichajes?empleado_id=&fecha= — fichajes del día.
 router.get('/fichajes', (req, res) => {
   const fecha = txt(req.query.fecha) || ahoraLocal().fecha;
