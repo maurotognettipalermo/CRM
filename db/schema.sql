@@ -736,6 +736,70 @@ CREATE TABLE IF NOT EXISTS horas_extra (
 );
 CREATE INDEX IF NOT EXISTS idx_horas_extra_empleado ON horas_extra(empleado_id);
 
+-- ===========================================================================
+-- Módulo Leads (captación de clientes de alquiler vacacional)
+-- ===========================================================================
+
+-- Plantillas de email reutilizables para las propuestas (con marcadores {nombre}, etc.).
+CREATE TABLE IF NOT EXISTS lead_plantillas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  asunto TEXT NOT NULL,
+  cuerpo TEXT NOT NULL,
+  activa INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Leads: clientes potenciales de alquiler que aún no han reservado.
+CREATE TABLE IF NOT EXISTS leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  telefono TEXT,
+  email TEXT,
+  apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
+  apartamento_nombre TEXT,
+  fecha_entrada TEXT,
+  fecha_salida TEXT,
+  personas INTEGER,
+  presupuesto REAL,
+  estado TEXT DEFAULT 'nuevo' CHECK(estado IN ('nuevo','contactado','propuesta_enviada','esperando_respuesta','reservado','descartado')),
+  notas TEXT,
+  reserva_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  atendido_por TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_leads_estado ON leads(estado);
+
+-- Propuestas (emails de oferta) enviadas o preparadas para un lead.
+CREATE TABLE IF NOT EXISTS lead_propuestas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  asunto TEXT NOT NULL,
+  mensaje TEXT NOT NULL,
+  apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
+  precio_propuesto REAL,
+  fotos_enviadas TEXT,
+  email_destino TEXT,
+  enviada INTEGER DEFAULT 0,
+  fecha_envio TEXT,
+  plantilla_id INTEGER REFERENCES lead_plantillas(id) ON DELETE SET NULL,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lead_propuestas_lead ON lead_propuestas(lead_id);
+
+-- Hilo cronológico de notas (chat) de un lead.
+CREATE TABLE IF NOT EXISTS lead_notas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  texto TEXT NOT NULL,
+  usuario_nombre TEXT,
+  fecha TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lead_notas_lead ON lead_notas(lead_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

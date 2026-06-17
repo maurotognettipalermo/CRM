@@ -191,6 +191,7 @@ function init() {
   seedModificadores();
   seedEstadosReserva();
   seedMayoristas();
+  seedLeadPlantillas();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -435,6 +436,25 @@ function seedMayoristas() {
     const insertar = db.prepare('INSERT INTO mayoristas (nombre, activo) VALUES (?, 1)');
     for (const nombre of MAYORISTAS_DEFECTO) insertar.run(nombre);
     console.log('Mayoristas por defecto creados (Apartplaya, Viajes Himalaya).');
+  }
+}
+
+// Inserta las plantillas de email por defecto del módulo Leads si la tabla está vacía.
+function seedLeadPlantillas() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM lead_plantillas').get().c;
+  if (n === 0) {
+    const insertar = db.prepare('INSERT INTO lead_plantillas (nombre, asunto, cuerpo) VALUES (?, ?, ?)');
+    insertar.run(
+      'Propuesta estándar',
+      'Propuesta de alojamiento — {apartamento}',
+      'Buenos días {nombre},\n\nGracias por su interés. Le presentamos el apartamento {apartamento} disponible del {fecha_entrada} al {fecha_salida}.\n\nCaracterísticas:\n- Tipo: {tipo}\n- Capacidad: {capacidad} personas\n- Ubicación: {zona}\n\nPrecio: {precio} €\n\nAdjuntamos fotografías del apartamento para que pueda verlo.\n\nQuedamos a su disposición para cualquier consulta.\n\nUn saludo,\n{empresa}'
+    );
+    insertar.run(
+      'Seguimiento',
+      'Re: Propuesta de alojamiento — {apartamento}',
+      'Buenos días {nombre},\n\nLe escribimos en relación a la propuesta que le enviamos sobre el apartamento {apartamento}.\n\n¿Ha tenido oportunidad de revisarla? Estaremos encantados de resolver cualquier duda.\n\nUn saludo,\n{empresa}'
+    );
+    console.log('Plantillas de Leads por defecto creadas (Propuesta estándar, Seguimiento).');
   }
 }
 

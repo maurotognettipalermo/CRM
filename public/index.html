@@ -61,6 +61,9 @@
       <button class="nav-item" data-tab="reservas" title="Reservas">
         <span class="nav-icono">📋</span><span class="nav-texto">Reservas</span>
       </button>
+      <button class="nav-item" id="nav-comercial" data-tab="comercial" title="Comercial">
+        <span class="nav-icono">📞</span><span class="nav-texto">Comercial</span>
+      </button>
       <button class="nav-item oculto" id="nav-estadisticas" data-tab="estadisticas" title="Estadísticas">
         <span class="nav-icono">📈</span><span class="nav-texto">Estadísticas</span>
       </button>
@@ -313,6 +316,45 @@
     </section>
 
     <!-- ============ VENTAS ============ -->
+    <!-- ============ COMERCIAL (Leads) ============ -->
+    <section id="vista-comercial" class="vista">
+      <div class="barra-herramientas lead-cab">
+        <h2>Comercial</h2>
+        <div class="lead-resumen" id="lead-resumen"></div>
+        <button id="lead-nuevo" class="btn-pri lead-cab-nuevo">＋ Nuevo lead</button>
+      </div>
+      <div class="vta-subtabs" id="lead-subtabs">
+        <button class="subtab activo" data-sub="leads">Leads</button>
+        <button class="subtab" data-sub="plantillas">Plantillas</button>
+      </div>
+      <div class="vta-scroll">
+        <div class="sub-panel activo" data-panel-sub="leads">
+          <div class="barra-herramientas lead-barra">
+            <div class="reservas-controles">
+              <input type="search" id="lead-buscar" class="input-buscar" placeholder="Buscar por nombre, email, teléfono, apartamento..." autocomplete="off">
+              <div class="rsv-filtros-wrap">
+                <button id="lead-filtros-btn" class="btn-sec">🔽 Filtros <span id="lead-filtros-badge" class="rsv-filtros-badge oculto"></span></button>
+                <div id="lead-filtros-panel" class="rsv-filtros-panel oculto"></div>
+              </div>
+              <span id="lead-contador" class="alo-contador"></span>
+            </div>
+          </div>
+          <div class="tabla-scroll">
+            <table class="tabla" id="tabla-leads">
+              <thead>
+                <tr>
+                  <th>Nombre</th><th>Contacto</th><th>Apartamento</th><th>Fechas</th>
+                  <th>Estado</th><th>Última actividad</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="sub-panel" data-panel-sub="plantillas"></div>
+      </div>
+    </section>
+
     <section id="vista-ventas" class="vista">
       <div class="barra-herramientas">
         <h2>Ventas</h2>
@@ -579,6 +621,7 @@
   <script src="js/limpieza.js"></script>
   <script src="js/mantenimiento.js"></script>
   <script src="js/ventas.js"></script>
+  <script src="js/leads.js"></script>
   <script src="js/personal.js"></script>
   <script src="js/app.js"></script>
 </body>
