@@ -20,6 +20,39 @@ function aEntero(v) {
   return isNaN(n) ? null : n;
 }
 
+// Marca como 'sucio' los apartamentos con un checkout hoy (reserva con salida = hoy).
+// Idempotente: si ya está 'sucio' no hace nada; cada cambio 'limpio'→'sucio' se registra
+// en limpieza_log a nombre del sistema. Devuelve el nº de apartamentos marcados.
+// La fecha se calcula en SQLite (localtime) para casar con el resto de fechas locales.
+function marcarSuciosPorCheckout() {
+  const hoy = db.prepare("SELECT date('now','localtime') AS hoy").get().hoy;
+  const aptos = db.prepare(`
+    SELECT DISTINCT a.id, a.estado_limpieza
+    FROM reservas r
+    JOIN apartamentos a ON a.id = r.apartamento_id
+    WHERE r.salida = ? AND r.apartamento_id IS NOT NULL
+  `).all(hoy);
+
+  const upd = db.prepare("UPDATE apartamentos SET estado_limpieza = 'sucio' WHERE id = ?");
+  const log = db.prepare(`
+    INSERT INTO limpieza_log (apartamento_id, estado_anterior, estado_nuevo, usuario_id, usuario_nombre)
+    VALUES (?, 'limpio', 'sucio', NULL, 'Sistema (checkout automático)')
+  `);
+
+  let n = 0;
+  db.transaction(() => {
+    for (const a of aptos) {
+      if (a.estado_limpieza === 'sucio') continue; // ya sucio → nada que hacer
+      upd.run(a.id);
+      log.run(a.id);
+      n++;
+    }
+  })();
+
+  if (n > 0) console.log(`Auto-sucio: ${n} apartamentos marcados como sucios por checkout`);
+  return n;
+}
+
 // Genera (idempotente) las tareas de checkout/turnover de un día. No duplica si ya
 // existe una tarea para ese apartamento y fecha.
 function generarTareas(fecha, usuario) {
@@ -52,6 +85,11 @@ function generarTareas(fecha, usuario) {
 router.get('/tareas', (req, res) => {
   const fecha = String(req.query.fecha || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha (YYYY-MM-DD) es obligatoria' });
+
+  // Si se piden las tareas de HOY, refrescar antes los estados de limpieza por checkout
+  // para que el módulo siempre muestre el badge sucio actualizado.
+  const hoy = db.prepare("SELECT date('now','localtime') AS hoy").get().hoy;
+  if (fecha === hoy) marcarSuciosPorCheckout();
 
   generarTareas(fecha, req.usuario);
 
@@ -272,3 +310,6 @@ router.delete('/tareas/:id', (req, res) => {
 });
 
 module.exports = router;
+// Se expone para que server.js la ejecute al arrancar y de forma periódica (sin
+// dependencia circular: server.js ya requiere este router).
+module.exports.marcarSuciosPorCheckout = marcarSuciosPorCheckout;

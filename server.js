@@ -41,7 +41,8 @@ app.use('/api/contratos', require('./routes/contratos'));
 app.use('/api/facturas', require('./routes/facturas'));
 app.use('/api/tarifas', require('./routes/tarifas'));
 app.use('/api/email', require('./routes/email'));
-app.use('/api/limpieza', require('./routes/limpieza'));
+const limpieza = require('./routes/limpieza');
+app.use('/api/limpieza', limpieza);
 app.use('/api/mantenimiento', require('./routes/mantenimiento'));
 app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/mayoristas', require('./routes/mayoristas'));
@@ -63,6 +64,13 @@ app.listen(PORT, '0.0.0.0', () => {
   }
   console.log('');
   console.log(' Para detener el servidor: Ctrl + C');
+
+  // Auto-sucio: marcar como sucios los apartamentos con checkout hoy. Una vez al
+  // arrancar y luego cada hora (no se pierden checkouts si el servidor lleva días encendido).
+  try { limpieza.marcarSuciosPorCheckout(); } catch (e) { console.error('Auto-sucio (arranque):', e.message); }
+  setInterval(() => {
+    try { limpieza.marcarSuciosPorCheckout(); } catch (e) { console.error('Auto-sucio (intervalo):', e.message); }
+  }, 60 * 60 * 1000);
 });
 
 // Devuelve las direcciones IPv4 de la red local de este equipo.

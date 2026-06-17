@@ -509,13 +509,12 @@ const Alojamientos = (() => {
   function renderHistLimpieza(log) {
     const pop = document.getElementById('alo-limp-pop');
     if (!pop) return;
-    const aviso = `<div class="alo-limp-pop-aviso">ℹ️ El estado se pondrá automáticamente en 'Sucio' con los checkouts cuando se integre el módulo de limpieza</div>`;
-    if (!log.length) { pop.innerHTML = '<div class="alo-limp-pop-vacio">Sin cambios registrados</div>' + aviso; return; }
+    if (!log.length) { pop.innerHTML = '<div class="alo-limp-pop-vacio">Sin cambios registrados</div>'; return; }
     const items = log.slice(0, 20).map((l) => {
       const sucio = l.estado_nuevo === 'sucio';
       return `<div class="alo-limp-pop-item">${sucio ? '🔴' : '🟢'} ${sucio ? 'Sucio' : 'Limpio'} — ${esc(l.usuario_nombre) || '—'} — ${fechaHoraLog(l.fecha)}</div>`;
     }).join('');
-    pop.innerHTML = items + aviso;
+    pop.innerHTML = items;
   }
   function cerrarHistLimpieza() {
     const pop = document.getElementById('alo-limp-pop');
