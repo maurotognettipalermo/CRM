@@ -1,5 +1,7 @@
 // API REST de apartamentos (alojamientos).
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const db = require('../db/database');
 const { normalizaTih } = require('../services/asignacion');
 const { registrarActividad } = require('../services/actividadService');
@@ -145,6 +147,14 @@ router.put('/:id', (req, res) => {
 // Elimina un apartamento (sus reservas quedan "Sin asignar").
 router.delete('/:id', (req, res) => {
   const apto = db.prepare('SELECT nombre FROM apartamentos WHERE id = ?').get(req.params.id);
+
+  // Borrar del disco las fotos del apartamento antes del DELETE (el CASCADE solo limpia la BD).
+  const fotos = db.prepare('SELECT url FROM apartamento_fotos WHERE apartamento_id = ?').all(req.params.id);
+  for (const f of fotos) {
+    try { fs.unlinkSync(path.join(__dirname, '..', 'public', f.url)); } catch (e) { /* puede no existir */ }
+  }
+  try { fs.rmdirSync(path.join(__dirname, '..', 'public', 'uploads', 'apartamentos', String(req.params.id))); } catch (e) { /* no vacía o inexistente */ }
+
   const info = db.prepare('DELETE FROM apartamentos WHERE id = ?').run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: 'Alojamiento no encontrado' });
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'eliminar', 'alojamiento', req.params.id, apto && apto.nombre);

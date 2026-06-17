@@ -303,6 +303,13 @@ router.delete('/tareas/:id', (req, res) => {
   if (tarea.tipo !== 'manual' || tarea.estado !== 'pendiente') {
     return res.status(409).json({ error: 'Solo se pueden eliminar tareas manuales pendientes' });
   }
+  // Borrar del disco las fotos de la tarea antes del DELETE (el CASCADE solo limpia la BD).
+  const fotos = db.prepare('SELECT url FROM limpieza_fotos WHERE tarea_id = ?').all(tarea.id);
+  for (const f of fotos) {
+    try { fs.unlinkSync(path.join(__dirname, '..', 'public', f.url)); } catch (e) { /* puede no existir */ }
+  }
+  try { fs.rmdirSync(path.join(UPLOAD_BASE, String(tarea.id))); } catch (e) { /* no vacía o inexistente */ }
+
   db.prepare('DELETE FROM limpieza_tareas WHERE id = ?').run(tarea.id);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
     'eliminar', 'limpieza-tarea', tarea.id, null);
