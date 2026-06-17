@@ -353,87 +353,78 @@ const Reservas = (() => {
       <div class="rsv-wz">
         <h3>Nueva reserva</h3>
 
-        <div class="rsv-wz-paso activo" id="rsv-paso1">
-          <!-- Portal y apartamento -->
-          <div class="rsv-sec">
-            <div class="rsv-sec-tit">Portal y apartamento</div>
-            <div class="fila-campos">
-              <div class="campo">
-                <label>Portal *</label>
-                <select id="f-portal">${portalOpts}</select>
-                <span id="rsv-wz-numhint" class="rsv-wz-hint oculto"></span>
-              </div>
-              <div class="campo rsv-ta">
-                <label>Apartamento</label>
-                <input id="rsv-apto-input" class="input-buscar" autocomplete="off" placeholder="Buscar apartamento...">
-                <input type="hidden" id="f-apartamento-id">
-                <div id="rsv-apto-res" class="rsv-ta-res oculto"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Cliente -->
-          <div class="rsv-sec">
-            <div class="rsv-sec-tit">Cliente</div>
-            <div class="rsv-cli-pills">
-              <button type="button" class="rsv-pill activo" id="rsv-cli-tab-buscar">🔍 Buscar cliente</button>
-              <button type="button" class="rsv-pill" id="rsv-cli-tab-nuevo">＋ Nuevo cliente</button>
-            </div>
-            <div id="rsv-cli-buscar">
-              <div class="rsv-ta">
-                <input id="rsv-cli-input" class="input-buscar" autocomplete="off" placeholder="Buscar por nombre, email, teléfono...">
-                <div id="rsv-cli-res" class="rsv-ta-res oculto"></div>
-              </div>
-              <div id="rsv-cli-card" class="rsv-cli-card oculto"></div>
-            </div>
-            <div id="rsv-cli-nuevo" class="oculto">
-              <div class="fila-campos">
-                <div class="campo"><label>Nombre *</label><input id="rsv-cli-nombre"></div>
-                <div class="campo"><label>Apellido</label><input id="rsv-cli-ape"></div>
-              </div>
-              <div class="fila-campos">
-                <div class="campo"><label>Teléfono</label><input id="rsv-cli-tel"></div>
-                <div class="campo"><label>Email</label><input id="rsv-cli-email" type="email"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Fechas -->
-          <div class="rsv-sec">
-            <div class="rsv-sec-tit">Fechas</div>
-            <div class="fila-campos">
-              <div class="campo"><label>Entrada *</label><input type="date" id="f-entrada"></div>
-              <div class="campo"><label>Salida *</label><input type="date" id="f-salida"></div>
-            </div>
-            <span id="rsv-wz-noches" class="rsv-wz-noches oculto"></span>
-            <div id="f-disponibilidad" class="disponibilidad-indicator oculto"></div>
-          </div>
-
-          <!-- Precio -->
-          <div class="rsv-sec">
-            <div class="rsv-sec-tit">Precio</div>
+        <!-- Portal y apartamento -->
+        <div class="rsv-sec">
+          <div class="rsv-sec-tit">Portal y apartamento</div>
+          <div class="fila-campos">
             <div class="campo">
-              <label>Precio (€)</label>
-              <input type="number" step="0.01" min="0" id="f-precio">
-              <span id="f-precio-badge" class="badge-precio-manual oculto"></span>
+              <label>Portal *</label>
+              <select id="f-portal">${portalOpts}</select>
+              <span id="rsv-wz-numhint" class="rsv-wz-hint oculto"></span>
             </div>
-            <div class="campo"><label>Observaciones</label><textarea id="f-observaciones"></textarea></div>
-          </div>
-
-          <div class="modal-acciones">
-            <button class="btn-sec" id="rsv-wz-cancelar">Cancelar</button>
-            <button class="btn-sec" id="rsv-wz-guardar-rapido">Guardar directamente</button>
-            <button class="btn-pri" id="rsv-wz-siguiente">Siguiente →</button>
+            <div class="campo rsv-ta">
+              <label>Apartamento</label>
+              <input id="rsv-apto-input" class="input-buscar" autocomplete="off" placeholder="Buscar apartamento...">
+              <input type="hidden" id="f-apartamento-id">
+              <div id="rsv-apto-res" class="rsv-ta-res oculto"></div>
+            </div>
           </div>
         </div>
 
-        <div class="rsv-wz-paso" id="rsv-paso2">
-          <div class="rsv-sec-tit">Desglose y confirmación</div>
-          <div id="f-tarifa" class="rsv-trf"></div>
-          <div class="modal-acciones">
-            <button class="btn-sec" id="rsv-wz-atras">← Anterior</button>
-            <button class="btn-pri" id="rsv-wz-crear">✅ Crear reserva</button>
+        <!-- Cliente -->
+        <div class="rsv-sec">
+          <div class="rsv-sec-tit">Cliente</div>
+          <div class="rsv-cli-pills">
+            <button type="button" class="rsv-pill activo" id="rsv-cli-tab-buscar">🔍 Buscar cliente</button>
+            <button type="button" class="rsv-pill" id="rsv-cli-tab-nuevo">＋ Nuevo cliente</button>
           </div>
+          <div id="rsv-cli-buscar">
+            <div class="rsv-ta">
+              <input id="rsv-cli-input" class="input-buscar" autocomplete="off" placeholder="Buscar por nombre, email, teléfono...">
+              <div id="rsv-cli-res" class="rsv-ta-res oculto"></div>
+            </div>
+            <div id="rsv-cli-card" class="rsv-cli-card oculto"></div>
+          </div>
+          <div id="rsv-cli-nuevo" class="oculto">
+            <div class="fila-campos">
+              <div class="campo"><label>Nombre *</label><input id="rsv-cli-nombre"></div>
+              <div class="campo"><label>Apellido</label><input id="rsv-cli-ape"></div>
+            </div>
+            <div class="fila-campos">
+              <div class="campo"><label>Teléfono</label><input id="rsv-cli-tel"></div>
+              <div class="campo"><label>Email</label><input id="rsv-cli-email" type="email"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fechas -->
+        <div class="rsv-sec">
+          <div class="rsv-sec-tit">Fechas</div>
+          <div class="fila-campos">
+            <div class="campo"><label>Entrada *</label><input type="date" id="f-entrada"></div>
+            <div class="campo"><label>Salida *</label><input type="date" id="f-salida"></div>
+          </div>
+          <span id="rsv-wz-noches" class="rsv-wz-noches oculto"></span>
+          <div id="f-disponibilidad" class="disponibilidad-indicator oculto"></div>
+        </div>
+
+        <!-- Precio -->
+        <div class="rsv-sec">
+          <div class="rsv-sec-tit">Precio</div>
+          <div class="campo">
+            <label>Precio (€)</label>
+            <input type="number" step="0.01" min="0" id="f-precio">
+            <span id="f-precio-badge" class="badge-precio-manual oculto"></span>
+          </div>
+          <div class="campo"><label>Observaciones</label><textarea id="f-observaciones"></textarea></div>
+        </div>
+
+        <!-- Desglose de tarifa oculto: alimenta el autorrelleno de precio sin mostrarse. -->
+        <div id="f-tarifa" class="rsv-trf rsv-trf-oculta"></div>
+
+        <div class="modal-acciones">
+          <button class="btn-sec" id="rsv-wz-cancelar">Cancelar</button>
+          <button class="btn-pri" id="rsv-wz-crear">Crear reserva</button>
         </div>
       </div>`);
 
@@ -508,14 +499,8 @@ const Reservas = (() => {
       actualizarBadgePrecio();
     });
 
-    // Navegación.
+    // Acciones (formulario único).
     document.getElementById('rsv-wz-cancelar').addEventListener('click', cerrarModal);
-    document.getElementById('rsv-wz-guardar-rapido').addEventListener('click', guardarNuevo);
-    document.getElementById('rsv-wz-siguiente').addEventListener('click', () => {
-      if (!validarPaso1()) return;
-      if (tarifaCalc) irAPaso(2); else guardarNuevo();
-    });
-    document.getElementById('rsv-wz-atras').addEventListener('click', () => irAPaso(1));
     document.getElementById('rsv-wz-crear').addEventListener('click', guardarNuevo);
   }
 
@@ -563,14 +548,6 @@ const Reservas = (() => {
     }
   }
 
-  function irAPaso(n) {
-    const p1 = document.getElementById('rsv-paso1');
-    const p2 = document.getElementById('rsv-paso2');
-    if (!p1 || !p2) return;
-    p1.classList.toggle('activo', n === 1);
-    p2.classList.toggle('activo', n === 2);
-  }
-
   // Typeahead genérico del módulo Reservas.
   function renderTAReserva(cont, lista, label, onPick) {
     if (!cont) return;
@@ -582,7 +559,7 @@ const Reservas = (() => {
       el.addEventListener('click', () => onPick(items[Number(el.dataset.i)])));
   }
 
-  function validarPaso1() {
+  function validarReserva() {
     const portal = document.getElementById('f-portal')?.value || '';
     const entrada = document.getElementById('f-entrada')?.value || '';
     const salida = document.getElementById('f-salida')?.value || '';
@@ -599,8 +576,8 @@ const Reservas = (() => {
   }
 
   async function guardarNuevo() {
-    if (!validarPaso1()) return;
-    const botones = document.querySelectorAll('#rsv-wz-guardar-rapido, #rsv-wz-siguiente, #rsv-wz-crear');
+    if (!validarReserva()) return;
+    const botones = document.querySelectorAll('#rsv-wz-crear');
     botones.forEach((b) => { b.disabled = true; });
 
     try {

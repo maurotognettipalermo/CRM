@@ -3445,13 +3445,12 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
 .lead-prop-ver-cab { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .lead-prop-ver-fotos { margin-top: 10px; font-size: 13px; }
 
-/* ===================== Wizard de Nueva reserva ===================== */
+/* ===================== Modal de Nueva reserva (formulario único) ===================== */
 .modal:has(.rsv-wz) { width: 600px; }
 
-/* Pasos del wizard (transición suave). */
-.rsv-wz-paso { display: none; animation: rsvWzFade 180ms ease-out; }
-.rsv-wz-paso.activo { display: block; }
-@keyframes rsvWzFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* El desglose de tarifa se calcula en segundo plano para autorrellenar el precio,
+   pero no se muestra al usuario. */
+.rsv-trf-oculta { display: none !important; }
 
 /* Secciones con título uppercase + separador sutil. */
 .rsv-sec { padding: 14px 0; border-bottom: 1px solid var(--border-soft); }
