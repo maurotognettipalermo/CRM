@@ -1,0 +1,36 @@
+# Caddy v2 — proxy inverso con HTTPS automático (Let's Encrypt) para el CRM.
+# Copiar a /etc/caddy/Caddyfile y recargar:  sudo systemctl reload caddy
+# El DNS de crm.hectorinmobiliaria.com debe apuntar (A/AAAA) a la IP del VPS.
+
+crm.hectorinmobiliaria.com {
+	# La app Node escucha en localhost:3000 (gestionada por PM2).
+	reverse_proxy localhost:3000
+
+	encode gzip zstd
+
+	header {
+		# Cabeceras de seguridad.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# HSTS: fuerza HTTPS durante 1 año (incluye subdominios).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# No revelar el servidor.
+		-Server
+	}
+
+	# Bloquear rutas sensibles (datos, control de versiones, config) → 404.
+	@bloqueadas {
+		path /db/* /backups/* /.git/* /.env /CLAUDE.md
+	}
+	respond @bloqueadas 404
+
+	# Log de acceso en JSON, con rotación.
+	log {
+		output file /var/log/caddy/crm-access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format json
+	}
+}

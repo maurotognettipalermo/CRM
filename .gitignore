@@ -2,7 +2,13 @@ node_modules/
 db/crm.db
 db/crm.db-wal
 db/crm.db-shm
+# Cualquier fichero de base de datos SQLite (y sus WAL/SHM)
+db/*.db
+db/*.db-wal
+db/*.db-shm
 backups/
+# Logs (PM2, backup, etc.)
+*.log
 # Imágenes/logos de portales subidos por el usuario (datos, como la BD)
 public/uploads/portales/*
 !public/uploads/portales/.gitkeep
