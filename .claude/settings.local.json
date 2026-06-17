@@ -96,7 +96,27 @@
       "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node C:\\\\CRM\\\\_verif.js)",
       "PowerShell($t = @{ 'X-Auth-Token' = '8fbca88958afb99ddf9bd4382b672789a99c43396122524ddba0450d8b9847a2' }; foreach \\($u in 'dashboard','estadisticas/propietarios?anio=2026','estadisticas/apartamentos?anio=2026','facturas','contratos','reservas/todas'\\) { try { $r = Invoke-RestMethod \"http://localhost:3000/api/$u\" -Headers $t; \"OK $u\" } catch { \"FALLO $u : $\\($_.ErrorDetails.Message\\)\" } })",
       "PowerShell(\\(Get-Content C:\\\\CRM\\\\public\\\\css\\\\styles.css | Measure-Object -Line\\).Lines)",
-      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\alojamientos.js; if \\($?\\) { \"OK alojamientos.js\" })"
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\alojamientos.js; if \\($?\\) { \"OK alojamientos.js\" })",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\tarifas.js; if \\($?\\) { \"OK tarifas.js\" })",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\tarifas.js; if \\($?\\) { \"OK tarifas.js\" }; node --check C:\\\\CRM\\\\public\\\\js\\\\ajustes.js; if \\($?\\) { \"OK ajustes.js\" }; $s = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($s\\) { \"servidor activo \\(PID $\\($s.OwningProcess\\)\\)\" } else { \"servidor parado\" })",
+      "PowerShell($env:Path = \"C:\\\\Program Files\\\\nodejs;\" + $env:Path; node --check C:\\\\CRM\\\\public\\\\js\\\\reservas.js; if \\($?\\) { \"OK reservas.js\" }; $s = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($s\\) { \"servidor activo\" } else { \"servidor parado\" })",
+      "Bash(timeout 8 node server.js)",
+      "Bash(PORT=3099 node *)",
+      "Bash(node -c public/js/alojamientos.js)",
+      "Bash(node -c public/js/ajustes.js)",
+      "Bash(node -c public/js/reservas.js)",
+      "Bash(git commit *)",
+      "Bash(rm /tmp/commitmsg.txt)",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\('nodemailer', require\\('nodemailer/package.json'\\).version\\)\")",
+      "Bash(node *)",
+      "Bash(rm /tmp/cm.txt)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" -c public/js/ventas.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" -c routes/ventas.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" -c db/database.js)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" server.js)",
+      "Read(//tmp/**)"
     ]
   }
 }
