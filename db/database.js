@@ -71,6 +71,8 @@ const COLUMNAS_RESERVAS = {
   pendiente: 'REAL DEFAULT 0',
   notas_internas: 'TEXT',
   ocupante: 'TEXT',
+  // Vínculo con la tabla clientes. ADD COLUMN con REFERENCES exige default NULL (implícito).
+  cliente_id: 'INTEGER REFERENCES clientes(id) ON DELETE SET NULL',
 };
 
 // Portales de venta por defecto (se insertan si la tabla está vacía).
@@ -82,6 +84,7 @@ const PORTALES_DEFECTO = [
 const COLUMNAS_PORTALES = {
   color: "TEXT DEFAULT '#3b82f6'",
   imagen_url: 'TEXT',
+  prefijo: 'TEXT',  // prefijo de auto-numeración de reservas (ej. "CA", "H", "B")
 };
 
 // Columnas extra de las tablas de contratos (forward-compat: se añaden si faltan).

@@ -721,6 +721,11 @@ const Ajustes = (() => {
     abrirModal(`
       <h3>${esNuevo ? 'Nuevo' : 'Editar'} portal</h3>
       <div class="campo"><label>Nombre *</label><input id="p-nombre" value="${esc(portal.nombre)}"></div>
+      <div class="campo">
+        <label>Prefijo</label>
+        <input id="p-prefijo" value="${esc(portal.prefijo || '')}" placeholder="ej: CA, B, H">
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Se usa para generar automáticamente los números de reserva (ej: CA-0001)</div>
+      </div>
       <div class="campo"><label>Estado</label>
         <label class="toggle-campo"><input type="checkbox" id="p-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
       </div>
@@ -780,14 +785,15 @@ const Ajustes = (() => {
       const nombre = document.getElementById('p-nombre').value.trim();
       const activo = document.getElementById('p-activo').checked ? 1 : 0;
       const colorVal = document.getElementById('p-color').value;
+      const prefijo = document.getElementById('p-prefijo').value.trim();
       if (!nombre) return toast('El nombre es obligatorio', 'error');
       try {
         let id = portal.id;
         if (esNuevo) {
-          const res = await API.post('/api/portales', { nombre });
+          const res = await API.post('/api/portales', { nombre, prefijo });
           id = res.id;
         }
-        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo });
+        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo });
         if (archivoLogo) await subirImagenPortal(id, archivoLogo);
         cerrarModal();
         await cargarPortales();

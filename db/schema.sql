@@ -800,6 +800,44 @@ CREATE TABLE IF NOT EXISTS lead_notas (
 );
 CREATE INDEX IF NOT EXISTS idx_lead_notas_lead ON lead_notas(lead_id);
 
+-- ===========================================================================
+-- Clientes (huéspedes/inquilinos) — importables del export de Avantio.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS clientes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id_avantio TEXT,
+  nombre TEXT NOT NULL,
+  apellido1 TEXT,
+  apellido2 TEXT,
+  fecha_nacimiento TEXT,
+  sexo TEXT,
+  nacionalidad TEXT,
+  calle TEXT,
+  numero TEXT,
+  puerta TEXT,
+  codigo_postal TEXT,
+  ciudad TEXT,
+  provincia TEXT,
+  pais TEXT,
+  dni TEXT,
+  email TEXT,
+  email2 TEXT,
+  telefono TEXT,
+  telefono2 TEXT,
+  telefono3 TEXT,
+  idioma TEXT,
+  tipo_cliente TEXT,
+  cuenta_bancaria TEXT,
+  codigo_fiscal TEXT,
+  observaciones TEXT,
+  cuenta_contable TEXT,
+  region TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_clientes_avantio ON clientes(id_avantio);
+CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

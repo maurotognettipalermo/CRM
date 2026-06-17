@@ -19,6 +19,25 @@ function generarPlanPagos(reservaId, precio) {
   ins.run(reservaId, 'Resto a la llegada (80%)', r2(precio * 0.8), 2);
 }
 
+// Genera un número de reserva automático a partir del prefijo del portal.
+// Con prefijo: {PREFIJO}-NNNN (4 dígitos), incrementando el máximo existente.
+// Sin prefijo (o portal desconocido): R-{timestamp} como fallback.
+function generarNumeroReserva(portalNombre) {
+  const portal = portalNombre
+    ? db.prepare('SELECT prefijo FROM portales WHERE nombre = ?').get(portalNombre) : null;
+  const prefijo = portal && portal.prefijo ? String(portal.prefijo).trim().toUpperCase() : null;
+  if (!prefijo) return 'R-' + Date.now();
+
+  const rows = db.prepare('SELECT numero_reserva FROM reservas WHERE numero_reserva LIKE ?').all(prefijo + '-%');
+  const re = new RegExp('^' + prefijo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)$', 'i');
+  let max = 0;
+  for (const r of rows) {
+    const m = re.exec(r.numero_reserva || '');
+    if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+  }
+  return `${prefijo}-${String(max + 1).padStart(4, '0')}`;
+}
+
 // Reservas para el planning (vista continua de días). Devuelve las que solapan
 // la ventana visible [desde, hasta], con hasta = último día visible (inclusive).
 // Parámetros: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&tih=1|2
@@ -102,8 +121,12 @@ router.get('/verificar-disponibilidad', (req, res) => {
 router.get('/:id', (req, res) => {
   const reserva = db
     .prepare(
-      `SELECT r.*, a.nombre AS apartamento_nombre
-       FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
+      `SELECT r.*, a.nombre AS apartamento_nombre,
+              TRIM(COALESCE(c.nombre,'') || ' ' || COALESCE(c.apellido1,'') || ' ' || COALESCE(c.apellido2,'')) AS cliente_nombre_completo,
+              c.telefono AS cliente_telefono, c.email AS cliente_email
+       FROM reservas r
+       LEFT JOIN apartamentos a ON a.id = r.apartamento_id
+       LEFT JOIN clientes c ON c.id = r.cliente_id
        WHERE r.id = ?`
     )
     .get(req.params.id);
@@ -115,11 +138,14 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   const {
     numero_reserva, nombre_cliente, contrato, edificio,
-    tih, personas, entrada, salida, observaciones, apartamento_id, precio_total,
+    tih, personas, entrada, salida, observaciones, apartamento_id, precio_total, portal, cliente_id,
   } = req.body;
 
-  if (!numero_reserva || !String(numero_reserva).trim())
-    return res.status(400).json({ error: 'El número de reserva es obligatorio' });
+  // Número de reserva: si no viene, se autogenera con el prefijo del portal.
+  const numeroFinal = numero_reserva && String(numero_reserva).trim()
+    ? String(numero_reserva).trim()
+    : generarNumeroReserva(portal);
+
   if (!nombre_cliente || !String(nombre_cliente).trim())
     return res.status(400).json({ error: 'El nombre del cliente es obligatorio' });
   if (!entrada) return res.status(400).json({ error: 'La fecha de entrada es obligatoria' });
@@ -130,9 +156,9 @@ router.post('/', (req, res) => {
   const tihNorm = normalizaTih(tih);
   if (!tihNorm) return res.status(400).json({ error: 'TIH inválida (debe ser 1ª o 2ª Línea)' });
 
-  const existente = db.prepare('SELECT id FROM reservas WHERE numero_reserva = ?').get(String(numero_reserva).trim());
+  const existente = db.prepare('SELECT id FROM reservas WHERE numero_reserva = ?').get(numeroFinal);
   if (existente)
-    return res.status(409).json({ error: `Ya existe una reserva con el número "${numero_reserva}"` });
+    return res.status(409).json({ error: `Ya existe una reserva con el número "${numeroFinal}"` });
 
   const p = parseInt(personas, 10);
   const precioNum = Math.round((Number(precio_total) || 0) * 100) / 100;
@@ -141,10 +167,10 @@ router.post('/', (req, res) => {
   const crear = db.transaction(() => {
     const info = db.prepare(`
       INSERT INTO reservas
-        (numero_reserva, nombre_cliente, contrato, edificio, tih, personas, entrada, salida, observaciones, apartamento_id, precio_total, pendiente, fecha_creacion)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        (numero_reserva, nombre_cliente, contrato, edificio, tih, personas, entrada, salida, observaciones, apartamento_id, precio_total, pendiente, cliente_id, fecha_creacion)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).run(
-      String(numero_reserva).trim(),
+      numeroFinal,
       nombre_cliente,
       contrato  || null,
       edificio  || null,
@@ -155,15 +181,16 @@ router.post('/', (req, res) => {
       observaciones || null,
       apartamento_id || null,
       precioNum,
-      precioNum
+      precioNum,
+      cliente_id || null
     );
     if (precioNum > 0) generarPlanPagos(info.lastInsertRowid, precioNum);
     return info.lastInsertRowid;
   });
   const nuevoId = crear();
 
-  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'reserva', nuevoId, `${String(numero_reserva).trim()} · ${nombre_cliente || ''}`);
-  res.status(201).json({ id: nuevoId });
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'reserva', nuevoId, `${numeroFinal} · ${nombre_cliente || ''}`);
+  res.status(201).json({ id: nuevoId, numero_reserva: numeroFinal });
 });
 
 // Mueve una reserva a otro apartamento (drag & drop). Valida que no solape en el destino.
@@ -202,7 +229,7 @@ const CAMPOS_EDITABLES = [
   'nombre_cliente', 'contrato', 'edificio', 'tih', 'personas', 'entrada', 'salida',
   'observaciones', 'apartamento_id', 'tipo_reserva', 'portal', 'condicion_cancelacion',
   'atendido_por', 'hora_entrada', 'hora_salida', 'checkin_estado', 'checkout_estado',
-  'precio_base', 'precio_total', 'pagado', 'notas_internas', 'ocupante',
+  'precio_base', 'precio_total', 'pagado', 'notas_internas', 'ocupante', 'cliente_id',
 ];
 
 function aNumero(v) {
@@ -223,6 +250,7 @@ router.put('/:id', (req, res) => {
   }
   if ('tih' in datos) datos.tih = normalizaTih(datos.tih);
   if ('apartamento_id' in datos) datos.apartamento_id = datos.apartamento_id || null;
+  if ('cliente_id' in datos) datos.cliente_id = datos.cliente_id || null;
   for (const k of ['precio_base', 'precio_total', 'pagado']) {
     if (k in datos) datos[k] = aNumero(datos[k]);
   }

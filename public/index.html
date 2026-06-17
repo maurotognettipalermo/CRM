@@ -61,6 +61,9 @@
       <button class="nav-item" data-tab="reservas" title="Reservas">
         <span class="nav-icono">📋</span><span class="nav-texto">Reservas</span>
       </button>
+      <button class="nav-item" id="nav-clientes" data-tab="clientes" title="Clientes">
+        <span class="nav-icono">🧑‍🤝‍🧑</span><span class="nav-texto">Clientes</span>
+      </button>
       <button class="nav-item" id="nav-comercial" data-tab="comercial" title="Comercial">
         <span class="nav-icono">📞</span><span class="nav-texto">Comercial</span>
       </button>
@@ -316,6 +319,33 @@
     </section>
 
     <!-- ============ VENTAS ============ -->
+    <!-- ============ CLIENTES (huéspedes) ============ -->
+    <section id="vista-clientes" class="vista">
+      <div class="barra-herramientas cli-cab">
+        <h2>Clientes</h2>
+        <div class="reservas-controles">
+          <input type="search" id="cli-buscar" class="input-buscar" placeholder="Buscar por nombre, email, teléfono, DNI..." autocomplete="off">
+          <span id="cli-contador" class="alo-contador"></span>
+        </div>
+        <div class="cli-cab-acciones">
+          <button id="cli-importar" class="btn-sec">📥 Importar desde Avantio</button>
+          <button id="cli-nuevo" class="btn-pri">＋ Nuevo cliente</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-clientes">
+          <thead>
+            <tr>
+              <th>Nombre completo</th><th>Teléfono</th><th>Email</th><th>DNI</th>
+              <th>País</th><th>Reservas</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="cli-paginacion" class="cli-paginacion"></div>
+    </section>
+
     <!-- ============ COMERCIAL (Leads) ============ -->
     <section id="vista-comercial" class="vista">
       <div class="barra-herramientas lead-cab">
@@ -622,6 +652,7 @@
   <script src="js/mantenimiento.js"></script>
   <script src="js/ventas.js"></script>
   <script src="js/leads.js"></script>
+  <script src="js/clientes-alquiler.js"></script>
   <script src="js/personal.js"></script>
   <script src="js/app.js"></script>
 </body>

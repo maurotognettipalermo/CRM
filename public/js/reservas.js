@@ -7,6 +7,12 @@ const Reservas = (() => {
   let fichaActual = null; // reserva abierta en el panel lateral
   let portalesMap = {};   // { nombre: { color, imagen_url } } para la ficha
 
+  // ---- Estado del wizard de Nueva reserva ----
+  let wzClienteModo = 'buscar';  // 'buscar' | 'nuevo'
+  let wzCliente = null;          // cliente seleccionado en modo buscar {id, nombre, ...}
+  let wzApto = null;             // apartamento seleccionado {id, nombre, tipo}
+  let wzPortales = [];           // portales activos (con prefijo)
+
   // ---- Estado de filtros avanzados (módulo: se mantiene al cambiar de pestaña) ----
   const CLASIFICACIONES = [
     { key: 'A++', clase: 'c-app' }, { key: 'A+', clase: 'c-ap' }, { key: 'A', clase: 'c-a' },
@@ -191,7 +197,13 @@ const Reservas = (() => {
   }
 
   // ---- Formulario alta/edición ----
+  // Nueva reserva → wizard rediseñado; editar → formulario clásico.
   async function formulario(id) {
+    if (id) return formularioEditar(id);
+    return formularioNuevo();
+  }
+
+  async function formularioEditar(id) {
     let r = {
       numero_reserva: '', nombre_cliente: '', contrato: '', edificio: '',
       tih: '1', apartamento_id: null, entrada: '', salida: '', personas: '', observaciones: '',
@@ -322,6 +334,319 @@ const Reservas = (() => {
     }
 
     document.getElementById('f-guardar').addEventListener('click', () => guardar(id));
+  }
+
+  // ==================== Wizard de Nueva reserva ====================
+  async function formularioNuevo() {
+    // Reset de estado del wizard.
+    wzClienteModo = 'buscar';
+    wzCliente = null;
+    wzApto = null;
+    tarifaCalc = null;
+    tarifaPrecioManual = false;
+
+    try { wzPortales = (await API.getPortales()).filter((p) => p.activo); } catch (e) { wzPortales = []; }
+    const portalOpts = '<option value="">— Elegir portal —</option>' +
+      wzPortales.map((p) => `<option value="${esc(p.nombre)}">${esc(p.nombre)}</option>`).join('');
+
+    abrirModal(`
+      <div class="rsv-wz">
+        <h3>Nueva reserva</h3>
+
+        <div class="rsv-wz-paso activo" id="rsv-paso1">
+          <!-- Portal y apartamento -->
+          <div class="rsv-sec">
+            <div class="rsv-sec-tit">Portal y apartamento</div>
+            <div class="fila-campos">
+              <div class="campo">
+                <label>Portal *</label>
+                <select id="f-portal">${portalOpts}</select>
+                <span id="rsv-wz-numhint" class="rsv-wz-hint oculto"></span>
+              </div>
+              <div class="campo rsv-ta">
+                <label>Apartamento</label>
+                <input id="rsv-apto-input" class="input-buscar" autocomplete="off" placeholder="Buscar apartamento...">
+                <input type="hidden" id="f-apartamento-id">
+                <div id="rsv-apto-res" class="rsv-ta-res oculto"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cliente -->
+          <div class="rsv-sec">
+            <div class="rsv-sec-tit">Cliente</div>
+            <div class="rsv-cli-pills">
+              <button type="button" class="rsv-pill activo" id="rsv-cli-tab-buscar">🔍 Buscar cliente</button>
+              <button type="button" class="rsv-pill" id="rsv-cli-tab-nuevo">＋ Nuevo cliente</button>
+            </div>
+            <div id="rsv-cli-buscar">
+              <div class="rsv-ta">
+                <input id="rsv-cli-input" class="input-buscar" autocomplete="off" placeholder="Buscar por nombre, email, teléfono...">
+                <div id="rsv-cli-res" class="rsv-ta-res oculto"></div>
+              </div>
+              <div id="rsv-cli-card" class="rsv-cli-card oculto"></div>
+            </div>
+            <div id="rsv-cli-nuevo" class="oculto">
+              <div class="fila-campos">
+                <div class="campo"><label>Nombre *</label><input id="rsv-cli-nombre"></div>
+                <div class="campo"><label>Apellido</label><input id="rsv-cli-ape"></div>
+              </div>
+              <div class="fila-campos">
+                <div class="campo"><label>Teléfono</label><input id="rsv-cli-tel"></div>
+                <div class="campo"><label>Email</label><input id="rsv-cli-email" type="email"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fechas -->
+          <div class="rsv-sec">
+            <div class="rsv-sec-tit">Fechas</div>
+            <div class="fila-campos">
+              <div class="campo"><label>Entrada *</label><input type="date" id="f-entrada"></div>
+              <div class="campo"><label>Salida *</label><input type="date" id="f-salida"></div>
+            </div>
+            <span id="rsv-wz-noches" class="rsv-wz-noches oculto"></span>
+            <div id="f-disponibilidad" class="disponibilidad-indicator oculto"></div>
+          </div>
+
+          <!-- Precio -->
+          <div class="rsv-sec">
+            <div class="rsv-sec-tit">Precio</div>
+            <div class="campo">
+              <label>Precio (€)</label>
+              <input type="number" step="0.01" min="0" id="f-precio">
+              <span id="f-precio-badge" class="badge-precio-manual oculto"></span>
+            </div>
+            <div class="campo"><label>Observaciones</label><textarea id="f-observaciones"></textarea></div>
+          </div>
+
+          <div class="modal-acciones">
+            <button class="btn-sec" id="rsv-wz-cancelar">Cancelar</button>
+            <button class="btn-sec" id="rsv-wz-guardar-rapido">Guardar directamente</button>
+            <button class="btn-pri" id="rsv-wz-siguiente">Siguiente →</button>
+          </div>
+        </div>
+
+        <div class="rsv-wz-paso" id="rsv-paso2">
+          <div class="rsv-sec-tit">Desglose y confirmación</div>
+          <div id="f-tarifa" class="rsv-trf"></div>
+          <div class="modal-acciones">
+            <button class="btn-sec" id="rsv-wz-atras">← Anterior</button>
+            <button class="btn-pri" id="rsv-wz-crear">✅ Crear reserva</button>
+          </div>
+        </div>
+      </div>`);
+
+    // Portal: pista de nº de reserva automático según prefijo.
+    const selPortal = document.getElementById('f-portal');
+    const numHint = document.getElementById('rsv-wz-numhint');
+    function refrescarNumHint() {
+      const p = wzPortales.find((x) => x.nombre === selPortal.value);
+      if (p && p.prefijo) {
+        numHint.textContent = `Nº reserva: ${String(p.prefijo).toUpperCase()}-XXXX (automático)`;
+        numHint.classList.remove('oculto');
+      } else if (selPortal.value) {
+        numHint.textContent = 'Nº reserva: automático';
+        numHint.classList.remove('oculto');
+      } else {
+        numHint.classList.add('oculto');
+      }
+    }
+    selPortal.addEventListener('change', () => { refrescarNumHint(); programarCalculoTarifa(); });
+
+    // Typeahead de apartamento (todos; al elegir guardamos tipo para derivar la TIH).
+    const aptoInput = document.getElementById('rsv-apto-input');
+    const aptoHidden = document.getElementById('f-apartamento-id');
+    const aptoRes = document.getElementById('rsv-apto-res');
+    aptoInput.addEventListener('input', () => {
+      wzApto = null; aptoHidden.value = '';
+      const q = aptoInput.value.trim().toLowerCase();
+      renderTAReserva(aptoRes, apartamentos.filter((a) => (a.nombre || '').toLowerCase().includes(q)),
+        (a) => `${esc(a.nombre)} <span class="rsv-ta-tih">${tihTexto(a.tipo)}</span>`,
+        (a) => {
+          wzApto = a; aptoHidden.value = a.id; aptoInput.value = a.nombre; aptoRes.classList.add('oculto');
+          verificarDisponibilidad(null); programarCalculoTarifa();
+        });
+    });
+
+    // Cliente: pills buscar/nuevo.
+    document.getElementById('rsv-cli-tab-buscar').addEventListener('click', () => setClienteModo('buscar'));
+    document.getElementById('rsv-cli-tab-nuevo').addEventListener('click', () => setClienteModo('nuevo'));
+
+    const cliInput = document.getElementById('rsv-cli-input');
+    const cliRes = document.getElementById('rsv-cli-res');
+    let cliTimer = null;
+    cliInput.addEventListener('input', () => {
+      wzCliente = null;
+      document.getElementById('rsv-cli-card').classList.add('oculto');
+      clearTimeout(cliTimer);
+      const q = cliInput.value.trim();
+      if (q.length < 2) { cliRes.classList.add('oculto'); return; }
+      cliTimer = setTimeout(async () => {
+        let lista = [];
+        try { lista = await API.get('/api/clientes?buscar=' + encodeURIComponent(q) + '&limit=8'); } catch (e) { lista = []; }
+        renderTAReserva(cliRes, lista,
+          (c) => `${esc(nombreCli(c))}${c.telefono ? ' · ' + esc(c.telefono) : ''}${c.email ? ' · ' + esc(c.email) : ''}`,
+          (c) => { wzCliente = c; cliInput.value = nombreCli(c); cliRes.classList.add('oculto'); pintarCliCard(c); });
+      }, 350);
+    });
+
+    // Cierre de dropdowns al pulsar fuera.
+    document.getElementById('modal-contenido')?.addEventListener('click', (e) => {
+      if (!e.target.closest('.rsv-ta')) { aptoRes.classList.add('oculto'); cliRes.classList.add('oculto'); }
+    });
+
+    // Fechas → noches + disponibilidad + tarifa.
+    ['f-entrada', 'f-salida'].forEach((fid) =>
+      document.getElementById(fid).addEventListener('change', () => {
+        refrescarNoches(); verificarDisponibilidad(null); programarCalculoTarifa();
+      }));
+
+    // Precio manual.
+    document.getElementById('f-precio').addEventListener('input', () => {
+      tarifaPrecioManual = document.getElementById('f-precio').value !== '';
+      actualizarBadgePrecio();
+    });
+
+    // Navegación.
+    document.getElementById('rsv-wz-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('rsv-wz-guardar-rapido').addEventListener('click', guardarNuevo);
+    document.getElementById('rsv-wz-siguiente').addEventListener('click', () => {
+      if (!validarPaso1()) return;
+      if (tarifaCalc) irAPaso(2); else guardarNuevo();
+    });
+    document.getElementById('rsv-wz-atras').addEventListener('click', () => irAPaso(1));
+    document.getElementById('rsv-wz-crear').addEventListener('click', guardarNuevo);
+  }
+
+  function nombreCli(c) { return [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(' '); }
+
+  function setClienteModo(modo) {
+    wzClienteModo = modo;
+    document.getElementById('rsv-cli-tab-buscar').classList.toggle('activo', modo === 'buscar');
+    document.getElementById('rsv-cli-tab-nuevo').classList.toggle('activo', modo === 'nuevo');
+    document.getElementById('rsv-cli-buscar').classList.toggle('oculto', modo !== 'buscar');
+    document.getElementById('rsv-cli-nuevo').classList.toggle('oculto', modo !== 'nuevo');
+  }
+
+  function pintarCliCard(c) {
+    const card = document.getElementById('rsv-cli-card');
+    if (!card) return;
+    const nombre = nombreCli(c);
+    card.innerHTML = `
+      <span class="rsv-cli-avatar">${(nombre[0] || '?').toUpperCase()}</span>
+      <div class="rsv-cli-datos">
+        <div class="rsv-cli-nombre">${esc(nombre)}</div>
+        <div class="rsv-cli-meta">${[c.telefono, c.email].filter(Boolean).map(esc).join(' · ') || '—'}</div>
+      </div>
+      <button type="button" class="rsv-cli-quitar" id="rsv-cli-quitar" title="Quitar">✕</button>`;
+    card.classList.remove('oculto');
+    document.getElementById('rsv-cli-quitar').addEventListener('click', () => {
+      wzCliente = null;
+      card.classList.add('oculto');
+      const inp = document.getElementById('rsv-cli-input');
+      if (inp) inp.value = '';
+    });
+  }
+
+  function refrescarNoches() {
+    const e = document.getElementById('f-entrada')?.value;
+    const s = document.getElementById('f-salida')?.value;
+    const span = document.getElementById('rsv-wz-noches');
+    if (!span) return;
+    if (e && s && s > e) {
+      const n = Math.round((new Date(s) - new Date(e)) / 86400000);
+      span.textContent = `${n} noche${n === 1 ? '' : 's'}`;
+      span.classList.remove('oculto');
+    } else {
+      span.classList.add('oculto');
+    }
+  }
+
+  function irAPaso(n) {
+    const p1 = document.getElementById('rsv-paso1');
+    const p2 = document.getElementById('rsv-paso2');
+    if (!p1 || !p2) return;
+    p1.classList.toggle('activo', n === 1);
+    p2.classList.toggle('activo', n === 2);
+  }
+
+  // Typeahead genérico del módulo Reservas.
+  function renderTAReserva(cont, lista, label, onPick) {
+    if (!cont) return;
+    const items = lista.slice(0, 8);
+    if (!items.length) { cont.classList.add('oculto'); cont.innerHTML = ''; return; }
+    cont.innerHTML = items.map((it, i) => `<div class="rsv-ta-item" data-i="${i}">${label(it)}</div>`).join('');
+    cont.classList.remove('oculto');
+    cont.querySelectorAll('.rsv-ta-item').forEach((el) =>
+      el.addEventListener('click', () => onPick(items[Number(el.dataset.i)])));
+  }
+
+  function validarPaso1() {
+    const portal = document.getElementById('f-portal')?.value || '';
+    const entrada = document.getElementById('f-entrada')?.value || '';
+    const salida = document.getElementById('f-salida')?.value || '';
+    if (!portal) { toast('Selecciona un portal', 'error'); return false; }
+    if (wzClienteModo === 'buscar' && !wzCliente) { toast('Selecciona un cliente o crea uno nuevo', 'error'); return false; }
+    if (wzClienteModo === 'nuevo' && !(document.getElementById('rsv-cli-nombre')?.value || '').trim()) {
+      toast('El nombre del cliente es obligatorio', 'error'); return false;
+    }
+    if (!entrada || !salida) { toast('Las fechas de entrada y salida son obligatorias', 'error'); return false; }
+    if (entrada >= salida) { toast('La salida debe ser posterior a la entrada', 'error'); return false; }
+    const ind = document.getElementById('f-disponibilidad');
+    if (ind && ind.classList.contains('disponibilidad-error')) { toast('El apartamento no está disponible en esas fechas', 'error'); return false; }
+    return true;
+  }
+
+  async function guardarNuevo() {
+    if (!validarPaso1()) return;
+    const botones = document.querySelectorAll('#rsv-wz-guardar-rapido, #rsv-wz-siguiente, #rsv-wz-crear');
+    botones.forEach((b) => { b.disabled = true; });
+
+    try {
+      // 1) Cliente: usar el seleccionado o crear uno nuevo.
+      let clienteId = wzCliente ? wzCliente.id : null;
+      let nombreCliente = wzCliente ? nombreCli(wzCliente) : '';
+      if (wzClienteModo === 'nuevo') {
+        const nom = (document.getElementById('rsv-cli-nombre')?.value || '').trim();
+        const ape = (document.getElementById('rsv-cli-ape')?.value || '').trim();
+        const tel = (document.getElementById('rsv-cli-tel')?.value || '').trim();
+        const mail = (document.getElementById('rsv-cli-email')?.value || '').trim();
+        const nuevo = await API.post('/api/clientes', { nombre: nom, apellido1: ape, telefono: tel, email: mail });
+        clienteId = nuevo.id;
+        nombreCliente = [nom, ape].filter(Boolean).join(' ');
+      }
+
+      const portal = document.getElementById('f-portal')?.value || '';
+      const precio = document.getElementById('f-precio')?.value || '';
+      // TIH derivada del apartamento elegido (la requiere el backend); por defecto 1ª línea.
+      const tih = wzApto && wzApto.tipo ? wzApto.tipo : '1';
+
+      // 2) Crear reserva (sin numero_reserva: lo genera el backend).
+      const body = {
+        portal,
+        apartamento_id: document.getElementById('f-apartamento-id')?.value || null,
+        nombre_cliente: nombreCliente,
+        cliente_id: clienteId,
+        tih,
+        entrada: document.getElementById('f-entrada')?.value || '',
+        salida: document.getElementById('f-salida')?.value || '',
+        precio_total: precio,
+        observaciones: document.getElementById('f-observaciones')?.value || '',
+      };
+      const creada = await API.post('/api/reservas', body);
+      // El POST no persiste portal ni cliente_id: se fijan con un PUT posterior.
+      await API.put('/api/reservas/' + creada.id, { portal, cliente_id: clienteId });
+      await anadirExtrasObligatorios(creada.id);
+
+      cerrarModal();
+      await cargar();
+      toast(`Reserva ${creada.numero_reserva || ''} creada`.trim(), 'ok');
+      if (creada.id) await abrirFicha(creada.id);
+    } catch (e) {
+      toast(e.message, 'error');
+      botones.forEach((b) => { b.disabled = false; });
+    }
   }
 
   // Rellena el select de apartamentos filtrado por TIH; pre-selecciona selectedId si se proporciona.
@@ -932,7 +1257,8 @@ const Reservas = (() => {
       dato('Alojamiento', apto) +
       dato('Fecha entrada', fechaHoraDia(r.entrada, r.hora_entrada)) +
       dato('Fecha salida', fechaHoraDia(r.salida, r.hora_salida)) +
-      dato('Cliente', esc(r.nombre_cliente) || '—') +
+      dato('Cliente', (esc(r.cliente_nombre_completo || r.nombre_cliente) || '—') +
+        (r.cliente_id ? ` <a class="vta-link rsv-ver-cliente" data-cliente="${r.cliente_id}">Ver ficha del cliente →</a>` : '')) +
       dato('Ocupante', esc(r.ocupante || r.nombre_cliente) || '—') +
       dato('Número ocupantes', (r.personas != null ? r.personas : '—') + ' Adultos');
 
@@ -963,6 +1289,13 @@ const Reservas = (() => {
       <div class="rsv-subpanel" data-rsubpanel="mensajes">${proximamente}</div>
       <div class="rsv-subpanel" data-rsubpanel="margen">${proximamente}</div>
       <div class="rsv-subpanel" data-rsubpanel="liquidacion">${proximamente}</div>`;
+
+    // Link a la ficha del cliente vinculado.
+    document.querySelector('#rsv-cuerpo .rsv-ver-cliente')?.addEventListener('click', (e) => {
+      const cid = e.currentTarget.dataset.cliente;
+      activarTab('clientes');
+      if (typeof ClientesAlquiler !== 'undefined' && ClientesAlquiler.abrirFicha) ClientesAlquiler.abrirFicha(cid);
+    });
 
     pintarExtras();
     pintarPagos();

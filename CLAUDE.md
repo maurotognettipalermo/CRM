@@ -49,7 +49,8 @@ db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietar
                        limpieza_tareas, limpieza_fotos, mantenimiento_tareas,
                        mantenimiento_notas, mantenimiento_fotos, propiedades_venta,
                        clientes_compradores, visitas_venta, visitas_notas, propietarios_venta, mayoristas,
-                       mayorista_contratos, mayorista_pagos, empleados, fichajes, ausencias, horas_extra.
+                       mayorista_contratos, mayorista_pagos, empleados, fichajes, ausencias, horas_extra,
+                       leads, lead_propuestas, lead_plantillas, lead_notas, clientes.
 routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
   portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
@@ -64,10 +65,17 @@ routes/                Un router Express por recurso:
   mayoristas (/api/mayoristas, Pagos de Mayoristas: mayoristas + contratos anuales +
     plan de pagos + resumen) ·
   personal (/api/personal, módulo RRHH: empleados + fichajes/control horario +
-    ausencias + horas extra + resumen-dia para el dashboard)
+    ausencias + horas extra + resumen-dia para el dashboard) ·
+  leads (/api/leads, módulo Comercial: captación de leads de alquiler + propuestas por email
+    con fotos + notas/chat + plantillas de email + resumen/tasa conversión + convertir lead a reserva) ·
+  clientes (/api/clientes, módulo Clientes: huéspedes/inquilinos — CRUD + búsqueda paginada +
+    importación del export de Avantio; vinculados a reservas vía reservas.cliente_id)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
+  importClientes.js    Parseo del export de Avantio de clientes (HTML disfrazado de XLS; SheetJS raw,
+                       detecta fila de cabeceras, mapeo flexible de 27 columnas), upsert por id_avantio
+                       (UPDATE sin pisar observaciones). Nunca borra.
   importPropiedades.js Parseo Excel de Idealista (cabeceras en fila 0, header:1, mapeo flexible
                        sin acentos), upsert por `referencia`; solo procesa filas de Venta; en UPDATE
                        NO pisa estado/notas/descripcion (campos del CRM). aNumero admite formato europeo.
@@ -77,7 +85,7 @@ services/
   emailService.js      nodemailer: getTransporter(db) + enviarEmail(db, {to,subject,html,attachments}).
                        Config SMTP en tabla ajustes (claves smtp_*); secure=true solo si puerto 465.
 public/                Frontend vanilla. Sin build, servido estático.
-  index.html           SPA de 13 pestañas + menú lateral plegable + modal genérico + panel lateral + toast.
+  index.html           SPA de 15 pestañas + menú lateral plegable + modal genérico + panel lateral + toast.
   css/styles.css       Tema claro (blanco / sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (header X-Auth-Token; 401→onNoAutorizado) +
                        API.getPortales() (caché en memoria, compartida por planning/reservas) +
@@ -132,11 +140,20 @@ public/                Frontend vanilla. Sin build, servido estático.
                        condiciones, modal con toggles min_noches/tipos/portales y preview en vivo).
   js/propietarios.js   Lista con avatar/búsqueda/orden/paginación. Ficha en panel lateral editable.
                        Modal por pestañas e importación Excel.
-  js/reservas.js       Tabla + alta/edición manual + validación disponibilidad. El modal de
-                       alta/edición incluye Portal y Precio con cálculo automático de tarifa
-                       (/api/tarifas/calcular, debounce 500ms, desglose por noche colapsable,
-                       precio editable con badge "Precio manual" si difiere; al crear añade los
-                       extras obligatorios del catálogo y fija portal/precio con PUT posterior).
+  js/reservas.js       Tabla + alta/edición manual + validación disponibilidad. **Nueva reserva** =
+                       wizard de 2 pasos (formularioNuevo): Paso 1 secciones Portal+apartamento
+                       (portal obligatorio, pista del nº auto según prefijo; apto typeahead) ·
+                       Cliente (pills Buscar/Nuevo: typeahead a /api/clientes o alta inline → POST
+                       /api/clientes antes de la reserva) · Fechas (con "X noches") · Precio (cálculo
+                       de tarifa). Paso 2 = desglose + confirmar (solo si hay tarifa). NO pide
+                       nº/contrato/edificio/TIH/personas; la TIH se deriva del apto (o '1'); el nº lo
+                       genera el backend. Editar usa el formulario clásico (formularioEditar). Reutiliza
+                       ids compartidos (f-apartamento-id/f-entrada/f-salida/f-portal/f-precio/f-tarifa)
+                       para el cálculo de tarifa (/api/tarifas/calcular, debounce 500ms, badge "Precio
+                       manual"). Al crear añade extras obligatorios del catálogo, fija portal/cliente_id
+                       con PUT posterior y abre la ficha de la nueva reserva.
+                       La ficha (pestaña Datos) muestra el cliente vinculado con link "Ver ficha del
+                       cliente →" (→ pestaña Clientes + ClientesAlquiler.abrirFicha) si hay cliente_id.
                        Filtros avanzados
                        (panel "🔽 Filtros" inyectado por JS: clasificación/portal/estado/condición
                        multiselección + rango de fechas; badge contador; los botones TIH y el select
@@ -147,7 +164,7 @@ public/                Frontend vanilla. Sin build, servido estático.
                        El select "Tipo de reserva" del modal de edición carga dinámicamente los
                        estados activos de /api/ajustes/estados-reserva. Expone abrirFicha(id).
   js/ajustes.js        Sub-pestañas: Razón Social / Usuarios / Actividad (admin) / Portales
-                       (reordenar, color, logo) / Catálogo de gastos / Catálogo de extras (con
+                       (reordenar, color, prefijo —para auto-numerar reservas—, logo) / Catálogo de gastos / Catálogo de extras (con
                        toggle "Extra obligatorio" + badge rojo en la tabla) / Estados de reserva
                        (color clicable, badge "Sistema" si es_sistema, sin borrar los del sistema) /
                        Correo electrónico (SMTP, solo admin: formulario + guardar + email de prueba).
@@ -232,9 +249,27 @@ public/                Frontend vanilla. Sin build, servido estático.
                        (todos): vista propia (minis + tabla + alta/edición de no pagadas) y, para admin,
                        gestión del equipo (selector empleado, registrar/desmarcar pago). Clases `per-*`,
                        `aus-*`, `hx-*`. UI mobile-first (tablas en cards <768px).
+  js/leads.js          Módulo Comercial (Leads). IIFE `Leads`, sub-pestañas Leads | Plantillas.
+                       Resumen (5 minis + tasa conversión), tabla con filtros (estado/atendido/fechas,
+                       client-side), panel lateral propio (#lead-panel: datos, propuestas, notas tipo
+                       chat, banner si reservado, dropdown estado, convertir, editar). Modal alta/edición
+                       (typeahead apto). **Envío de propuestas**: modal 2 pasos (configurar email/apto/
+                       precio/plantilla con placeholders + seleccionar fotos del apto con preview) →
+                       guardar borrador o enviar (POST propuesta + POST .../enviar; maneja {ok:false}
+                       SMTP). Convertir a reserva (modal → POST /:id/convertir; notas se guardan como
+                       nota del lead). Plantillas: tabla CRUD + placeholders clicables + preview.
+                       Expone init/cargar/abrirFicha. Clases `lead-*` (reusa varias `vta-*`/`mant-*`).
+  js/clientes-alquiler.js  Módulo Clientes (huéspedes). IIFE `ClientesAlquiler` (nombre distinto de los
+                       clientes de Ventas). Tabla paginada (50/pág, ?offset=) con buscador debounce,
+                       columnas Nombre/Teléfono/Email/DNI/País/Reservas(badge). Panel lateral propio
+                       (#cli-panel: datos personales, contacto, dirección, historial de reservas
+                       —clicable → ficha de reserva—, observaciones editables inline). Modal alta/edición
+                       (campos principales; el resto entra por importación). Modal importar (dropzone .xls/
+                       .xlsx → POST /api/clientes/importar con authHeaders, resumen nuevos/actualizados/
+                       errores). Expone init/cargar/abrirFicha. Clases `cli-*`. UI mobile-first.
 ```
 
-**Orden de carga de scripts**: `api.js` y `auth.js` primero, `app.js` último. Los módulos se referencian entre sí solo en runtime (no en carga).
+**Orden de carga de scripts**: `api.js` y `auth.js` primero, `app.js` último (entre medias: …`leads.js`, `clientes-alquiler.js`, `personal.js`). Los módulos se referencian entre sí solo en runtime (no en carga).
 
 **Layout**: sidebar izquierdo plegable 220px↔56px (`.colapsado`; estado en `localStorage`). `<body>` es `flex-direction: row`. Cada pestaña: `<section id="vista-{nombre}" class="vista">` **dentro de `<main>`**. Overlays (`#modal-fondo`, paneles laterales, `#login-overlay`) van **fuera de `<main>`** como `position: fixed`.
 
@@ -273,13 +308,13 @@ Patrones clave:
 | GET | /api/reservas/sin-asignar | Bandeja sin asignar; `?tih=` |
 | GET | /api/reservas/todas | Todas + apartamento_nombre; orden entrada DESC |
 | GET | /api/reservas/verificar-disponibilidad | `?apartamento_id=&entrada=&salida=[&excluir_reserva_id=]` → `{ disponible, conflicto }` |
-| GET/POST/PUT/DELETE | /api/reservas[/:id] | CRUD. POST→409 si numero_reserva duplicado |
+| GET/POST/PUT/DELETE | /api/reservas[/:id] | CRUD. POST→409 si numero_reserva duplicado. POST: si `numero_reserva` viene vacío lo autogenera con el prefijo del portal (`generarNumeroReserva`); acepta `cliente_id`; si `precio_total>0` crea el plan 20/80 en la misma transacción (`generarPlanPagos`); devuelve `{id, numero_reserva}`. PUT: `cliente_id` editable. GET/:id: LEFT JOIN clientes → `cliente_nombre_completo/cliente_telefono/cliente_email` |
 | PUT | /api/reservas/:id/mover | Drag&drop; body `{apartamento_id}`; 409 si solapa. `null` → Sin asignar |
 | GET/POST/PUT/DELETE | /api/reservas/:id/pagos[/:pago_id] | Plan de pagos. GET→`{pagos, total_pagado, total_pendiente, precio_total_reserva}`. POST pago manual (pagado sin fecha→hoy) |
 | POST | /api/reservas/:id/pagos/generar-plan | Plan 20%/80%: borra pagos NO pagados y crea 2 cuotas. 409 si precio_total=0 |
 | GET/POST/PUT/DELETE | /api/reservas/:id/extras[/:extra_id] | Extras de la reserva. POST `{catalogo_extra_id, cantidad}`: snapshot nombre/precio/tipo; importe = precio×cant (×noches si tipo='noche', noches via julianday). GET→`{extras, total_extras}` |
 | GET/POST/PUT/DELETE | /api/catalogo-extras[/:id] | Catálogo de extras. GET activos primero, alfabético. DELETE→409 si usado en alguna reserva |
-| GET/POST/PUT/DELETE | /api/portales[/:id] | CRUD portales |
+| GET/POST/PUT/DELETE | /api/portales[/:id] | CRUD portales. `prefijo` (uppercase, vacío→null) para auto-numerar reservas |
 | POST | /api/portales/:id/imagen | Multipart campo **`imagen`** (no `archivo`); .jpg/.jpeg/.png/.webp/.svg |
 | POST | /api/importar | Excel/CSV (campo `archivo`); devuelve resumen |
 | POST | /api/auth/login | **Pública**. `{username,password}` → `{ok,token,userId,username,nombre,rol}` |
@@ -346,6 +381,16 @@ Patrones clave:
 | POST | /api/ajustes/smtp/test | **Solo admin**. Envía email de prueba al smtp_user → `{ok}` / `{ok:false,error}` |
 | POST | /api/email/enviar-fotos | `{to, subject, mensaje, apartamento_id, foto_ids[]}`. Adjunta las fotos (verifica que son del apto), HTML con logo de razón social. Errores SMTP → `{ok:false,error}` (HTTP 200) |
 | GET | /api/ajustes/actividad | **Solo admin**. `?usuario_id=&accion=&limit=200`; orden fecha DESC |
+| GET | /api/clientes | `?buscar=&limit=50&offset=`. Búsqueda nombre/apellidos/email/teléfono/DNI; cada fila lleva `num_reservas` |
+| GET/POST/PUT/DELETE | /api/clientes[/:id] | CRUD clientes (huéspedes). GET/:id incluye `reservas[]` (historial). DELETE→409 si tiene reservas vinculadas |
+| POST | /api/clientes/importar | Multipart `archivo` (export Avantio HTML-as-XLS) → `importClientes`; upsert por id_avantio → `{nuevos, actualizados, errores}` |
+| GET | /api/leads/plantillas · POST · PUT/:id · DELETE/:id | Plantillas de email (activas). DELETE→409 si tiene propuestas. **Antes de /:id** |
+| GET | /api/leads/resumen | Contadores por estado + `conversion_rate`. **Antes de /:id** |
+| GET/POST/PUT/DELETE | /api/leads[/:id] | CRUD leads. GET/:id → `{...lead, propuestas, notas_chat}`. DELETE→409 si estado='reservado' |
+| POST | /api/leads/:id/convertir | Crea reserva (nº `LEAD-{id}-{ts}`) con plan 20/80 si precio>0; lead→'reservado' + reserva_id. `{ok, reserva_id, numero_reserva}` |
+| POST/DELETE | /api/leads/:id/notas[/:nota_id] | Hilo de notas del lead |
+| GET/POST | /api/leads/:id/propuestas | Lista / crear propuesta `{plantilla_id, apartamento_id, precio_propuesto, foto_ids[], email_destino, asunto, mensaje}` |
+| POST | /api/leads/:id/propuestas/:prop_id/enviar | Envía la propuesta por email (fotos del apto adjuntas); enviada=1 + lead→'propuesta_enviada'. Errores SMTP → `{ok:false,error}` |
 | GET | /api/dashboard | proximos_checkin, reservas_en_curso, proximos_checkout (máx 50 c/u), pagos_pendientes, reservas_entrantes |
 | GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas): totales, noches, resumen |
 | GET | /api/estadisticas/apartamentos | `?anio=[&apartamento_id=]`. Sin id: ingresos+ocupación por apto. Con id: detalle + reservas del año |
@@ -372,6 +417,10 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 
 **Orden en `routes/personal.js`**: `/fichajes/estado`, `/fichajes/resumen` y `/fichajes/exportar` antes de la genérica `/fichajes`; `/ausencias/calendario` y `/ausencias/saldo` antes de `/ausencias/:id`; `/horas-extra/resumen` antes de `/horas-extra/:id`.
 
+**Orden en `routes/leads.js`**: `/plantillas`, `/plantillas/:id` y `/resumen` deben declararse **antes** de `/:id`.
+
+**Orden en `routes/clientes.js`**: `/importar` (POST) no colisiona con `/:id` (distinto método), pero mantenerlo declarado junto al resto.
+
 **Orden en `server.js`**: los sub-routers `/api/reservas/:id/pagos` y `/api/reservas/:id/extras` se montan **antes** de `/api/reservas` (igual que `/api/apartamentos/:id/gastos` y `/api/apartamentos/:id/fotos` antes de `/api/apartamentos`) para que `/:id` no capture esos prefijos.
 
 ## Modelo de datos
@@ -379,8 +428,8 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **propietarios**: ~40 columnas (datos personales, contacto, domicilio, documentación, contables). `notas` = "Observaciones" en UI. `numero_documento` es el canónico (el campo `dni` es legado). `id_avantio` para upsert desde Avantio. `routes/propietarios.js` define `CAMPOS` como único punto de verdad para INSERT/UPDATE. Columnas nuevas: ALTER TABLE via `migrarPropietarios`.
 - **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta, `estado_limpieza` ('limpio'|'sucio', CHECK, def. 'limpio'). Edificio/TIH/bloque ocultos en UI pero conservados en BD.
 - **apartamento_propietarios**: relación N:M apartamento ↔ propietarios con histórico. apartamento_id/propietario_id (FK, ON DELETE CASCADE), porcentaje (REAL, los activos deben sumar 100), fecha_inicio (NOT NULL), fecha_fin (null = actual), activo (1=actual, 0=histórico), notas, UNIQUE(apartamento_id, propietario_id, fecha_inicio). El "principal" para compat/facturas = mayor porcentaje (empate → fecha_inicio más antigua). Contratos: con 1 propietario activo se autorrellena `propietario_id`; con varios el POST/PUT exige especificarlo.
-- **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante.
-- **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url. Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
+- **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante, `cliente_id` (FK a `clientes`, ON DELETE SET NULL — vía ALTER en `COLUMNAS_RESERVAS`; lo fija el wizard de Nueva reserva).
+- **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url, `prefijo` (vía ALTER en `COLUMNAS_PORTALES` — prefijo de auto-numeración de reservas, ej. "CA"→CA-0001). Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
 - **ajustes**: almacén genérico clave/valor. En uso: flag `limpieza_datos_prueba_v1` (marca la limpieza única de datos de prueba ya ejecutada — no borrar, o re-borraría facturas/contratos/pagos reales en el siguiente arranque) + claves `smtp_*` (host/port/user/password/from_name/from_email) de la config de correo saliente, gestionadas en Ajustes → Correo electrónico (defaults en `emailService.SMTP_DEFAULTS`).
 - **razones_sociales**: datos de facturación (razon_social, CIF, dirección, IBAN, logo_url). `RS_CAMPOS` en `routes/ajustes.js` como punto de verdad.
 - **usuarios**: nombre, username (UNIQUE), password_hash (sha256 sin bcrypt), rol ('administrador'|'usuario'|'limpieza'|'mantenimiento'), activo, ultimo_acceso, token (sesión activa). Admin por defecto: `admin` / `admin1234`. Los roles 'limpieza' y 'mantenimiento' se añadieron ampliando el CHECK vía `migrarUsuariosRol()` (rebuild; el guard mira si el CHECK ya incluye 'mantenimiento'). `routes/usuarios.js` valida contra `ROLES_VALIDOS`.
@@ -418,8 +467,13 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **fichajes**: empleado_id (FK CASCADE), fecha (ISO), tipo (CHECK entrada/pausa/reanudacion/salida), hora ('HH:MM:SS', `time('now','localtime')`), notas. Una fila por evento. El estado del día y las horas se derivan de la secuencia (sin tabla de estado). Tabla creada por schema.sql.
 - **ausencias**: empleado_id (FK CASCADE), tipo (CHECK vacaciones/dia_libre/dia_gracia/baja_medica/asuntos_propios), fecha_inicio/fecha_fin, dias (laborables lun-vie, calculado en el backend), estado (CHECK pendiente/aprobada/rechazada, def. 'aprobada'), aprobado_por, notas. Empleado crea pendientes para sí; admin crea/edita/aprueba/rechaza/borra.
 - **horas_extra**: empleado_id (FK CASCADE), fecha, horas (REAL), descripcion, pagada (0/1), importe, fecha_pago, created_by. El empleado apunta las suyas (editables/borrables solo si no pagadas); el admin gestiona el pago.
+- **clientes** (módulo Clientes — huéspedes/inquilinos): id_avantio (clave de upsert al importar), nombre (NOT NULL), apellido1/apellido2, fecha_nacimiento, sexo, nacionalidad, dirección (calle/numero/puerta/codigo_postal/ciudad/provincia/pais/region), dni, email/email2, telefono/telefono2/telefono3, idioma, tipo_cliente, cuenta_bancaria, codigo_fiscal, observaciones, cuenta_contable. `CAMPOS` en `routes/clientes.js`. Importación: `importClientes.js` no pisa `observaciones` en UPDATE. Vinculado a reservas vía `reservas.cliente_id`.
+- **leads** (módulo Comercial): nombre (NOT NULL), telefono, email, apartamento_id (FK SET NULL) + apartamento_nombre, fecha_entrada/salida, personas, presupuesto, estado (CHECK nuevo/contactado/propuesta_enviada/esperando_respuesta/reservado/descartado, def. 'nuevo'), notas (texto libre), reserva_id (FK SET NULL — al convertir), atendido_por, created_by. `routes/leads.js`.
+- **lead_propuestas**: lead_id (FK CASCADE), asunto, mensaje, apartamento_id (FK SET NULL), precio_propuesto, fotos_enviadas (JSON de foto_ids), email_destino, enviada (0/1), fecha_envio, plantilla_id (FK SET NULL), created_by. Propuestas de email enviadas/borrador.
+- **lead_plantillas**: nombre (UNIQUE), asunto, cuerpo (con placeholders {nombre}/{apartamento}/{fecha_entrada}/{fecha_salida}/{precio}/{empresa}/{tipo}/{capacidad}/{zona}), activa (0/1). Seed de 2 (Propuesta estándar, Seguimiento) si la tabla está vacía.
+- **lead_notas**: lead_id (FK CASCADE), texto, usuario_nombre, fecha. Hilo de notas (chat) del lead; la ficha lo devuelve en `notas_chat` (para no eclipsar la columna texto `notas` del lead).
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_notas`, `propietarios_venta`, `mayoristas`, `mayorista_contratos`, `mayorista_pagos`, `empleados`, `fichajes`, `ausencias`, `horas_extra` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo: la columna `estado_limpieza` vía ALTER en `COLUMNAS_APARTAMENTOS`; el CHECK de `usuarios.rol` recreando la tabla en `migrarUsuariosRol()`; el CHECK de `facturas.tipo` recreado en `migrarFacturasTipo()`; y los campos de venta + `propietario_venta_id` de `propiedades_venta` vía ALTER en `migrarPropiedadesVenta()`). `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_notas`, `propietarios_venta`, `mayoristas`, `mayorista_contratos`, `mayorista_pagos`, `empleados`, `fichajes`, `ausencias`, `horas_extra`, `clientes`, `leads`, `lead_propuestas`, `lead_plantillas`, `lead_notas` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo: la columna `estado_limpieza` vía ALTER en `COLUMNAS_APARTAMENTOS`; el CHECK de `usuarios.rol` recreando la tabla en `migrarUsuariosRol()`; el CHECK de `facturas.tipo` recreado en `migrarFacturasTipo()`; los campos de venta + `propietario_venta_id` de `propiedades_venta` vía ALTER en `migrarPropiedadesVenta()`; `reservas.cliente_id` vía ALTER en `COLUMNAS_RESERVAS` —REFERENCES exige default NULL implícito, por eso `clientes` se crea en schema.sql antes de `migrarReservas`—; y `portales.prefijo` vía ALTER en `COLUMNAS_PORTALES`). Seed de `lead_plantillas` en `seedLeadPlantillas()`. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 
@@ -431,13 +485,14 @@ TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTex
 4. Sin piso libre de esa TIH → `apartamento_id = NULL` (bandeja "Sin asignar"), reportado como incidencia. El usuario la coloca con drag & drop.
 5. **Upsert por `numero_reserva`**: si existe → UPDATE (conserva `apartamento_id`); si no → crea y autoasigna. Nunca se borran reservas automáticamente.
 6. **Drag & drop** (`PUT /mover`): valida solape → 409 si choca. No restringe por TIH. `apartamento_id: null` devuelve a "Sin asignar".
-7. **Alta manual**: `numero_reserva` único e inmutable. Selector de apartamentos filtrado por TIH. Validación de solape en frontend antes de guardar.
+7. **Alta manual**: el wizard de Nueva reserva NO pide nº (lo genera el backend con el prefijo del portal: `{PREFIJO}-NNNN`, o `R-{timestamp}` si el portal no tiene prefijo), ni TIH (se deriva del apartamento elegido, o '1'). Validación de solape en frontend antes de guardar. El nº sigue siendo único e inmutable.
+8. **Plan de pagos automático**: al crear una reserva con `precio_total>0` (alta manual o conversión de lead) el backend genera el plan 20%/80% en la misma transacción del INSERT. Ya no hay botón "Generar plan" en la ficha (el endpoint `/pagos/generar-plan` se mantiene por compat).
 
 ### Pagos y extras de la ficha de reserva (pestaña Datos)
 - **Sección EXTRAS** (encima de PAGOS): tabla de `reserva_extras` + total. Modal Añadir con typeahead del catálogo (solo activos) y resumen en vivo; modal Editar solo cambia cantidad (nombre/precio son snapshot). Recargar extras repinta también PAGOS (el total de extras mueve el cálculo).
 - **Sección PAGOS**: resumen `cobrado / total a cobrar`, barra de progreso y aviso de desfase. **Total a cobrar = `precio_total` + `total_extras`**. El campo "Precio" es solo lectura en la ficha; se edita desde el modal de edición (botón Editar de la cabecera, campo que escribe `precio_total`). `precio_base` es legado, ya no se edita desde la UI.
 - **Aviso de desfase**: compara `suma de importes de todos los pagos` vs total a cobrar (tolerancia 0,01€). Suma > total → cartel naranja; suma < total con ≥1 pago → cartel azul.
-- **Botones**: Añadir pago · Generar plan 20%/80% (confirma si hay pendientes; toast si precio=0) · 💰 Autocompletar pago (crea "Pago complementario" por la diferencia; toasts si no hay desfase o si los pagos superan el total).
+- **Botones**: Añadir pago · 💰 Autocompletar pago (crea "Pago complementario" por la diferencia; toasts si no hay desfase o si los pagos superan el total). El plan 20/80 ya no se genera a mano (es automático al crear la reserva).
 - El modal de edición de reserva ya **no** tiene Hora entrada/salida ni Check-out (la sección de la ficha es solo "Check-in").
 
 ### Columnas del Excel de importación de reservas
@@ -446,6 +501,9 @@ TIH llega como "1 Línea"/"2 Línea". Cabeceras normalizadas (minúsculas, sin a
 
 ### Importación de propietarios (`importPropietarios.js`)
 Formato Avantio: fila 0 = título "Lista", fila 1 = cabeceras, fila 2+ = datos → se parsea con `sheet_to_json({ header: 1, raw: true })` y `detectarFilaCabeceras` busca la primera fila válida. Upsert: email → numero_documento → id_avantio. Nunca borra. Transacción única (~1635 filas). `Nº cuenta` e `IBAN` mapean a `numero_cuenta` (gana el primero no-nulo).
+
+### Importación de clientes (`importClientes.js`)
+Mismo patrón Avantio (HTML disfrazado de XLS; `header:1, raw:true`; `detectarFilaCabeceras`). Mapeo flexible de 27 columnas. Upsert **por `id_avantio`**; en UPDATE NO pisa `observaciones` (campo del CRM). Nunca borra. Son ~3.900 clientes → el listado va paginado (`?limit=&offset=`).
 
 ## Gotchas / decisiones técnicas
 

@@ -35,7 +35,10 @@ router.post('/', (req, res) => {
   const existe = db.prepare('SELECT id FROM portales WHERE nombre = ?').get(nombre);
   if (existe) return res.status(409).json({ error: 'Ya existe un portal con ese nombre' });
   const maxOrden = db.prepare('SELECT COALESCE(MAX(orden), 0) AS m FROM portales').get().m;
-  const info = db.prepare('INSERT INTO portales (nombre, activo, orden) VALUES (?, 1, ?)').run(nombre, maxOrden + 1);
+  const prefijo = req.body && req.body.prefijo != null && String(req.body.prefijo).trim()
+    ? String(req.body.prefijo).trim().toUpperCase() : null;
+  const info = db.prepare('INSERT INTO portales (nombre, activo, orden, prefijo) VALUES (?, 1, ?, ?)')
+    .run(nombre, maxOrden + 1, prefijo);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -58,8 +61,12 @@ router.put('/:id', (req, res) => {
     if (!isNaN(o)) orden = o;
   }
   const color = b.color != null && String(b.color).trim() ? String(b.color).trim() : actual.color;
-  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ? WHERE id = ?')
-    .run(nombre, activo, orden, color, id);
+  // prefijo: si viene en el body se actualiza (cadena vacía => null); si no, se conserva.
+  const prefijo = 'prefijo' in b
+    ? (String(b.prefijo || '').trim() ? String(b.prefijo).trim().toUpperCase() : null)
+    : actual.prefijo;
+  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ?, prefijo = ? WHERE id = ?')
+    .run(nombre, activo, orden, color, prefijo, id);
   res.json({ ok: true });
 });
 
