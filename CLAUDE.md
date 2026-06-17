@@ -141,17 +141,18 @@ public/                Frontend vanilla. Sin build, servido estático.
   js/propietarios.js   Lista con avatar/búsqueda/orden/paginación. Ficha en panel lateral editable.
                        Modal por pestañas e importación Excel.
   js/reservas.js       Tabla + alta/edición manual + validación disponibilidad. **Nueva reserva** =
-                       wizard de 2 pasos (formularioNuevo): Paso 1 secciones Portal+apartamento
-                       (portal obligatorio, pista del nº auto según prefijo; apto typeahead) ·
-                       Cliente (pills Buscar/Nuevo: typeahead a /api/clientes o alta inline → POST
-                       /api/clientes antes de la reserva) · Fechas (con "X noches") · Precio (cálculo
-                       de tarifa). Paso 2 = desglose + confirmar (solo si hay tarifa). NO pide
-                       nº/contrato/edificio/TIH/personas; la TIH se deriva del apto (o '1'); el nº lo
-                       genera el backend. Editar usa el formulario clásico (formularioEditar). Reutiliza
-                       ids compartidos (f-apartamento-id/f-entrada/f-salida/f-portal/f-precio/f-tarifa)
-                       para el cálculo de tarifa (/api/tarifas/calcular, debounce 500ms, badge "Precio
-                       manual"). Al crear añade extras obligatorios del catálogo, fija portal/cliente_id
-                       con PUT posterior y abre la ficha de la nueva reserva.
+                       formulario único (formularioNuevo): secciones Portal+apartamento (portal
+                       obligatorio, pista del nº auto según prefijo; apto typeahead) · Cliente (pills
+                       Buscar/Nuevo: typeahead a /api/clientes o alta inline → POST /api/clientes antes
+                       de la reserva) · Fechas (con "X noches") · Precio · Observaciones → botón
+                       "Crear reserva". NO pide nº/contrato/edificio/TIH/personas; la TIH se deriva del
+                       apto (o '1'); el nº lo genera el backend. Editar usa el formulario clásico
+                       (formularioEditar). Reutiliza ids compartidos (f-apartamento-id/f-entrada/
+                       f-salida/f-portal/f-precio/f-tarifa) para el cálculo de tarifa
+                       (/api/tarifas/calcular, debounce 500ms, badge "Precio manual"); el desglose
+                       #f-tarifa se calcula en 2º plano para autorrellenar el precio pero queda OCULTO
+                       (.rsv-trf-oculta). Al crear añade extras obligatorios del catálogo, fija
+                       portal/cliente_id con PUT posterior y abre la ficha de la nueva reserva.
                        La ficha (pestaña Datos) muestra el cliente vinculado con link "Ver ficha del
                        cliente →" (→ pestaña Clientes + ClientesAlquiler.abrirFicha) si hay cliente_id.
                        Filtros avanzados
@@ -447,7 +448,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **temporadas**: nombre, anio, fecha_inicio/fin (ISO, UNIQUE anio+fechas, sin solapes dentro del año), `precio_base_noche` (precio del Tipo A, el que manda), color, orden. Módulo Tarifas.
 - **tipo_modificadores**: tipo (UNIQUE: A++/A+/A/B+/B/C), porcentaje (+/− sobre el precio base; A siempre 0, bloqueado en la API), orden. Seed en database.js si la tabla está vacía (A++ +20 … C −30).
 - **descuentos**: nombre, porcentaje, fecha_inicio/fin, anio, min_noches (0 = sin mínimo), `tipos`/`portales` (JSON array TEXT, null = aplica a todos), activo, notas. En /calcular solo aplican los que cubren TODAS las noches de la estancia y cumplen condiciones; cada % se aplica sobre el subtotal (no compuestos).
-- **apartamento_fotos**: apartamento_id (FK, ON DELETE CASCADE), url, nombre_archivo, descripcion, orden, created_at. Galería del apartamento. Archivos en `public/uploads/apartamentos/{id}/`; el DELETE de foto borra BD + disco (borrar el apartamento cascadea la BD pero deja archivos huérfanos en disco).
+- **apartamento_fotos**: apartamento_id (FK, ON DELETE CASCADE), url, nombre_archivo, descripcion, orden, created_at. Galería del apartamento. Archivos en `public/uploads/apartamentos/{id}/`; el DELETE de foto borra BD + disco. Borrar el apartamento (DELETE /api/apartamentos/:id) cascadea la BD y además borra del disco las fotos + la carpeta (igual el DELETE de tarea de limpieza con `public/uploads/limpieza/{tarea_id}/`).
 - **estados_reserva**: nombre (UNIQUE), color (def. `#3b82f6`), orden, activo, `es_sistema` (0/1). Catálogo configurable en Ajustes. Seed en database.js si está vacía: Confirmada/Pendiente/Cancelada (es_sistema=1, no borrables) + Pagada/De propietario/Bloqueado. El select "Tipo de reserva" y el calendario del apartamento leen de aquí.
 - **limpieza_log**: apartamento_id (FK, ON DELETE CASCADE), estado_anterior, estado_nuevo, usuario_id (FK), usuario_nombre, fecha. Histórico de cambios de `apartamentos.estado_limpieza`.
 - **limpieza_tareas**: apartamento_id (FK CASCADE), fecha (ISO), tipo (checkout/manual/turnover), prioridad (0/1, 1=turnover urgente), estado (pendiente/en_proceso/completada), reserva_checkout_id/reserva_checkin_id (FK SET NULL), asignado_a/asignado_nombre, completado_por/completado_nombre/completado_fecha, notas_limpieza, created_by. Las de checkout/turnover se autogeneran (idempotente) en `GET /api/limpieza/tareas`; las manuales se crean a mano. Solo las `manual`+`pendiente` se pueden borrar.
