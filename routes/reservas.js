@@ -7,6 +7,18 @@ const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 
+// Inserta el plan de pagos 20%/80% de una reserva (2 cuotas sin pagar). Debe llamarse
+// dentro de una transacción (no abre la suya). precio = precio_total (> 0).
+function generarPlanPagos(reservaId, precio) {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const ins = db.prepare(`
+    INSERT INTO reserva_pagos (reserva_id, concepto, importe, pagado, fecha_pago, orden)
+    VALUES (?, ?, ?, 0, NULL, ?)
+  `);
+  ins.run(reservaId, 'Confirmación (20%)', r2(precio * 0.2), 1);
+  ins.run(reservaId, 'Resto a la llegada (80%)', r2(precio * 0.8), 2);
+}
+
 // Reservas para el planning (vista continua de días). Devuelve las que solapan
 // la ventana visible [desde, hasta], con hasta = último día visible (inclusive).
 // Parámetros: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&tih=1|2
@@ -103,7 +115,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   const {
     numero_reserva, nombre_cliente, contrato, edificio,
-    tih, personas, entrada, salida, observaciones, apartamento_id,
+    tih, personas, entrada, salida, observaciones, apartamento_id, precio_total,
   } = req.body;
 
   if (!numero_reserva || !String(numero_reserva).trim())
@@ -123,25 +135,35 @@ router.post('/', (req, res) => {
     return res.status(409).json({ error: `Ya existe una reserva con el número "${numero_reserva}"` });
 
   const p = parseInt(personas, 10);
-  const info = db.prepare(`
-    INSERT INTO reservas
-      (numero_reserva, nombre_cliente, contrato, edificio, tih, personas, entrada, salida, observaciones, apartamento_id, fecha_creacion)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).run(
-    String(numero_reserva).trim(),
-    nombre_cliente,
-    contrato  || null,
-    edificio  || null,
-    tihNorm,
-    isNaN(p) ? null : p,
-    entrada,
-    salida,
-    observaciones || null,
-    apartamento_id || null
-  );
+  const precioNum = Math.round((Number(precio_total) || 0) * 100) / 100;
 
-  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'reserva', info.lastInsertRowid, `${String(numero_reserva).trim()} · ${nombre_cliente || ''}`);
-  res.status(201).json({ id: info.lastInsertRowid });
+  // Insert de la reserva + (si hay precio) plan de pagos 20/80, en una sola transacción.
+  const crear = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO reservas
+        (numero_reserva, nombre_cliente, contrato, edificio, tih, personas, entrada, salida, observaciones, apartamento_id, precio_total, pendiente, fecha_creacion)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(
+      String(numero_reserva).trim(),
+      nombre_cliente,
+      contrato  || null,
+      edificio  || null,
+      tihNorm,
+      isNaN(p) ? null : p,
+      entrada,
+      salida,
+      observaciones || null,
+      apartamento_id || null,
+      precioNum,
+      precioNum
+    );
+    if (precioNum > 0) generarPlanPagos(info.lastInsertRowid, precioNum);
+    return info.lastInsertRowid;
+  });
+  const nuevoId = crear();
+
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'reserva', nuevoId, `${String(numero_reserva).trim()} · ${nombre_cliente || ''}`);
+  res.status(201).json({ id: nuevoId });
 });
 
 // Mueve una reserva a otro apartamento (drag & drop). Valida que no solape en el destino.

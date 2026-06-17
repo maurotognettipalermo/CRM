@@ -556,16 +556,18 @@ const Reservas = (() => {
       salida,
       personas:       isNaN(personasRaw) ? null : personasRaw,
       observaciones:  document.getElementById('f-observaciones')?.value || '',
+      precio_total:   precio,
     };
 
     try {
       if (id) {
         await API.put('/api/reservas/' + id, { ...body, portal, precio_total: precio });
       } else {
-        // El POST de reservas solo acepta los campos básicos: portal y precio se fijan
-        // con un PUT posterior, y los extras obligatorios del catálogo se añaden uno a uno.
+        // El POST de reservas recibe el precio para que genere el plan de pagos 20/80
+        // automáticamente. El portal se fija con un PUT posterior y los extras obligatorios
+        // del catálogo se añaden uno a uno.
         const creada = await API.post('/api/reservas', body);
-        if (portal || precio !== '') {
+        if (portal) {
           await API.put('/api/reservas/' + creada.id, { portal, precio_total: precio });
         }
         await anadirExtrasObligatorios(creada.id);
@@ -1226,7 +1228,6 @@ const Reservas = (() => {
 
       <div class="pago-botones">
         <button class="btn-sec" id="pago-add">＋ Añadir pago</button>
-        <button class="btn-sec" id="pago-plan">🔄 Generar plan 20% / 80%</button>
         <button class="btn-sec" id="pago-autocompletar">💰 Autocompletar pago</button>
       </div>`;
   }
@@ -1255,7 +1256,6 @@ const Reservas = (() => {
     if (!cont) return;
 
     cont.querySelector('#pago-add')?.addEventListener('click', () => modalPago(null));
-    cont.querySelector('#pago-plan')?.addEventListener('click', generarPlan);
     cont.querySelector('#pago-autocompletar')?.addEventListener('click', autocompletarPago);
 
     cont.querySelectorAll('.pago-cobrar').forEach((b) =>
@@ -1264,23 +1264,6 @@ const Reservas = (() => {
       b.addEventListener('click', () => modalPago(b.dataset.id)));
     cont.querySelectorAll('.pago-borrar').forEach((b) =>
       b.addEventListener('click', () => borrarPago(b.dataset.id)));
-  }
-
-  // Generar plan 20/80 (con confirmación si hay pagos pendientes; guard de precio 0).
-  async function generarPlan() {
-    if ((Number(pagosData.precio_total_reserva) || 0) <= 0) {
-      return toast('Introduce primero el precio total de la reserva', 'error');
-    }
-    const hayPendientes = (pagosData.pagos || []).some((p) => !p.pagado);
-    if (hayPendientes &&
-      !confirm('Esto eliminará los pagos pendientes actuales y creará un nuevo plan 20%/80%. ¿Continuar?')) {
-      return;
-    }
-    try {
-      await API.post('/api/reservas/' + fichaActual.id + '/pagos/generar-plan', {});
-      await recargarPagos();
-      toast('Plan de pagos generado', 'ok');
-    } catch (e) { toast(e.message, 'error'); }
   }
 
   // Crea un pago "complementario" por la diferencia entre el total a cobrar y la suma de pagos.

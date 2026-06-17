@@ -268,6 +268,17 @@ router.post('/:id/convertir', (req, res) => {
       u.username, precioTotal, precioTotal
     );
     const reservaId = info.lastInsertRowid;
+    // Plan de pagos 20%/80% si la reserva tiene precio (misma transacción).
+    const precioNum = Math.round((Number(precioTotal) || 0) * 100) / 100;
+    if (precioNum > 0) {
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const insPago = db.prepare(`
+        INSERT INTO reserva_pagos (reserva_id, concepto, importe, pagado, fecha_pago, orden)
+        VALUES (?, ?, ?, 0, NULL, ?)
+      `);
+      insPago.run(reservaId, 'Confirmación (20%)', r2(precioNum * 0.2), 1);
+      insPago.run(reservaId, 'Resto a la llegada (80%)', r2(precioNum * 0.8), 2);
+    }
     db.prepare(`
       UPDATE leads SET estado = 'reservado', reserva_id = ?,
         updated_at = datetime('now') WHERE id = ?
