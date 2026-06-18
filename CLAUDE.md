@@ -73,6 +73,11 @@ routes/                Un router Express por recurso:
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
+  importAlojamientos.js Parseo del export de Avantio de alojamientos (HTML disfrazado de XLS; SheetJS raw,
+                       detecta fila de cabeceras). Upsert por id_avantio: en UPDATE solo rellena campos
+                       vacíos + los de dirección, sin pisar notas/estado_limpieza/tipo_clasificacion.
+                       "Tarifa" Tipo X→tipo_clasificacion; "Estado" Desactivado→quitar_planning=1; vincula
+                       propietario por coincidencia de nombre (relación N:M 100% si no hay activa). Nunca borra.
   importClientes.js    Parseo del export de Avantio de clientes (HTML disfrazado de XLS; SheetJS raw,
                        detecta fila de cabeceras, mapeo flexible de 27 columnas), upsert por id_avantio
                        (UPDATE sin pisar observaciones). Nunca borra.
@@ -107,7 +112,9 @@ public/                Frontend vanilla. Sin build, servido estático.
                        verde/rojo clicable que alterna estado, columna inyectada por JS) + barra de
                        filtros inyectada por JS (buscador por nombre + panel "🔽 Filtros":
                        tipo/limpieza multiselección + tiene-propietario/visible-planning single;
-                       contador "Mostrando X de Y") + modal alta/edición (ficha ampliada, toggles En
+                       contador "Mostrando X de Y") + botón "📥 Importar desde Avantio" (inyectado por
+                       JS junto a Nuevo alojamiento; modal con dropzone .xls/.xlsx → POST
+                       /api/apartamentos/importar) + modal alta/edición (ficha ampliada, toggles En
                        garantía / Quitar planning; SIN typeahead de propietario). Ficha en panel
                        lateral con 6 pestañas: Alojamiento (datos + indicador de limpieza clicable +
                        popover historial desde /limpieza-log + "Recaudación del año"), Propietario
@@ -305,6 +312,7 @@ Patrones clave:
 | GET/POST/PUT/DELETE | /api/catalogo-gastos[/:id] | Catálogo de gastos. DELETE→409 si tiene gastos asociados |
 | GET/POST/PUT/DELETE | /api/propietarios[/:id] | CRUD propietarios |
 | POST | /api/propietarios/importar | Excel/CSV (campo `archivo`); upsert por email o documento |
+| POST | /api/apartamentos/importar | Export Avantio (campo `archivo`, declarado antes de /:id); upsert por id_avantio → `{nuevos, actualizados, errores, propietarios_vinculados}`. No pisa notas/config en UPDATE |
 | GET | /api/reservas | Para planning; `?desde=&hasta=` (ISO) + `?tih=` |
 | GET | /api/reservas/sin-asignar | Bandeja sin asignar; `?tih=` |
 | GET | /api/reservas/todas | Todas + apartamento_nombre; orden entrada DESC |
@@ -427,7 +435,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 ## Modelo de datos
 
 - **propietarios**: ~40 columnas (datos personales, contacto, domicilio, documentación, contables). `notas` = "Observaciones" en UI. `numero_documento` es el canónico (el campo `dni` es legado). `id_avantio` para upsert desde Avantio. `routes/propietarios.js` define `CAMPOS` como único punto de verdad para INSERT/UPDATE. Columnas nuevas: ALTER TABLE via `migrarPropietarios`.
-- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta, `estado_limpieza` ('limpio'|'sucio', CHECK, def. 'limpio'). Edificio/TIH/bloque ocultos en UI pero conservados en BD.
+- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta, `estado_limpieza` ('limpio'|'sucio', CHECK, def. 'limpio'), `id_avantio` (clave de upsert al importar de Avantio), `direccion`/`numero` (importados de Avantio). Edificio/TIH/bloque ocultos en UI pero conservados en BD.
 - **apartamento_propietarios**: relación N:M apartamento ↔ propietarios con histórico. apartamento_id/propietario_id (FK, ON DELETE CASCADE), porcentaje (REAL, los activos deben sumar 100), fecha_inicio (NOT NULL), fecha_fin (null = actual), activo (1=actual, 0=histórico), notas, UNIQUE(apartamento_id, propietario_id, fecha_inicio). El "principal" para compat/facturas = mayor porcentaje (empate → fecha_inicio más antigua). Contratos: con 1 propietario activo se autorrellena `propietario_id`; con varios el POST/PUT exige especificarlo.
 - **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante, `cliente_id` (FK a `clientes`, ON DELETE SET NULL — vía ALTER en `COLUMNAS_RESERVAS`; lo fija el wizard de Nueva reserva).
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url, `prefijo` (vía ALTER en `COLUMNAS_PORTALES` — prefijo de auto-numeración de reservas, ej. "CA"→CA-0001). Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.

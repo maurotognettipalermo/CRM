@@ -1938,9 +1938,78 @@ const Alojamientos = (() => {
     return el ? el.value : '';
   }
 
+  // ==================== Modal importar (Avantio) ====================
+  let importFile = null;
+  function modalImportar() {
+    importFile = null;
+    abrirModal(`
+      <h3>📥 Importar alojamientos desde Avantio</h3>
+      <p class="lead-conv-info">ℹ️ Los apartamentos existentes conservan sus notas y configuración.</p>
+      <div id="alo-imp-dz" class="cli-dropzone">
+        <div class="cli-dz-texto">Arrastra aquí el archivo .xls/.xlsx o haz clic para elegirlo</div>
+        <div id="alo-imp-nombre" class="cli-dz-nombre"></div>
+        <input type="file" id="alo-imp-file" accept=".xls,.xlsx" hidden>
+      </div>
+      <div id="alo-imp-resultado" class="cli-imp-resultado oculto"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="alo-imp-cancelar">Cerrar</button>
+        <button class="btn-pri" id="alo-imp-guardar" disabled>Importar</button>
+      </div>`);
+    const dz = document.getElementById('alo-imp-dz');
+    const input = document.getElementById('alo-imp-file');
+    const elegir = (f) => {
+      importFile = f || null;
+      document.getElementById('alo-imp-nombre').textContent = f ? f.name : '';
+      document.getElementById('alo-imp-guardar').disabled = !f;
+    };
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('arrastrando'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('arrastrando'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('arrastrando'); elegir(e.dataTransfer.files[0]); });
+    input.addEventListener('change', () => elegir(input.files[0]));
+    document.getElementById('alo-imp-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('alo-imp-guardar').addEventListener('click', importar);
+  }
+
+  async function importar() {
+    if (!importFile) return;
+    const btn = document.getElementById('alo-imp-guardar');
+    const res = document.getElementById('alo-imp-resultado');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    res.className = 'cli-imp-resultado';
+    res.innerHTML = '<span class="rsv-trf-spinner"></span> Importando alojamientos…';
+    try {
+      const fd = new FormData();
+      fd.append('archivo', importFile);
+      const r = await fetch('/api/apartamentos/importar', { method: 'POST', body: fd, headers: authHeaders() });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Error al importar');
+      const errs = (data.errores || []).length;
+      res.innerHTML = `✅ <strong>${data.nuevos}</strong> nuevos, <strong>${data.actualizados}</strong> actualizados, <strong>${data.propietarios_vinculados}</strong> propietarios vinculados${errs ? `, <strong>${errs}</strong> errores` : ''}.`;
+      toast('Importación completada', 'ok');
+      await cargar();
+      if (typeof Planning !== 'undefined') Planning.cargar();
+    } catch (e) {
+      res.innerHTML = `⚠️ ${esc(e.message)}`;
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Importar';
+    }
+  }
+
   function init() {
     crearPanel();
     document.getElementById('btn-nuevo-alojamiento').addEventListener('click', () => formulario(null));
+    // Botón "Importar desde Avantio" junto a "Nuevo alojamiento" (inyectado por JS).
+    const barra = document.querySelector('#vista-alojamientos .barra-herramientas');
+    if (barra && !document.getElementById('btn-importar-alojamientos')) {
+      const btn = document.createElement('button');
+      btn.id = 'btn-importar-alojamientos';
+      btn.className = 'btn-sec';
+      btn.textContent = '📥 Importar desde Avantio';
+      barra.appendChild(btn);
+      btn.addEventListener('click', modalImportar);
+    }
   }
 
   return { init, cargar, abrirFicha, formulario };

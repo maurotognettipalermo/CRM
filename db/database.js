@@ -98,6 +98,9 @@ const COLUMNAS_CUOTAS = {
 
 // Columnas extra de la tabla apartamentos (ficha ampliada). DEFAULT constante en los 0/1.
 const COLUMNAS_APARTAMENTOS = {
+  id_avantio:         'TEXT',               // código único de Avantio (clave de upsert al importar)
+  direccion:          'TEXT',               // dirección (importada de Avantio)
+  numero:             'TEXT',               // número de la dirección (importado de Avantio)
   tipo_clasificacion: 'TEXT',               // A / A+ / A++ / B / B+ / C
   orientacion:        'TEXT',               // Norte / Sur / Este / Oeste / Sureste / ...
   situacion:          'TEXT',               // Frontal / Lateral Principio / Medio / Final

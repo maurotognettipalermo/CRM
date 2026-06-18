@@ -1,12 +1,16 @@
 // API REST de apartamentos (alojamientos).
 const express = require('express');
+const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db/database');
 const { normalizaTih } = require('../services/asignacion');
+const { importarAlojamientos } = require('../services/importAlojamientos');
 const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Lista de apartamentos, con filtro opcional por TIH (?tih=1 | 2) y sus propietarios
 // activos (relación N:M en apartamento_propietarios). Por defecto excluye los marcados
@@ -49,6 +53,22 @@ router.get('/', (req, res) => {
       propietario_apellidos: principal ? principal.apellidos : null,
     };
   }));
+});
+
+// POST /api/apartamentos/importar — multipart (campo "archivo"); export de Avantio.
+// Upsert por id_avantio; vincula propietarios por nombre. Declarado antes de /:id.
+router.post('/importar', upload.single('archivo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+  try {
+    const resumen = importarAlojamientos(req.file.buffer);
+    registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+      'importar', 'alojamiento', null,
+      `${resumen.nuevos} nuevos / ${resumen.actualizados} actualizados / ${resumen.propietarios_vinculados} propietarios vinculados`);
+    res.json(resumen);
+  } catch (e) {
+    console.error('Error importando alojamientos:', e);
+    res.status(500).json({ error: 'No se pudo procesar el archivo: ' + e.message });
+  }
 });
 
 // Ficha completa: datos + propietarios (activos e históricos) + historial de reservas.
