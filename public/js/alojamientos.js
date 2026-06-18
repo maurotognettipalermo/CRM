@@ -102,9 +102,9 @@ const Alojamientos = (() => {
   function asegurarColumnaLimpieza() {
     const tr = document.querySelector('#tabla-alojamientos thead tr');
     if (!tr) return;
-    // Quitar "Edificio" y "Notas" (una sola vez).
+    // Quitar "Edificio", "Notas" y "Capacidad" (una sola vez).
     Array.from(tr.querySelectorAll('th'))
-      .filter((th) => ['edificio', 'notas'].includes(th.textContent.trim().toLowerCase()))
+      .filter((th) => ['edificio', 'notas', 'capacidad'].includes(th.textContent.trim().toLowerCase()))
       .forEach((th) => th.remove());
     if (!tr.querySelector('.th-planning')) {
       const ths = Array.from(tr.querySelectorAll('th'));
@@ -199,11 +199,11 @@ const Alojamientos = (() => {
     const tbody = document.querySelector('#tabla-alojamientos tbody');
     tbody.innerHTML = '';
     if (!todos.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
       return;
     }
     for (const a of lista) {
@@ -215,7 +215,6 @@ const Alojamientos = (() => {
       tr.innerHTML = `
         <td><span class="enlace-fila" data-ficha="${a.id}">${esc(a.nombre)}</span></td>
         <td>${badgeClasif(a.tipo_clasificacion)}</td>
-        <td>${a.capacidad ?? '—'}</td>
         <td>${esc(propietario) || '—'}</td>
         <td>${planningCelda(a)}</td>
         <td class="acciones">
