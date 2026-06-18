@@ -52,6 +52,9 @@ const API = {
     _portalesCache = await this.get('/api/portales');
     return _portalesCache;
   },
+  // Borra el caché de portales: tras crear/editar/borrar un portal en Ajustes, para que
+  // planning/reservas vuelvan a leer la lista actualizada sin recargar la página (F5).
+  invalidarPortales() { _portalesCache = null; },
 };
 
 // Caché en memoria de la lista de portales (se limpia al recargar la página).

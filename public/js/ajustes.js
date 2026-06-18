@@ -687,6 +687,7 @@ const Ajustes = (() => {
     try {
       await API.put('/api/portales/' + p.id, { orden: target.orden });
       await API.put('/api/portales/' + target.id, { orden: p.orden });
+      API.invalidarPortales();
       await cargarPortales();
     } catch (e) { toast(e.message, 'error'); }
   }
@@ -795,6 +796,7 @@ const Ajustes = (() => {
         }
         await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo });
         if (archivoLogo) await subirImagenPortal(id, archivoLogo);
+        API.invalidarPortales();
         cerrarModal();
         await cargarPortales();
         toast('Portal guardado correctamente', 'ok');
@@ -807,6 +809,7 @@ const Ajustes = (() => {
     if (!confirm(`¿Eliminar el portal "${p ? p.nombre : id}"?`)) return;
     try {
       await API.del('/api/portales/' + id);
+      API.invalidarPortales();
       await cargarPortales();
       toast('Portal eliminado', 'ok');
     } catch (e) {
