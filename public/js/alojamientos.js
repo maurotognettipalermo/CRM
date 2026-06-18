@@ -97,10 +97,16 @@ const Alojamientos = (() => {
     aplicarFiltros();
   }
 
-  // Inserta el <th>Limpieza</th> en la cabecera (la tabla vive en index.html, que no tocamos).
+  // Ajusta la cabecera (la tabla vive en index.html): quita la columna "Edificio" e
+  // inserta el <th>Limpieza</th>. Idempotente.
   function asegurarColumnaLimpieza() {
     const tr = document.querySelector('#tabla-alojamientos thead tr');
-    if (!tr || tr.querySelector('.th-limpieza')) return;
+    if (!tr) return;
+    // Quitar "Edificio" (una sola vez).
+    const thEdificio = Array.from(tr.querySelectorAll('th'))
+      .find((th) => th.textContent.trim().toLowerCase() === 'edificio');
+    if (thEdificio) thEdificio.remove();
+    if (tr.querySelector('.th-limpieza')) return;
     const ths = Array.from(tr.querySelectorAll('th'));
     const th = document.createElement('th');
     th.className = 'th-limpieza';
@@ -179,11 +185,11 @@ const Alojamientos = (() => {
     const tbody = document.querySelector('#tabla-alojamientos tbody');
     tbody.innerHTML = '';
     if (!todos.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
       return;
     }
     for (const a of lista) {
@@ -194,8 +200,7 @@ const Alojamientos = (() => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="enlace-fila" data-ficha="${a.id}">${esc(a.nombre)}</span></td>
-        <td>${esc(a.edificio)}</td>
-        <td>${tihTexto(a.tipo)}</td>
+        <td>${badgeClasif(a.tipo_clasificacion)}</td>
         <td>${a.capacidad ?? '—'}</td>
         <td>${esc(propietario) || '—'}</td>
         <td>${esc(a.notas)}</td>
