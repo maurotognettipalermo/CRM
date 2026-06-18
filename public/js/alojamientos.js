@@ -106,12 +106,27 @@ const Alojamientos = (() => {
     const thEdificio = Array.from(tr.querySelectorAll('th'))
       .find((th) => th.textContent.trim().toLowerCase() === 'edificio');
     if (thEdificio) thEdificio.remove();
-    if (tr.querySelector('.th-limpieza')) return;
-    const ths = Array.from(tr.querySelectorAll('th'));
-    const th = document.createElement('th');
-    th.className = 'th-limpieza';
-    th.textContent = 'Limpieza';
-    tr.insertBefore(th, ths[ths.length - 1]); // antes de la columna de acciones
+    if (!tr.querySelector('.th-limpieza')) {
+      const ths = Array.from(tr.querySelectorAll('th'));
+      const th = document.createElement('th');
+      th.className = 'th-limpieza';
+      th.textContent = 'Limpieza';
+      tr.insertBefore(th, ths[ths.length - 1]); // antes de la columna de acciones
+    }
+    if (!tr.querySelector('.th-planning')) {
+      const ths = Array.from(tr.querySelectorAll('th'));
+      const th = document.createElement('th');
+      th.className = 'th-planning';
+      th.textContent = 'Planning';
+      tr.insertBefore(th, ths[ths.length - 1]); // entre Limpieza y Acciones
+    }
+  }
+
+  // Badge de visibilidad en el planning para la tabla.
+  function planningCelda(a) {
+    return a.quitar_planning
+      ? '<span class="badge-estado inactivo">Oculto</span>'
+      : '<span class="badge-estado activo">Visible</span>';
   }
 
   // ---- Indicador de limpieza (compartido ficha + tabla) ----
@@ -185,11 +200,11 @@ const Alojamientos = (() => {
     const tbody = document.querySelector('#tabla-alojamientos tbody');
     tbody.innerHTML = '';
     if (!todos.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280">No hay alojamientos todavía.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#6b7280;text-align:center;padding:24px">No hay alojamientos con los filtros actuales.</td></tr>';
       return;
     }
     for (const a of lista) {
@@ -205,6 +220,7 @@ const Alojamientos = (() => {
         <td>${esc(propietario) || '—'}</td>
         <td>${esc(a.notas)}</td>
         <td>${limpiezaCelda(a)}</td>
+        <td>${planningCelda(a)}</td>
         <td class="acciones">
           <button class="btn-mini" data-editar="${a.id}">Editar</button>
           <button class="btn-mini" data-borrar="${a.id}">Eliminar</button>
