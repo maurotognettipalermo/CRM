@@ -83,8 +83,7 @@ const Alojamientos = (() => {
     return `<span class="badge-clasif ${map[c] || 'c-c'}">${esc(c)}</span>`;
   }
   function badgesCabecera(a) {
-    let h = badgeTih(a.tipo);
-    if (a.tipo_clasificacion) h += ' ' + badgeClasif(a.tipo_clasificacion);
+    let h = a.tipo_clasificacion ? badgeClasif(a.tipo_clasificacion) : '';
     if (a.quitar_planning) h += ' <span class="badge-estado inactivo">Sin planning</span>';
     return h;
   }
