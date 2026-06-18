@@ -162,6 +162,9 @@ public/                Frontend vanilla. Sin build, servido estático.
                        portal/cliente_id con PUT posterior y abre la ficha de la nueva reserva.
                        La ficha (pestaña Datos) muestra el cliente vinculado con link "Ver ficha del
                        cliente →" (→ pestaña Clientes + ClientesAlquiler.abrirFicha) si hay cliente_id.
+                       Botón "🖨️ Entradas del día" (inyectado por JS junto a Nueva reserva;
+                       modal Hoy/Mañana/Rango con preview de nº de entradas → descarga/imprime el PDF
+                       de GET /api/reservas/entradas-pdf vía fetch con token).
                        Filtros avanzados
                        (panel "🔽 Filtros" inyectado por JS: clasificación/portal/estado/condición
                        multiselección + rango de fechas; badge contador; los botones TIH y el select
@@ -317,6 +320,7 @@ Patrones clave:
 | GET | /api/reservas/sin-asignar | Bandeja sin asignar; `?tih=` |
 | GET | /api/reservas/todas | Todas + apartamento_nombre; orden entrada DESC |
 | GET | /api/reservas/verificar-disponibilidad | `?apartamento_id=&entrada=&salida=[&excluir_reserva_id=]` → `{ disponible, conflicto }` |
+| GET | /api/reservas/entradas-pdf | `?desde=&hasta=` (solo admin/usuario; antes de /:id). PDF pdfkit A4 horizontal con las entradas (check-in) del rango: Fecha/Apartamento/Cliente/Personas/Portal/Teléfono/Observaciones. Teléfono = `extraerTelefono(observaciones)` o cliente vinculado. `Content-Disposition: attachment` |
 | GET/POST/PUT/DELETE | /api/reservas[/:id] | CRUD. POST→409 si numero_reserva duplicado. POST: si `numero_reserva` viene vacío lo autogenera con el prefijo del portal (`generarNumeroReserva`); acepta `cliente_id`; si `precio_total>0` crea el plan 20/80 en la misma transacción (`generarPlanPagos`); devuelve `{id, numero_reserva}`. PUT: `cliente_id` editable. GET/:id: LEFT JOIN clientes → `cliente_nombre_completo/cliente_telefono/cliente_email` |
 | PUT | /api/reservas/:id/mover | Drag&drop; body `{apartamento_id}`; 409 si solapa. `null` → Sin asignar |
 | GET/POST/PUT/DELETE | /api/reservas/:id/pagos[/:pago_id] | Plan de pagos. GET→`{pagos, total_pagado, total_pendiente, precio_total_reserva}`. POST pago manual (pagado sin fecha→hoy) |
@@ -420,7 +424,7 @@ Patrones clave:
 
 Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header `X-Auth-Token`) → `req.usuario = { id, nombre, username, rol }`.
 
-**Orden en `routes/reservas.js`**: `/sin-asignar`, `/todas`, `/verificar-disponibilidad` deben declararse **antes** de `/:id`.
+**Orden en `routes/reservas.js`**: `/sin-asignar`, `/todas`, `/verificar-disponibilidad`, `/entradas-pdf` deben declararse **antes** de `/:id`.
 
 **Orden en `routes/ventas.js`**: `/visitas/hoy` debe declararse **antes** de `/visitas/:id` (igual que `/resumen` y `/propiedades/importar` van antes de sus `/:id`; y `/propietarios-venta/importar-alquiler` antes de `/propietarios-venta/:id`).
 

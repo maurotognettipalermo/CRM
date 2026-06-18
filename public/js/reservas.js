@@ -911,6 +911,104 @@ const Reservas = (() => {
     }
   }
 
+  // ==================== Imprimir entradas del día ====================
+  function entIsoLocal(d) {
+    const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return z.toISOString().slice(0, 10);
+  }
+  function entHoy() { return entIsoLocal(new Date()); }
+  function entManana() { const d = new Date(); d.setDate(d.getDate() + 1); return entIsoLocal(d); }
+
+  function rangoEntradas() {
+    const sel = document.querySelector('input[name="ent-rango"]:checked');
+    const v = sel ? sel.value : 'hoy';
+    if (v === 'hoy') return { desde: entHoy(), hasta: entHoy() };
+    if (v === 'manana') return { desde: entManana(), hasta: entManana() };
+    const d = document.getElementById('ent-desde')?.value || '';
+    const h = document.getElementById('ent-hasta')?.value || d;
+    return { desde: d, hasta: h || d };
+  }
+
+  async function actualizarPreviewEntradas() {
+    const { desde, hasta } = rangoEntradas();
+    const el = document.getElementById('ent-preview');
+    if (!el) return;
+    if (!desde) { el.textContent = 'Selecciona una fecha'; return; }
+    el.textContent = 'Buscando…';
+    try {
+      const lista = await API.get(`/api/reservas?desde=${desde}&hasta=${hasta}`);
+      const n = lista.filter((r) => r.entrada >= desde && r.entrada <= hasta).length;
+      el.textContent = `${n} entrada${n === 1 ? '' : 's'} encontrada${n === 1 ? '' : 's'}`;
+    } catch (e) { el.textContent = 'No se pudo contar las entradas'; }
+  }
+
+  async function descargarEntradas(imprimir) {
+    const { desde, hasta } = rangoEntradas();
+    if (!desde) return toast('Selecciona una fecha', 'error');
+    try {
+      const sesion = (typeof Auth !== 'undefined' && Auth.sesion()) || {};
+      const r = await fetch(`/api/reservas/entradas-pdf?desde=${desde}&hasta=${hasta}`, {
+        headers: { 'X-Auth-Token': sesion.token },
+      });
+      if (!r.ok) throw new Error('Error al generar PDF');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      if (imprimir) {
+        const w = window.open(url);
+        if (w) w.addEventListener('load', () => { try { w.print(); } catch (e) { /* ignore */ } });
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `entradas-${desde}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) { toast('Error al descargar el PDF', 'error'); }
+  }
+
+  function modalEntradas() {
+    abrirModal(`
+      <h3>Imprimir entradas</h3>
+      <div class="campo">
+        <label>Fecha</label>
+        <div class="rsv-ent-radios">
+          <label><input type="radio" name="ent-rango" value="hoy" checked> Hoy</label>
+          <label><input type="radio" name="ent-rango" value="manana"> Mañana</label>
+          <label><input type="radio" name="ent-rango" value="custom"> Rango personalizado</label>
+        </div>
+      </div>
+      <div id="ent-fechas" class="fila-campos oculto">
+        <div class="campo"><label>Desde</label><input type="date" id="ent-desde"></div>
+        <div class="campo"><label>Hasta</label><input type="date" id="ent-hasta"></div>
+      </div>
+      <div id="ent-preview" style="margin:8px 0 4px;font-weight:600;color:var(--nav)">…</div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="ent-cancelar">Cancelar</button>
+        <button class="btn-sec" id="ent-imprimir">🖨️ Imprimir</button>
+        <button class="btn-pri" id="ent-descargar">📥 Descargar PDF</button>
+      </div>`);
+
+    const fechas = document.getElementById('ent-fechas');
+    document.querySelectorAll('input[name="ent-rango"]').forEach((rb) =>
+      rb.addEventListener('change', () => {
+        fechas.classList.toggle('oculto', rb.value !== 'custom' || !rb.checked);
+        if (document.querySelector('input[name="ent-rango"]:checked').value === 'custom'
+          && !document.getElementById('ent-desde').value) {
+          document.getElementById('ent-desde').value = entHoy();
+          document.getElementById('ent-hasta').value = entHoy();
+        }
+        actualizarPreviewEntradas();
+      }));
+    document.getElementById('ent-desde').addEventListener('change', actualizarPreviewEntradas);
+    document.getElementById('ent-hasta').addEventListener('change', actualizarPreviewEntradas);
+    document.getElementById('ent-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('ent-descargar').addEventListener('click', () => descargarEntradas(false));
+    document.getElementById('ent-imprimir').addEventListener('click', () => descargarEntradas(true));
+    actualizarPreviewEntradas();
+  }
+
   // ==================== Filtros avanzados (panel desplegable) ====================
   // Inyecta el botón "🔽 Filtros" + panel en la barra de controles, eliminando los
   // filtros antiguos (botones TIH + select de mes) que viven en index.html.
@@ -1780,7 +1878,17 @@ const Reservas = (() => {
     crearPanel();
     asegurarColumnaPortal();
     construirFiltros();
-    document.getElementById('btn-nueva-reserva').addEventListener('click', () => formulario(null));
+    const btnNueva = document.getElementById('btn-nueva-reserva');
+    btnNueva.addEventListener('click', () => formulario(null));
+    // Botón "Entradas del día" junto a Nueva reserva (inyectado por JS).
+    if (!document.getElementById('btn-entradas-dia')) {
+      const b = document.createElement('button');
+      b.id = 'btn-entradas-dia';
+      b.className = 'btn-sec';
+      b.textContent = '🖨️ Entradas del día';
+      btnNueva.insertAdjacentElement('beforebegin', b);
+      b.addEventListener('click', modalEntradas);
+    }
 
     document.getElementById('reservas-buscar').addEventListener('input', (e) => {
       busqueda = e.target.value;

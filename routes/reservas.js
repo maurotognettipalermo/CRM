@@ -1,11 +1,46 @@
 // API REST de reservas.
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const PDFDocument = require('pdfkit');
 const db = require('../db/database');
 const { solapan } = require('../services/dateUtils');
 const { normalizaTih } = require('../services/asignacion');
 const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
+
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const MM = 2.83465; // 1 mm en puntos PDF
+
+// Fecha ISO -> DD/MM/AAAA para el PDF.
+function fechaPDF(iso) {
+  if (!iso) return '—';
+  const p = String(iso).split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
+}
+
+// Lee el logo del disco como Buffer (pdfkit solo admite PNG/JPG).
+function leerLogoBuffer(url) {
+  if (!url) return null;
+  const ext = path.extname(url).toLowerCase();
+  if (!['.png', '.jpg', '.jpeg'].includes(ext)) return null;
+  try { return fs.readFileSync(path.join(PUBLIC_DIR, url)); } catch (e) { return null; }
+}
+
+// Extrae un teléfono de un texto de observaciones (misma heurística que mantenimiento):
+// etiqueta TEL/TELF/TFNO/MÓVIL + dígitos; si no, prefijo +34; si no, nº español de 9 dígitos.
+function extraerTelefono(texto) {
+  if (!texto) return null;
+  const s = String(texto);
+  const etiquetado = s.match(/(?:tel[eéf]*|tfno|m[oó]vil)\.?\s*:?\s*(\+?[\d][\d\s.\-]{6,}\d)/i);
+  if (etiquetado) return etiquetado[1].replace(/[\s.\-]/g, '');
+  const internacional = s.match(/\+\d{1,3}[\s.\-]?\d[\d\s.\-]{6,}\d/);
+  if (internacional) return internacional[0].replace(/[\s.\-]/g, '');
+  const espanol = s.match(/(?<!\d)([679]\d{2}[\s.\-]?\d{3}[\s.\-]?\d{3})(?!\d)/);
+  if (espanol) return espanol[1].replace(/[\s.\-]/g, '');
+  return null;
+}
 
 // Inserta el plan de pagos 20%/80% de una reserva (2 cuotas sin pagar). Debe llamarse
 // dentro de una transacción (no abre la suya). precio = precio_total (> 0).
@@ -115,6 +150,110 @@ router.get('/verificar-disponibilidad', (req, res) => {
     });
   }
   res.json({ disponible: true });
+});
+
+// GET /api/reservas/entradas-pdf?desde=&hasta= — PDF (A4 horizontal) con las entradas
+// (check-in) del rango. Solo admin y usuario. Declarado antes de /:id.
+router.get('/entradas-pdf', (req, res) => {
+  if (!req.usuario || !['administrador', 'usuario'].includes(req.usuario.rol)) {
+    return res.status(403).json({ error: 'Solo administradores y usuarios pueden generar este informe' });
+  }
+  const desde = String(req.query.desde || '').trim();
+  const hasta = String(req.query.hasta || '').trim() || desde;
+  if (!desde) return res.status(400).json({ error: 'Falta el parámetro desde' });
+
+  const reservas = db.prepare(`
+    SELECT r.*, a.nombre AS apartamento_nombre, c.telefono AS cliente_telefono
+    FROM reservas r
+    LEFT JOIN apartamentos a ON a.id = r.apartamento_id
+    LEFT JOIN clientes c ON c.id = r.cliente_id
+    WHERE r.entrada BETWEEN ? AND ?
+    ORDER BY r.entrada ASC, a.nombre ASC
+  `).all(desde, hasta);
+
+  // Razón social principal (la primera) para el logo.
+  const rs = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY id LIMIT 1').get() || {};
+
+  const M = Math.round(15 * MM);
+  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: M });
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  doc.on('end', () => {
+    const pdf = Buffer.concat(chunks);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="entradas-${desde}.pdf"`);
+    res.send(pdf);
+  });
+  doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
+
+  const right = doc.page.width - M;
+  const contentW = right - M;
+  let y = M;
+
+  // ---- Cabecera: logo + título + fecha de generación ----
+  const logo = leerLogoBuffer(rs.logo_url);
+  if (logo) { try { doc.image(logo, M, y, { fit: [110, 50] }); } catch (e) { /* logo inválido */ } }
+  const tx0 = M + (logo ? 120 : 0);
+  const titulo = desde === hasta
+    ? `Entradas del ${fechaPDF(desde)}`
+    : `Entradas del ${fechaPDF(desde)} al ${fechaPDF(hasta)}`;
+  doc.font('Helvetica-Bold').fontSize(16).fillColor('#1a1a2e').text(titulo, tx0, y + 6, { width: contentW - (logo ? 120 : 0) });
+  doc.font('Helvetica').fontSize(9).fillColor('#6b7280')
+    .text(`Generado el ${fechaPDF(new Date().toISOString().slice(0, 10))}`, tx0, y + 30);
+  y += 62;
+
+  // ---- Columnas (anchos proporcionales) ----
+  const cols = [
+    { k: 'fecha', t: 'Fecha entrada', w: 0.09 },
+    { k: 'apto', t: 'Apartamento', w: 0.14 },
+    { k: 'cliente', t: 'Cliente', w: 0.18 },
+    { k: 'personas', t: 'Pers.', w: 0.06, align: 'center' },
+    { k: 'portal', t: 'Portal', w: 0.12 },
+    { k: 'tel', t: 'Teléfono', w: 0.12 },
+    { k: 'obs', t: 'Observaciones', w: 0.29 },
+  ];
+  let acc = M;
+  cols.forEach((c) => { c.x = acc; c.width = contentW * c.w; acc += c.width; });
+
+  const cabecera = () => {
+    doc.rect(M, y, contentW, 22).fill('#1a1a2e');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9);
+    cols.forEach((c) => doc.text(c.t, c.x + 4, y + 7, { width: c.width - 8, align: c.align || 'left' }));
+    y += 22;
+    doc.font('Helvetica').fontSize(8.5).fillColor('#000000');
+  };
+  cabecera();
+
+  reservas.forEach((r, i) => {
+    const tel = extraerTelefono(r.observaciones) || r.cliente_telefono || '';
+    const valores = {
+      fecha: fechaPDF(r.entrada),
+      apto: r.apartamento_nombre || 'Sin asignar',
+      cliente: r.nombre_cliente || '',
+      personas: r.personas != null ? String(r.personas) : '',
+      portal: r.portal || '',
+      tel: tel,
+      obs: r.observaciones || '',
+    };
+    let h = 16;
+    cols.forEach((c) => {
+      const hh = doc.heightOfString(String(valores[c.k] || ''), { width: c.width - 8 });
+      if (hh + 8 > h) h = hh + 8;
+    });
+    if (y + h > doc.page.height - M) { doc.addPage(); y = M; cabecera(); }
+    if (i % 2 === 1) doc.rect(M, y, contentW, h).fill('#f3f4f6');
+    doc.fillColor('#000000').font('Helvetica').fontSize(8.5);
+    cols.forEach((c) => doc.text(String(valores[c.k] || ''), c.x + 4, y + 4, { width: c.width - 8, align: c.align || 'left' }));
+    y += h;
+  });
+
+  // ---- Pie: total ----
+  y += 12;
+  if (y > doc.page.height - M) { doc.addPage(); y = M; }
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#1a1a2e')
+    .text(`Total: ${reservas.length} entrada${reservas.length === 1 ? '' : 's'}`, M, y);
+
+  doc.end();
 });
 
 // Ficha de una reserva.
