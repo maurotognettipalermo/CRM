@@ -24,3 +24,4 @@ public/uploads/limpieza/*
 # Fotos de tareas de mantenimiento subidas por el usuario (datos, como la BD)
 public/uploads/mantenimiento/*
 !public/uploads/mantenimiento/.gitkeep
+Logo/
