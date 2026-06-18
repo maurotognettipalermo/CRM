@@ -1840,6 +1840,10 @@ const Reservas = (() => {
         <div class="campo"><label>Ocupante</label><input id="fr-ocupante" value="${esc(r.ocupante)}"></div>
       </div>
       <div class="fila-campos">
+        <div class="campo"><label>Entrada</label><input type="date" id="fr-entrada" value="${r.entrada || ''}"></div>
+        <div class="campo"><label>Salida</label><input type="date" id="fr-salida" value="${r.salida || ''}"></div>
+      </div>
+      <div class="fila-campos">
         <div class="campo"><label>Check-in</label><select id="fr-checkin">${selOpts(['Pendiente', 'Asignado', 'Completado'], r.checkin_estado || 'Pendiente')}</select></div>
         <div class="campo"><label>Precio (€)</label><input type="number" step="0.01" id="fr-precio" value="${r.precio_total ?? 0}"></div>
       </div>
@@ -1857,6 +1861,8 @@ const Reservas = (() => {
         portal: document.getElementById('fr-portal').value,
         condicion_cancelacion: document.getElementById('fr-condicion').value,
         ocupante: document.getElementById('fr-ocupante').value,
+        entrada: document.getElementById('fr-entrada').value,
+        salida: document.getElementById('fr-salida').value,
         checkin_estado: document.getElementById('fr-checkin').value,
         precio_total: document.getElementById('fr-precio').value,
         notas_internas: document.getElementById('fr-notas').value,
