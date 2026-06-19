@@ -1,5 +1,6 @@
 // API REST de reservas.
 const express = require('express');
+const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
@@ -7,8 +8,12 @@ const db = require('../db/database');
 const { solapan } = require('../services/dateUtils');
 const { normalizaTih } = require('../services/asignacion');
 const { registrarActividad } = require('../services/actividadService');
+const { importarReservasAvantio } = require('../services/importReservasAvantio');
 
 const router = express.Router();
+
+// Subida en memoria para la importación de Avantio (XLS real, archivos pequeños).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
@@ -254,6 +259,25 @@ router.get('/entradas-pdf', (req, res) => {
     .text(`Total: ${reservas.length} entrada${reservas.length === 1 ? '' : 's'}`, M, y);
 
   doc.end();
+});
+
+// POST /api/reservas/importar-avantio — importa el "Listado de reservas" de Avantio
+// (XLS real, campo "archivo"). Distinto de POST /api/importar (Excel simplificado).
+// Declarado antes de /:id.
+router.post('/importar-avantio', upload.single('archivo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+  try {
+    const resumen = importarReservasAvantio(req.file.buffer);
+    registrarActividad(
+      db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+      'importar', 'reserva', null,
+      `Avantio: ${resumen.nuevas} nuevas / ${resumen.actualizadas} actualizadas`
+    );
+    res.json(resumen);
+  } catch (e) {
+    console.error('Error importando reservas de Avantio:', e);
+    res.status(500).json({ error: 'No se pudo procesar el archivo: ' + e.message });
+  }
 });
 
 // Ficha de una reserva.

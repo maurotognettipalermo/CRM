@@ -1009,6 +1009,76 @@ const Reservas = (() => {
     actualizarPreviewEntradas();
   }
 
+  // ==================== Importar reservas desde Avantio ====================
+  let importAvantioFile = null;
+  function modalImportarAvantio() {
+    importAvantioFile = null;
+    abrirModal(`
+      <h3>📥 Importar reservas desde Avantio</h3>
+      <p class="lead-conv-info">ℹ️ Las reservas existentes conservan su apartamento asignado y observaciones.</p>
+      <div id="rav-dz" class="cli-dropzone">
+        <div class="cli-dz-texto">Arrastra aquí el archivo .xls/.xlsx o haz clic para elegirlo</div>
+        <div id="rav-dz-nombre" class="cli-dz-nombre"></div>
+        <input type="file" id="rav-file" accept=".xls,.xlsx" hidden>
+      </div>
+      <div id="rav-resultado" class="cli-imp-resultado oculto"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="rav-cancelar">Cerrar</button>
+        <button class="btn-pri" id="rav-guardar" disabled>Importar</button>
+      </div>`);
+    const dz = document.getElementById('rav-dz');
+    const input = document.getElementById('rav-file');
+    const elegir = (f) => {
+      importAvantioFile = f || null;
+      document.getElementById('rav-dz-nombre').textContent = f ? f.name : '';
+      document.getElementById('rav-guardar').disabled = !f;
+    };
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('arrastrando'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('arrastrando'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('arrastrando'); elegir(e.dataTransfer.files[0]); });
+    input.addEventListener('change', () => elegir(input.files[0]));
+    document.getElementById('rav-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('rav-guardar').addEventListener('click', importarAvantio);
+  }
+
+  async function importarAvantio() {
+    if (!importAvantioFile) return;
+    const btn = document.getElementById('rav-guardar');
+    const res = document.getElementById('rav-resultado');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    res.className = 'cli-imp-resultado';
+    res.innerHTML = '<span class="rsv-trf-spinner"></span> Importando reservas de Avantio…';
+    try {
+      const sesion = (typeof Auth !== 'undefined' && Auth.sesion()) || {};
+      const fd = new FormData();
+      fd.append('archivo', importAvantioFile);
+      const r = await fetch('/api/reservas/importar-avantio', {
+        method: 'POST', body: fd, headers: { 'X-Auth-Token': sesion.token },
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Error al importar');
+      const errs = data.errores || [];
+      let html = `✅ <strong>${data.nuevas}</strong> nuevas, <strong>${data.actualizadas}</strong> actualizadas, `
+        + `<strong>${data.clientes_vinculados}</strong> clientes vinculados, `
+        + `<strong>${data.apartamentos_vinculados}</strong> apartamentos vinculados`
+        + (errs.length ? `, <strong>${errs.length}</strong> errores` : '') + '.';
+      if (errs.length) {
+        html += `<details class="rav-errores"><summary>Ver ${errs.length} error${errs.length === 1 ? '' : 'es'}</summary><ul>`
+          + errs.map((e) => `<li>Fila ${e.fila}${e.numero_reserva ? ` (${esc(e.numero_reserva)})` : ''}: ${esc(e.motivo)}</li>`).join('')
+          + '</ul></details>';
+      }
+      res.innerHTML = html;
+      toast('Importación completada', 'ok');
+      await cargar();
+    } catch (e) {
+      res.innerHTML = `⚠️ ${esc(e.message)}`;
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Importar';
+    }
+  }
+
   // ==================== Filtros avanzados (panel desplegable) ====================
   // Inyecta el botón "🔽 Filtros" + panel en la barra de controles, eliminando los
   // filtros antiguos (botones TIH + select de mes) que viven en index.html.
@@ -1894,6 +1964,15 @@ const Reservas = (() => {
       b.textContent = '🖨️ Entradas del día';
       btnNueva.insertAdjacentElement('beforebegin', b);
       b.addEventListener('click', modalEntradas);
+    }
+    // Botón "Importar Avantio" junto a Nueva reserva (inyectado por JS).
+    if (!document.getElementById('btn-importar-avantio')) {
+      const bi = document.createElement('button');
+      bi.id = 'btn-importar-avantio';
+      bi.className = 'btn-sec';
+      bi.textContent = '📥 Importar Avantio';
+      btnNueva.insertAdjacentElement('beforebegin', bi);
+      bi.addEventListener('click', modalImportarAvantio);
     }
 
     document.getElementById('reservas-buscar').addEventListener('input', (e) => {
