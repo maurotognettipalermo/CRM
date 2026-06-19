@@ -3552,3 +3552,17 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
 @media (max-width: 600px) {
   .cli-cab-acciones { margin-left: 0; width: 100%; }
 }
+
+/* ==================== Ajustes → Planning (apartamentos por portal) ==================== */
+.plan-seccion { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.plan-seccion-sin { background: #fafafa; border-style: dashed; }
+.plan-seccion-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.plan-portal-nombre { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--nav); }
+.plan-contador { background: var(--nav); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
+.plan-seccion-head .plan-asignar { margin-left: auto; }
+.plan-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.plan-chip { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #1a1a2e; border: 1px solid #d9e0ff; border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+.plan-chip-x { border: none; background: none; color: var(--red); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.plan-chip-x:hover { color: #b91c1c; }
+.plan-check-lista { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.plan-check { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; }

@@ -26,6 +26,8 @@ const Planning = (() => {
     { key: '__sin__', clase: null }, // Sin clasificar
   ];
   let tiposSel = new Set(TIPOS_CLAS.map((t) => t.key)); // por defecto, todos marcados
+  let portalSel = null;        // id del portal seleccionado (null = todos)
+  let portalesFiltroListos = false; // el select de portal ya se pobló
   let apartamentosCache = [];  // apartamentos cargados (para filtrar sin re-fetch)
   let reservasCache = [];
   let desdeCache = '';
@@ -111,6 +113,7 @@ const Planning = (() => {
 
     portalesMap = {};
     for (const p of portales) portalesMap[p.nombre] = { color: p.color, imagen_url: p.imagen_url };
+    poblarFiltroPortal(portales);
 
     apartamentosCache = apartamentos;
     reservasCache = reservas;
@@ -120,9 +123,11 @@ const Planning = (() => {
     renderSinAsignar(sinAsignar);
   }
 
-  // Filtra por tipo de clasificación seleccionado (los sin clasificar -> '__sin__').
+  // Filtra por tipo de clasificación y por portal seleccionado (los sin clasificar -> '__sin__').
   function filtrarApartamentos(lista) {
-    return lista.filter((a) => tiposSel.has(a.tipo_clasificacion || '__sin__'));
+    return lista.filter((a) =>
+      tiposSel.has(a.tipo_clasificacion || '__sin__')
+      && (portalSel === null || a.portal_id === portalSel));
   }
 
   // Re-renderiza el grid con el filtro actual, sin volver a pedir datos al backend.
@@ -471,6 +476,37 @@ const Planning = (() => {
     label.textContent = 'Tipo: ' + txt;
   }
 
+  // ---- Filtro de portal (select, sobre los apartamentos ya cargados) ----
+  function construirFiltroPortal() {
+    const filtros = document.querySelector('#vista-planning .filtros');
+    if (!filtros || document.getElementById('filtro-portal')) return;
+    const sel = document.createElement('select');
+    sel.id = 'filtro-portal';
+    sel.className = 'select-filtro';
+    sel.innerHTML = '<option value="">Todos los portales</option>';
+    // Insertar tras el filtro de clasificación (antes del botón Importar).
+    const importar = document.getElementById('btn-importar');
+    if (importar) filtros.insertBefore(sel, importar); else filtros.appendChild(sel);
+    sel.addEventListener('change', () => {
+      portalSel = sel.value ? Number(sel.value) : null;
+      reaplicarFiltro();
+    });
+  }
+
+  // Rellena las opciones del select con los portales activos (una sola vez).
+  function poblarFiltroPortal(portales) {
+    const sel = document.getElementById('filtro-portal');
+    if (!sel || portalesFiltroListos) return;
+    const activos = (portales || []).filter((p) => p.activo == null || p.activo);
+    for (const p of activos) {
+      const op = document.createElement('option');
+      op.value = p.id;
+      op.textContent = p.nombre;
+      sel.appendChild(op);
+    }
+    portalesFiltroListos = true;
+  }
+
   // ---- Init ----
   function sincronizarInput() {
     const input = document.getElementById('fecha-inicio');
@@ -504,6 +540,7 @@ const Planning = (() => {
     });
 
     construirFiltroClasificacion();
+    construirFiltroPortal();
 
     // Recalcular el nº de días visibles cuando cambia el ancho del contenedor.
     nDias = calcularDias();

@@ -18,10 +18,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 router.get('/', (req, res) => {
   const tih = normalizaTih(req.query.tih);
   const todos = req.query.todos === '1' || req.query.todos === 'true';
-  let sql = 'SELECT a.* FROM apartamentos a';
+  const portalId = aEntero(req.query.portal_id);
+  let sql = 'SELECT a.*, po.nombre AS portal_nombre FROM apartamentos a LEFT JOIN portales po ON po.id = a.portal_id';
   const cond = [];
   const params = [];
   if (tih) { cond.push('a.tipo = ?'); params.push(tih); }
+  if (portalId !== null) { cond.push('a.portal_id = ?'); params.push(portalId); }
   if (!todos) cond.push('(a.quitar_planning IS NULL OR a.quitar_planning = 0)');
   if (cond.length) sql += ' WHERE ' + cond.join(' AND ');
   sql += ' ORDER BY a.edificio, a.nombre';
@@ -152,6 +154,7 @@ router.put('/:id', (req, res) => {
   for (const c of CAMPOS_TEXTO_APTO) if (c in b) add(c, txt(b[c]));
   if ('en_garantia' in b) add('en_garantia', b.en_garantia ? 1 : 0);
   if ('quitar_planning' in b) add('quitar_planning', b.quitar_planning ? 1 : 0);
+  if ('portal_id' in b) add('portal_id', aEntero(b.portal_id)); // null = desasignar
 
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
 

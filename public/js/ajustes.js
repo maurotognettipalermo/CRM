@@ -79,6 +79,7 @@ const Ajustes = (() => {
     await cargarCatalogoGastos();
     await cargarCatalogoExtras();
     await cargarEstadosReserva();
+    await cargarPlanning();
     if (Auth.esAdmin()) await cargarActividad();
     if (Auth.esAdmin()) await cargarSmtp();
   }
@@ -1118,12 +1119,139 @@ const Ajustes = (() => {
   }
 
   // ==================== Init ====================
+  // ==================== Planning (asignación de apartamentos a portales) ====================
+  let planningAptos = []; // todos los apartamentos (con portal_id y portal_nombre)
+
+  function inyectarPlanning() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="planning"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.dataset.sub = 'planning';
+    btn.textContent = 'Planning 📅';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'planning';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Apartamentos por portal</span>
+      </div>
+      <p class="sub-vacio" style="margin:0 0 14px">Asigna cada apartamento a un portal para poder filtrarlos en el Planning.</p>
+      <div id="planning-secciones"></div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+  }
+
+  async function cargarPlanning() {
+    try { planningAptos = await API.get('/api/apartamentos?todos=1'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderPlanning();
+  }
+
+  function logoPortal(p) {
+    return p.imagen_url
+      ? `<img class="portal-logo-mini" src="${esc(p.imagen_url)}" alt="">`
+      : `<span class="portal-logo-inicial" style="background:${esc(p.color) || '#3b82f6'}">${esc(inicial(p.nombre))}</span>`;
+  }
+
+  function chipApto(a, portalId) {
+    // portalId null => chip de "sin portal" (sin botón de quitar).
+    const quitar = portalId != null
+      ? `<button class="plan-chip-x" data-quitar="${a.id}" title="Desasignar">✕</button>` : '';
+    return `<span class="plan-chip">${esc(a.nombre)}${quitar}</span>`;
+  }
+
+  function renderPlanning() {
+    const cont = document.getElementById('planning-secciones');
+    if (!cont) return;
+    const activos = portalesLista.filter((p) => p.activo);
+    let html = '';
+
+    activos.forEach((p) => {
+      const aptos = planningAptos.filter((a) => a.portal_id === p.id);
+      html += `
+        <div class="plan-seccion">
+          <div class="plan-seccion-head">
+            <span class="plan-portal-nombre">${logoPortal(p)} ${esc(p.nombre)}</span>
+            <span class="plan-contador">${aptos.length}</span>
+            <button class="btn-sec plan-asignar" data-portal="${p.id}">＋ Asignar apartamentos</button>
+          </div>
+          <div class="plan-chips">
+            ${aptos.length ? aptos.map((a) => chipApto(a, p.id)).join('') : '<span class="sub-vacio">Ningún apartamento asignado.</span>'}
+          </div>
+        </div>`;
+    });
+
+    // Sección "Sin portal".
+    const sinPortal = planningAptos.filter((a) => a.portal_id == null);
+    html += `
+      <div class="plan-seccion plan-seccion-sin">
+        <div class="plan-seccion-head">
+          <span class="plan-portal-nombre">Sin portal</span>
+          <span class="plan-contador">${sinPortal.length}</span>
+        </div>
+        <div class="plan-chips">
+          ${sinPortal.length ? sinPortal.map((a) => chipApto(a, null)).join('') : '<span class="sub-vacio">Todos los apartamentos tienen portal.</span>'}
+        </div>
+      </div>`;
+
+    cont.innerHTML = html;
+    cont.querySelectorAll('[data-portal]').forEach((b) =>
+      b.addEventListener('click', () => modalAsignarPortal(Number(b.dataset.portal))));
+    cont.querySelectorAll('[data-quitar]').forEach((b) =>
+      b.addEventListener('click', () => desasignarPortal(Number(b.dataset.quitar))));
+  }
+
+  function modalAsignarPortal(portalId) {
+    const portal = portalesLista.find((p) => p.id === portalId);
+    if (!portal) return;
+    const disponibles = planningAptos.filter((a) => a.portal_id == null);
+    abrirModal(`
+      <h3>Asignar apartamentos a ${esc(portal.nombre)}</h3>
+      ${disponibles.length
+        ? `<div class="plan-check-lista">
+             ${disponibles.map((a) => `
+               <label class="plan-check"><input type="checkbox" value="${a.id}"> ${esc(a.nombre)}${a.edificio ? ` <span class="sub-vacio">(${esc(a.edificio)})</span>` : ''}</label>`).join('')}
+           </div>`
+        : '<p class="sub-vacio">No hay apartamentos sin portal asignado.</p>'}
+      <div class="modal-acciones">
+        <button class="btn-sec" id="plan-cancelar">Cancelar</button>
+        ${disponibles.length ? '<button class="btn-pri" id="plan-guardar">Asignar</button>' : ''}
+      </div>`);
+    document.getElementById('plan-cancelar').addEventListener('click', cerrarModal);
+    const guardar = document.getElementById('plan-guardar');
+    if (guardar) guardar.addEventListener('click', () => guardarAsignacion(portalId));
+  }
+
+  async function guardarAsignacion(portalId) {
+    const ids = Array.from(document.querySelectorAll('.plan-check input:checked')).map((c) => Number(c.value));
+    if (!ids.length) return toast('Selecciona al menos un apartamento', 'error');
+    const btn = document.getElementById('plan-guardar');
+    btn.disabled = true;
+    try {
+      for (const id of ids) await API.put('/api/apartamentos/' + id, { portal_id: portalId });
+      cerrarModal();
+      await cargarPlanning();
+      toast(`${ids.length} apartamento${ids.length === 1 ? '' : 's'} asignado${ids.length === 1 ? '' : 's'}`, 'ok');
+    } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+  }
+
+  async function desasignarPortal(aptoId) {
+    try {
+      await API.put('/api/apartamentos/' + aptoId, { portal_id: null });
+      await cargarPlanning();
+      toast('Apartamento desasignado', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   function init() {
     inyectarPortales();        // 4ª sub-pestaña (antes de enlazar los clics)
     inyectarCatalogoGastos();  // 5ª sub-pestaña
     inyectarCatalogoExtras();  // 6ª sub-pestaña
     inyectarEstadosReserva();  // 7ª sub-pestaña
     inyectarSmtp();            // 8ª sub-pestaña (solo admin)
+    inyectarPlanning();        // 9ª sub-pestaña
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));

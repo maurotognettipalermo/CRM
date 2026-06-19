@@ -116,6 +116,9 @@ const COLUMNAS_APARTAMENTOS = {
   piso:               'TEXT',
   puerta:             'TEXT',
   estado_limpieza:    "TEXT DEFAULT 'limpio' CHECK(estado_limpieza IN ('limpio','sucio'))",
+  // Portal asignado al apartamento (para el filtro de planning). ADD COLUMN con REFERENCES
+  // exige default NULL (implícito). portales ya existe (creada en schema.sql).
+  portal_id:          'INTEGER REFERENCES portales(id) ON DELETE SET NULL',
 };
 
 // Columnas extra de la tabla catalogo_gastos.
