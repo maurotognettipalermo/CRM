@@ -20,6 +20,52 @@ function fechaDDMM(v) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v || '');
 }
 
+// Importe en formato europeo con el símbolo: 163000 -> "163.000 €".
+function formatearEuros(n) {
+  return Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 0 }) + ' €';
+}
+
+// Convierte un entero a texto en español (hasta millones). 163000 -> "ciento sesenta y tres mil".
+function numeroATextoEspanol(n) {
+  n = Math.floor(Number(n) || 0);
+  if (n === 0) return 'cero';
+  const UNIDADES = ['', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+  const DECENAS = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+  const ESPECIALES = {
+    10: 'diez', 11: 'once', 12: 'doce', 13: 'trece', 14: 'catorce', 15: 'quince',
+    16: 'dieciséis', 17: 'diecisiete', 18: 'dieciocho', 19: 'diecinueve', 20: 'veinte',
+    21: 'veintiún', 22: 'veintidós', 23: 'veintitrés', 24: 'veinticuatro', 25: 'veinticinco',
+    26: 'veintiséis', 27: 'veintisiete', 28: 'veintiocho', 29: 'veintinueve',
+  };
+  const CENTENAS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
+    'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+  const decenas = (num) => {
+    if (num === 0) return '';
+    if (num < 10) return UNIDADES[num];
+    if (ESPECIALES[num]) return ESPECIALES[num];
+    const d = Math.floor(num / 10);
+    const u = num % 10;
+    return u === 0 ? DECENAS[d] : `${DECENAS[d]} y ${UNIDADES[u]}`;
+  };
+  const centenas = (num) => {
+    if (num === 0) return '';
+    if (num === 100) return 'cien';
+    const c = Math.floor(num / 100);
+    const r = num % 100;
+    return [c > 0 ? CENTENAS[c] : '', decenas(r)].filter(Boolean).join(' ');
+  };
+
+  const partes = [];
+  const millones = Math.floor(n / 1000000);
+  const miles = Math.floor((n % 1000000) / 1000);
+  const resto = n % 1000;
+  if (millones > 0) partes.push(millones === 1 ? 'un millón' : `${centenas(millones)} millones`);
+  if (miles > 0) partes.push(miles === 1 ? 'mil' : `${centenas(miles)} mil`);
+  if (resto > 0) partes.push(centenas(resto));
+  return partes.join(' ').trim();
+}
+
 // Lee el logo de una razón social desde el disco solo si es PNG/JPG (pdfkit no soporta SVG/WEBP).
 function leerLogoVenta(url) {
   if (!url) return null;
@@ -266,8 +312,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const edificio = s(b.edificio);
   const planta = s(b.planta);
   const puerta = s(b.puerta);
-  const precioVenta = money(b.precio_venta);
-  const precioTexto = s(b.precio_texto);
+  const precioNum = Number(b.precio_venta) || 0;
   const porcComision = s(b.porcentaje_comision) || '3';
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
   const fechaDoc = fechaDDMM(b.fecha_documento);
@@ -304,8 +349,14 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
     doc.moveDown(0.7);
   }
 
-  doc.font('Helvetica-Bold').fontSize(15).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
-  doc.moveDown(1.2);
+  // Cabecera: logo arriba a la izquierda (mismo estilo que el PDF de Arras).
+  if (logoBuf) {
+    try { doc.image(logoBuf, M, doc.y, { fit: [100, 50] }); } catch (e) { /* logo inválido */ }
+    doc.y += 50 + 8;
+  }
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
+    .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
+  doc.moveDown(0.8);
 
   parrafo([
     N('Don/Dña '), B(nombreVend), N(' de estado civil '), B(estadoCivil),
@@ -320,7 +371,8 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   ]);
 
   parrafo([
-    N('El precio para la citada venta es de '), B(`${precioVenta} €`), N(' ('), B(precioTexto), N(')'),
+    N('El precio para la citada venta es de '), B(formatearEuros(precioNum)),
+    N(' ('), B(`${numeroATextoEspanol(precioNum)} euros`), N(')'),
   ]);
 
   parrafo([
@@ -352,8 +404,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const xDer = M + colW + 30;
   doc.moveTo(xIzq, yF).lineTo(xIzq + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
   doc.moveTo(xDer, yF).lineTo(xDer + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
-  if (logoBuf) { try { doc.image(logoBuf, xIzq + (colW - 90) / 2, yF + 8, { fit: [90, 40] }); } catch (e) { /* logo inválido */ } }
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(razonSocial, xIzq, yF + (logoBuf ? 52 : 8), { width: colW, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(razonSocial, xIzq, yF + 8, { width: colW, align: 'center' });
   doc.font('Helvetica-Bold').fontSize(10).text('El Vendedor', xDer, yF + 8, { width: colW, align: 'center' });
 
   doc.end();

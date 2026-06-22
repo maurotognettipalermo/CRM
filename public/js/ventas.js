@@ -2935,10 +2935,7 @@ const Ventas = (() => {
           <div class="campo"><label>Planta</label><input id="autv-planta"></div>
           <div class="campo"><label>Puerta</label><input id="autv-puerta"></div>
         </div>
-        <div class="fila-campos">
-          <div class="campo"><label>Precio de venta (€)</label><input type="number" step="0.01" id="autv-precio"></div>
-          <div class="campo"><label>Precio en texto</label><input id="autv-preciotxt" placeholder="cien mil euros"></div>
-        </div>
+        <div class="campo"><label>Precio de venta (€)</label><input type="number" step="0.01" id="autv-precio"></div>
 
         <div class="aut-sec-tit">Condiciones</div>
         <div class="fila-campos">
@@ -3004,7 +3001,7 @@ const Ventas = (() => {
 
   function limpiarAutVenta() {
     ['autv-nombre', 'autv-dni', 'autv-dir', 'autv-ciudad', 'autv-prov', 'autv-tel',
-      'autv-ref', 'autv-edificio', 'autv-planta', 'autv-puerta', 'autv-precio', 'autv-preciotxt'].forEach((id) => setVal(id, ''));
+      'autv-ref', 'autv-edificio', 'autv-planta', 'autv-puerta', 'autv-precio'].forEach((id) => setVal(id, ''));
     setVal('autv-comision', '3');
     setVal('autv-fecha', hoyStr());
     const civil = document.getElementById('autv-civil');
@@ -3026,7 +3023,6 @@ const Ventas = (() => {
       planta: val('autv-planta'),
       puerta: val('autv-puerta'),
       precio_venta: parseFloat(val('autv-precio')) || 0,
-      precio_texto: val('autv-preciotxt'),
       porcentaje_comision: parseFloat(val('autv-comision')) || 0,
       razon_social: val('autv-razon'),
       fecha_documento: val('autv-fecha'),
