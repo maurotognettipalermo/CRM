@@ -112,11 +112,13 @@ router.post('/autorizacion-pdf', (req, res) => {
   const numPuerta = s(b.numero_puerta);
   const numParking = s(b.numero_parking);
   const numTrastero = s(b.numero_trastero);
-  const precioVenta = money(b.precio_venta);
-  const senal = money(b.senal);
-  const restoPago = money(b.resto_pago);
+  // Importe en formato europeo con el símbolo: 163000 -> "163.000 €".
+  const formatearEuros = (n) => Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 0 }) + ' €';
+  const precioVenta = formatearEuros(b.precio_venta);
+  const senal = formatearEuros(b.senal);
+  const restoPago = formatearEuros(b.resto_pago);
   const fechaEscritura = fechaDDMM(b.fecha_escritura);
-  const importeComision = money(b.importe_comision);
+  const importeComision = formatearEuros(b.importe_comision);
   const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
 
   // Logo de la razón social (si se indicó y es PNG/JPG).
@@ -151,7 +153,10 @@ router.post('/autorizacion-pdf', (req, res) => {
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
-      if (/\s$/.test(arr[i].t)) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = ' ' + arr[i + 1].t; }
+      const sep = /s$/.test(arr[i].t) || /^s/.test(arr[i + 1].t);
+      arr[i].t = arr[i].t.replace(/s+$/, "");
+      arr[i + 1].t = arr[i + 1].t.replace(/^s+/, "");
+      if (sep) arr[i + 1].t = " " + arr[i + 1].t;
     }
     arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
@@ -191,17 +196,17 @@ router.post('/autorizacion-pdf', (req, res) => {
   parrafo(segInmueble);
 
   parrafo([
-    N('El importe total de esta operación será de: '), B(`${precioVenta} €`),
+    N('El importe total de esta operación será de: '), B(precioVenta),
     N('. Dicho monto se pagará:'),
   ]);
 
   parrafo([
-    B(`${senal} €`),
+    B(senal),
     N(' que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.'),
   ]);
 
   parrafo([
-    N('Los '), B(`${restoPago} €`), N(' restantes el día de la escrituración ante notario, que será antes del día '),
+    N('Los '), B(restoPago), N(' restantes el día de la escrituración ante notario, que será antes del día '),
     B(fechaEscritura), N('.'),
   ]);
 
@@ -213,7 +218,7 @@ router.post('/autorizacion-pdf', (req, res) => {
 
   parrafo([
     N('La empresa Analia Palermo Cornet recibirá de la parte vendedora la cantidad de '),
-    B(`${importeComision} € ${textoIva}`),
+    B(`${importeComision} ${textoIva}`),
     N(', en concepto de honorarios por la mediación en esta compraventa, conforme el pacto establecido.'),
   ]);
 
