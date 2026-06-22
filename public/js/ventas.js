@@ -727,7 +727,8 @@ const Ventas = (() => {
 
   // ---- Carga ----
   async function cargarClientes() {
-    const tbody = document.querySelector('#tabla-clientes tbody');
+    // Acotado a #vista-ventas: hay otra tabla con id="tabla-clientes" (módulo Clientes/huéspedes).
+    const tbody = document.querySelector('#vista-ventas #tabla-clientes tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="vta-cargando">Cargando clientes…</td></tr>';
     try {
       // Una sola llamada extra para contar visitas realizadas por cliente.
@@ -764,7 +765,7 @@ const Ventas = (() => {
   }
 
   function renderTablaCli() {
-    const tbody = document.querySelector('#tabla-clientes tbody');
+    const tbody = document.querySelector('#vista-ventas #tabla-clientes tbody');
     if (!tbody) return;
     const lista = filtradasCli();
     const cont = document.getElementById('vcl-contador');
