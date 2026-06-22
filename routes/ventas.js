@@ -2,12 +2,14 @@
 // compradores, visitas (con notas) y un resumen para el dashboard.
 const express = require('express');
 const multer = require('multer');
+const PDFDocument = require('pdfkit');
 const db = require('../db/database');
 const { importarPropiedades } = require('../services/importPropiedades');
 const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const MM = 2.83465; // 1 mm en puntos PDF
 
 function txt(v) { return v === undefined || v === null || v === '' ? null : String(v); }
 function aEntero(v) {
@@ -65,6 +67,138 @@ router.get('/resumen', (req, res) => {
     visitas_programadas: vis.programadas,
     visitas_realizadas: vis.realizadas,
   });
+});
+
+// ============================================================
+// PDF de autorización de venta
+// ============================================================
+// POST /api/ventas/autorizacion-pdf — genera el contrato de autorización con pdfkit.
+router.post('/autorizacion-pdf', (req, res) => {
+  const b = req.body || {};
+  const s = (v) => (v === undefined || v === null) ? '' : String(v);
+  const money = (v) => (Number(v) || 0).toLocaleString('es-ES');
+
+  const nombreVend = s(b.nombre_vendedor);
+  const docVend = s(b.documento_identidad_vendedor) || 'DNI';
+  const dniVend = s(b.dni_vendedor);
+  const dirVend = s(b.direccion_vendedor);
+  const ciuVend = s(b.ciudad_vendedor);
+  const provVend = s(b.provincia_vendedor);
+  const nombreComp = s(b.nombre_comprador);
+  const docComp = s(b.documento_identidad_comprador) || 'DNI';
+  const dniComp = s(b.dni_comprador);
+  const dirComp = s(b.direccion_comprador);
+  const ciuComp = s(b.ciudad_comprador);
+  const provComp = s(b.provincia_comprador);
+  const edificio = s(b.edificio);
+  const planta = s(b.planta);
+  const numPuerta = s(b.numero_puerta);
+  const numParking = s(b.numero_parking);
+  const numTrastero = s(b.numero_trastero);
+  const precioVenta = money(b.precio_venta);
+  const senal = money(b.senal);
+  const restoPago = money(b.resto_pago);
+  const fechaEscritura = s(b.fecha_escritura);
+  const importeComision = money(b.importe_comision);
+  const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
+
+  const M = Math.round(25 * MM); // márgenes 25mm
+  const doc = new PDFDocument({ size: 'A4', margin: M });
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  doc.on('end', () => {
+    const pdf = Buffer.concat(chunks);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="autorizacion-venta.pdf"');
+    res.send(pdf);
+  });
+  doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
+
+  const contentW = doc.page.width - M * 2;
+  const LG = 6; // interlineado ~1.5 con fontSize 11
+  const N = (t) => ({ t, b: false });
+  const B = (t) => ({ t, b: true });
+
+  // Renderiza un párrafo con segmentos en negrita intercalados, justificado.
+  function parrafo(segs) {
+    segs.forEach((seg, i) => {
+      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
+      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < segs.length - 1 });
+    });
+    doc.moveDown(0.7);
+  }
+
+  // Título.
+  doc.font('Helvetica-Bold').fontSize(15).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
+  doc.moveDown(1.2);
+
+  parrafo([
+    N('De una parte '), B(nombreVend), N(' con '), B(`${docVend} ${dniVend}`),
+    N(', domiciliado en '), B(dirVend), N(' de '), B(`${ciuVend} ${provVend}`),
+    N('; en adelante parte vendedora, y por otra parte '), B(nombreComp), N(' con '),
+    B(`${docComp} ${dniComp}`), N(', con domicilio en '), B(`${dirComp} ${ciuComp} ${provComp}`),
+    N('; en adelante parte compradora.'),
+  ]);
+
+  parrafo([N('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.')]);
+
+  parrafo([
+    N('La parte vendedora vende a la parte compradora, el apartamento '),
+    B(`${edificio} ${planta} ${numPuerta}`), N(' y la plaza de parking '), B(numParking),
+    N(' situada en el mismo edificio y el trastero '), B(numTrastero),
+    N(' situado en el mismo edificio, dentro de la Urbanización Marina D\'or de Oropesa del Mar.'),
+  ]);
+
+  parrafo([
+    N('El importe total de esta operación será de: '), B(`${precioVenta} €`),
+    N('. Dicho monto se pagará:'),
+  ]);
+
+  parrafo([
+    B(`${senal} €`),
+    N(' (tres mil euros) que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.'),
+  ]);
+
+  parrafo([
+    N('Los '), B(`${restoPago} €`), N(' restantes el día de la escrituración ante notario, que será antes del día '),
+    B(fechaEscritura), N('.'),
+  ]);
+
+  parrafo([N('Se deja expresa constancia que el día de la escritura la susodicha finca estará libre de cargas, gravámenes e inquilinos, al corriente en el pago de contribuciones, arbitrios, impuestos, servicios y suministros, debiendo el vendedor presentar la documentación que acredite lo anteriormente expuesto.')]);
+
+  parrafo([N('En el caso que la parte vendedora se volviera atrás deberán devolver el doble de la cantidad entregada a cuenta y si fuese por la parte compradora perderían la cantidad entregada.')]);
+
+  parrafo([N('Los gastos que origine dicha compraventa correrán a cargo del comprador excepto la plusvalía que la abonará el vendedor.')]);
+
+  parrafo([
+    N('La empresa Analia Palermo Cornet recibirá de la parte vendedora la cantidad de '),
+    B(`${importeComision} € ${textoIva}`),
+    N(', en concepto de honorarios por la mediación en esta compraventa, conforme el pacto establecido.'),
+  ]);
+
+  // Fecha y lugar.
+  doc.moveDown(1);
+  doc.font('Helvetica').fontSize(11)
+    .text('En __________________________, a ______ de __________________ de 20______', { align: 'left' });
+
+  // Tres columnas de firma con línea encima.
+  doc.moveDown(3.5);
+  let yF = doc.y;
+  if (yF > doc.page.height - M - 70) { doc.addPage(); yF = doc.y; }
+  const colW = (contentW - 40) / 3;
+  const firmas = [
+    ['Analia Palermo Cornet', '20473042Y'],
+    [nombreVend || '—', dniVend || ''],
+    [nombreComp || '—', dniComp || ''],
+  ];
+  firmas.forEach((fm, i) => {
+    const x = M + i * (colW + 20);
+    doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(fm[0], x, yF + 6, { width: colW, align: 'center' });
+    doc.font('Helvetica').fontSize(9).text(fm[1], x, doc.y, { width: colW, align: 'center' });
+  });
+
+  doc.end();
 });
 
 // ============================================================

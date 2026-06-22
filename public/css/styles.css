@@ -3094,6 +3094,16 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-ta-item:hover { background: #f3f4f6; }
 .vta-nv-crear { margin-top: 8px; }
 
+/* Formulario de Autorización de venta. */
+.aut-form { max-width: 720px; padding: 4px 2px 24px; }
+.aut-sec-tit {
+  font-weight: 700; font-size: 13px; color: #1a1a2e; text-transform: uppercase;
+  letter-spacing: 0.03em; margin: 18px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--border);
+}
+.aut-form .aut-sec-tit:first-child { margin-top: 4px; }
+.aut-iva-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 0; }
+.aut-acciones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+
 @media (max-width: 767px) {
   .vta-vis-hoy-grid { grid-template-columns: 1fr; }
   .vta-det-grid { grid-template-columns: 1fr; }

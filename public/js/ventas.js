@@ -39,6 +39,10 @@ const Ventas = (() => {
   let prvCache = [];           // caché para el typeahead del modal de propiedad
   let prvCacheOk = false;
   let vfPropVentaId = null;    // propietario_venta_id seleccionado en el modal de propiedad
+  let autConstruido = false;   // sub-pestaña Autorización ya construida
+  let autPrv = [];             // propietarios de venta (typeahead vendedor)
+  let autCli = [];             // clientes compradores (typeahead comprador)
+  let autProps = [];           // propiedades de venta (typeahead inmueble)
 
   // ==================== Helpers ====================
   function euro(n) {
@@ -2546,6 +2550,286 @@ const Ventas = (() => {
   }
 
   // ==================== Init ====================
+  // ==================== Sub-pestaña Autorización ====================
+  async function construirAutorizacion() {
+    if (autConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="autorizacion"]');
+    if (!panel) return;
+    autConstruido = true;
+
+    // Catálogos para los typeaheads (una vez).
+    try {
+      const [prv, cli, props] = await Promise.all([
+        API.get('/api/ventas/propietarios-venta').catch(() => []),
+        API.get('/api/ventas/clientes').catch(() => []),
+        API.get('/api/ventas/propiedades').catch(() => []),
+      ]);
+      autPrv = prv; autCli = cli; autProps = props;
+    } catch (e) { autPrv = []; autCli = []; autProps = []; }
+
+    const docOpts = ['DNI', 'NIE', 'Pasaporte'].map((d) => `<option value="${d}">${d}</option>`).join('');
+
+    panel.innerHTML = `
+      <div class="aut-form">
+        <div class="aut-sec-tit">Parte vendedora</div>
+        <div class="campo vta-ta">
+          <label>Nombre completo</label>
+          <input id="aut-v-nombre" class="input-buscar" autocomplete="off" placeholder="Buscar propietario de venta...">
+          <div id="aut-v-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Tipo documento</label><select id="aut-v-tipodoc">${docOpts}</select></div>
+          <div class="campo"><label>Número documento</label><input id="aut-v-numdoc"></div>
+        </div>
+        <div class="campo"><label>Dirección</label><input id="aut-v-dir"></div>
+        <div class="fila-campos">
+          <div class="campo"><label>Ciudad</label><input id="aut-v-ciudad"></div>
+          <div class="campo"><label>Provincia</label><input id="aut-v-prov"></div>
+        </div>
+
+        <div class="aut-sec-tit">Parte compradora</div>
+        <div class="campo vta-ta">
+          <label>Nombre completo</label>
+          <input id="aut-c-nombre" class="input-buscar" autocomplete="off" placeholder="Buscar cliente comprador...">
+          <div id="aut-c-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Tipo documento</label><select id="aut-c-tipodoc">${docOpts}</select></div>
+          <div class="campo"><label>Número documento</label><input id="aut-c-numdoc"></div>
+        </div>
+        <div class="campo"><label>Dirección</label><input id="aut-c-dir"></div>
+        <div class="fila-campos">
+          <div class="campo"><label>Ciudad</label><input id="aut-c-ciudad"></div>
+          <div class="campo"><label>Provincia</label><input id="aut-c-prov"></div>
+        </div>
+
+        <div class="aut-sec-tit">Inmueble</div>
+        <div class="campo vta-ta">
+          <label>Referencia de propiedad</label>
+          <input id="aut-i-ref" class="input-buscar" autocomplete="off" placeholder="Buscar por referencia o calle...">
+          <div id="aut-i-ref-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div id="aut-i-card" class="oculto" style="margin:0 0 10px;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;font-weight:600;color:#1e40af"></div>
+        <div class="campo vta-ta">
+          <label>Edificio</label>
+          <input id="aut-i-edificio" class="input-buscar" autocomplete="off" placeholder="Buscar propiedad de venta...">
+          <div id="aut-i-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Planta</label><input id="aut-i-planta"></div>
+          <div class="campo"><label>Número puerta</label><input id="aut-i-puerta"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Número parking</label><input id="aut-i-parking"></div>
+          <div class="campo"><label>Número trastero</label><input id="aut-i-trastero"></div>
+        </div>
+
+        <div class="aut-sec-tit">Condiciones económicas</div>
+        <div class="fila-campos">
+          <div class="campo"><label>Precio de venta (€)</label><input type="number" step="0.01" id="aut-e-precio"></div>
+          <div class="campo"><label>Señal (€)</label><input type="number" step="0.01" id="aut-e-senal" value="3000"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Resto a pagar (€)</label><input id="aut-e-resto" class="campo-readonly" readonly></div>
+          <div class="campo"><label>Fecha límite escrituración</label><input type="date" id="aut-e-fecha"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Importe comisión (€)</label><input type="number" step="0.01" id="aut-e-comision"></div>
+          <div class="campo"><label>IVA de la comisión</label>
+            <label class="aut-iva-toggle"><input type="checkbox" id="aut-e-iva" checked> <span id="aut-iva-label">IVA incluido</span></label>
+          </div>
+        </div>
+
+        <div class="aut-acciones">
+          <button class="btn-pri" id="aut-descargar">📥 Descargar PDF</button>
+          <button class="btn-sec" id="aut-imprimir">🖨️ Imprimir</button>
+          <button class="btn-sec" id="aut-limpiar">Limpiar formulario</button>
+        </div>
+      </div>`;
+
+    // --- Typeahead vendedor (propietarios de venta) ---
+    const vIn = document.getElementById('aut-v-nombre');
+    const vRes = document.getElementById('aut-v-res');
+    vIn.addEventListener('input', () => renderTA(vRes,
+      autPrv.filter((p) => `${p.nombre} ${p.apellidos || ''} ${p.dni || ''}`.toLowerCase().includes(vIn.value.trim().toLowerCase())),
+      (p) => `${esc([p.nombre, p.apellidos].filter(Boolean).join(' '))}${p.dni ? ' · ' + esc(p.dni) : ''}`,
+      (p) => {
+        vIn.value = [p.nombre, p.apellidos].filter(Boolean).join(' ');
+        setVal('aut-v-numdoc', p.dni || '');
+        setVal('aut-v-dir', p.direccion || '');
+        setVal('aut-v-ciudad', p.ciudad || '');
+        vRes.classList.add('oculto');
+      }));
+
+    // --- Typeahead comprador (clientes compradores) ---
+    const cIn = document.getElementById('aut-c-nombre');
+    const cRes = document.getElementById('aut-c-res');
+    cIn.addEventListener('input', () => renderTA(cRes,
+      autCli.filter((c) => `${c.nombre} ${c.apellidos || ''} ${c.telefono || ''} ${c.email || ''}`.toLowerCase().includes(cIn.value.trim().toLowerCase())),
+      (c) => `${esc([c.nombre, c.apellidos].filter(Boolean).join(' '))}${c.telefono ? ' · ' + esc(c.telefono) : ''}`,
+      (c) => {
+        cIn.value = [c.nombre, c.apellidos].filter(Boolean).join(' ');
+        cRes.classList.add('oculto');
+      }));
+
+    // --- Typeahead referencia de propiedad (autorrellena todo el formulario) ---
+    const refIn = document.getElementById('aut-i-ref');
+    const refRes = document.getElementById('aut-i-ref-res');
+    refIn.addEventListener('input', () => renderTA(refRes,
+      autProps.filter((p) => `${p.referencia || ''} ${p.calle || ''} ${p.zona || ''}`.toLowerCase().includes(refIn.value.trim().toLowerCase())),
+      (p) => `${esc(p.referencia || '')} · ${esc(p.calle) || '—'}${p.precio ? ' · ' + euro(p.precio) : ''}`,
+      (p) => { refIn.value = p.referencia || ''; refRes.classList.add('oculto'); autofillPropiedad(p); }));
+
+    // --- Typeahead inmueble (propiedades de venta) ---
+    const iIn = document.getElementById('aut-i-edificio');
+    const iRes = document.getElementById('aut-i-res');
+    iIn.addEventListener('input', () => renderTA(iRes,
+      autProps.filter((p) => `${p.referencia || ''} ${p.calle || ''} ${p.zona || ''}`.toLowerCase().includes(iIn.value.trim().toLowerCase())),
+      (p) => `${esc(p.referencia || '')} · ${esc(p.calle) || '—'}${p.precio ? ' · ' + euro(p.precio) : ''}`,
+      (p) => {
+        iIn.value = p.calle || p.referencia || '';
+        setVal('aut-i-planta', p.planta || '');
+        setVal('aut-i-puerta', p.numero || '');
+        if (p.precio != null) { setVal('aut-e-precio', p.precio); calcResto(); }
+        iRes.classList.add('oculto');
+      }));
+
+    // Cerrar dropdowns al hacer clic fuera.
+    panel.addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) { vRes.classList.add('oculto'); cRes.classList.add('oculto'); iRes.classList.add('oculto'); refRes.classList.add('oculto'); }
+    });
+
+    // Resto a pagar = precio − señal (en vivo).
+    document.getElementById('aut-e-precio').addEventListener('input', calcResto);
+    document.getElementById('aut-e-senal').addEventListener('input', calcResto);
+    document.getElementById('aut-e-iva').addEventListener('change', (e) => {
+      document.getElementById('aut-iva-label').textContent = e.target.checked ? 'IVA incluido' : 'Más IVA';
+    });
+
+    document.getElementById('aut-descargar').addEventListener('click', () => generarAutorizacion('descargar'));
+    document.getElementById('aut-imprimir').addEventListener('click', () => generarAutorizacion('imprimir'));
+    document.getElementById('aut-limpiar').addEventListener('click', limpiarAutorizacion);
+
+    calcResto();
+  }
+
+  function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; }
+
+  // Autorrellena todo el formulario a partir de una propiedad de venta seleccionada.
+  function autofillPropiedad(p) {
+    // Inmueble.
+    setVal('aut-i-edificio', p.calle || p.zona || p.referencia || '');
+    setVal('aut-i-planta', p.planta || '');
+    setVal('aut-i-puerta', p.numero || '');
+    if (p.precio != null) setVal('aut-e-precio', p.precio);
+    calcResto();
+
+    // Parte vendedora: propietario de venta vinculado (propietario_venta_id).
+    const prv = p.propietario_venta_id != null
+      ? autPrv.find((x) => String(x.id) === String(p.propietario_venta_id)) : null;
+    if (prv) {
+      setVal('aut-v-nombre', [prv.nombre, prv.apellidos].filter(Boolean).join(' '));
+      setVal('aut-v-numdoc', prv.dni || '');
+      setVal('aut-v-dir', prv.direccion || '');
+      setVal('aut-v-ciudad', prv.ciudad || '');
+      setVal('aut-v-prov', prv.provincia || '');
+    }
+
+    // Parte compradora: solo si la propiedad está vendida y tiene comprador snapshot.
+    if (p.estado === 'Vendida' && p.comprador_nombre) {
+      setVal('aut-c-nombre', p.comprador_nombre);
+    }
+
+    // Card resumen de la propiedad.
+    const card = document.getElementById('aut-i-card');
+    if (card) {
+      const partes = [
+        `Ref: ${p.referencia || '—'}`,
+        [p.calle || '', p.planta ? 'Planta ' + p.planta : ''].filter(Boolean).join(', '),
+        p.precio != null ? euro(p.precio) : '',
+      ].filter(Boolean);
+      card.textContent = partes.join(' — ');
+      card.classList.remove('oculto');
+    }
+  }
+
+  function calcResto() {
+    const precio = parseFloat(val('aut-e-precio')) || 0;
+    const senal = parseFloat(val('aut-e-senal')) || 0;
+    setVal('aut-e-resto', (precio - senal).toFixed(2));
+  }
+
+  function limpiarAutorizacion() {
+    ['aut-v-nombre', 'aut-v-numdoc', 'aut-v-dir', 'aut-v-ciudad', 'aut-v-prov',
+      'aut-c-nombre', 'aut-c-numdoc', 'aut-c-dir', 'aut-c-ciudad', 'aut-c-prov',
+      'aut-i-edificio', 'aut-i-planta', 'aut-i-puerta', 'aut-i-parking', 'aut-i-trastero',
+      'aut-e-precio', 'aut-e-comision', 'aut-e-fecha'].forEach((id) => setVal(id, ''));
+    setVal('aut-e-senal', '3000');
+    document.getElementById('aut-v-tipodoc').value = 'DNI';
+    document.getElementById('aut-c-tipodoc').value = 'DNI';
+    const iva = document.getElementById('aut-e-iva');
+    iva.checked = true;
+    document.getElementById('aut-iva-label').textContent = 'IVA incluido';
+    calcResto();
+  }
+
+  function bodyAutorizacion() {
+    return {
+      nombre_vendedor: val('aut-v-nombre'),
+      documento_identidad_vendedor: val('aut-v-tipodoc'),
+      dni_vendedor: val('aut-v-numdoc'),
+      direccion_vendedor: val('aut-v-dir'),
+      ciudad_vendedor: val('aut-v-ciudad'),
+      provincia_vendedor: val('aut-v-prov'),
+      nombre_comprador: val('aut-c-nombre'),
+      documento_identidad_comprador: val('aut-c-tipodoc'),
+      dni_comprador: val('aut-c-numdoc'),
+      direccion_comprador: val('aut-c-dir'),
+      ciudad_comprador: val('aut-c-ciudad'),
+      provincia_comprador: val('aut-c-prov'),
+      edificio: val('aut-i-edificio'),
+      planta: val('aut-i-planta'),
+      numero_puerta: val('aut-i-puerta'),
+      numero_parking: val('aut-i-parking'),
+      numero_trastero: val('aut-i-trastero'),
+      precio_venta: parseFloat(val('aut-e-precio')) || 0,
+      senal: parseFloat(val('aut-e-senal')) || 0,
+      resto_pago: parseFloat(val('aut-e-resto')) || 0,
+      fecha_escritura: val('aut-e-fecha'),
+      importe_comision: parseFloat(val('aut-e-comision')) || 0,
+      iva_incluido: document.getElementById('aut-e-iva').checked,
+    };
+  }
+
+  async function generarAutorizacion(modo) {
+    const btnId = modo === 'imprimir' ? 'aut-imprimir' : 'aut-descargar';
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('/api/ventas/autorizacion-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(bodyAutorizacion()),
+      });
+      if (!r.ok) throw new Error('No se pudo generar el PDF');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      if (modo === 'imprimir') {
+        const w = window.open(url, '_blank');
+        if (w) w.addEventListener('load', () => { try { w.print(); } catch (e) {} });
+      } else {
+        const a = document.createElement('a');
+        a.href = url; a.download = 'autorizacion-venta.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function init() {
     construirFiltros();
 
@@ -2584,6 +2868,7 @@ const Ventas = (() => {
     };
     inyectarSub('calendario', 'Calendario');
     inyectarSub('vendidos', 'Vendidos');
+    inyectarSub('autorizacion', 'Autorización');
 
     // Sub-pestañas Propiedades / Clientes / Visitas / Calendario / Vendidos.
     document.querySelectorAll('#vta-subtabs .subtab').forEach((b) =>
@@ -2596,6 +2881,7 @@ const Ventas = (() => {
         if (b.dataset.sub === 'visitas') { construirVisitas(); cargarVisitas(); }
         if (b.dataset.sub === 'calendario') { construirCalendario(); cargarCalendario(); }
         if (b.dataset.sub === 'vendidos') { construirVendidos(); cargarVendidos(); }
+        if (b.dataset.sub === 'autorizacion') { construirAutorizacion(); }
       }));
   }
 
