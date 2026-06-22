@@ -147,16 +147,16 @@ router.post('/autorizacion-pdf', (req, res) => {
   const B = (t) => ({ t, b: true });
 
   // Renderiza un párrafo con segmentos en negrita intercalados, justificado.
-  // pdfkit recorta el espacio al final de los fragmentos 'continued' → el espacio
-  // que separa un campo de su texto se sustituye por un espacio duro (nbsp) al
-  // inicio del fragmento siguiente, que pdfkit nunca recorta.
+  // pdfkit recorta el espacio al final de los fragmentos 'continued'; el espacio
+  // de separación se normaliza a uno solo y se coloca al INICIO del fragmento
+  // siguiente (pdfkit sí conserva el espacio inicial). Funciona en ambos sentidos.
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
-      const sep = /s$/.test(arr[i].t) || /^s/.test(arr[i + 1].t);
-      arr[i].t = arr[i].t.replace(/s+$/, "");
-      arr[i + 1].t = arr[i + 1].t.replace(/^s+/, "");
-      if (sep) arr[i + 1].t = " " + arr[i + 1].t;
+      const sep = /\s$/.test(arr[i].t) || /^\s/.test(arr[i + 1].t);
+      arr[i].t = arr[i].t.replace(/\s+$/, '');
+      arr[i + 1].t = arr[i + 1].t.replace(/^\s+/, '');
+      if (sep) arr[i + 1].t = ' ' + arr[i + 1].t;
     }
     arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
