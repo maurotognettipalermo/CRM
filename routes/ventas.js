@@ -124,11 +124,11 @@ router.post('/autorizacion-pdf', (req, res) => {
   const rsLogo = rsId != null ? db.prepare('SELECT logo_url FROM razones_sociales WHERE id = ?').get(rsId) : null;
   const logoBuf = rsLogo ? leerLogoVenta(rsLogo.logo_url) : null;
 
-  const BODY = 10;   // tamaño de fuente del cuerpo (reducir a 9.5 si no cabe)
-  const LG = 3;      // interlineado ~1.3 con BODY
-  const PARR = 0.35; // espacio entre párrafos
+  const BODY = 10;   // tamaño de fuente del cuerpo
+  const LG = 4;      // interlineado ~1.4 con BODY
+  const PARR = 0.5;  // espacio entre párrafos
 
-  const M = Math.round(20 * MM); // márgenes 20mm
+  const M = Math.round(25 * MM); // márgenes 25mm
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -145,13 +145,13 @@ router.post('/autorizacion-pdf', (req, res) => {
   const B = (t) => ({ t, b: true });
 
   // Renderiza un párrafo con segmentos en negrita intercalados, justificado.
-  // pdfkit recorta el espacio FINAL de cada fragmento 'continued' → mueve esos
-  // espacios al inicio del siguiente para que los campos no queden pegados.
+  // pdfkit recorta el espacio al final de los fragmentos 'continued' → el espacio
+  // que separa un campo de su texto se sustituye por un espacio duro (nbsp) al
+  // inicio del fragmento siguiente, que pdfkit nunca recorta.
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
-      const m = arr[i].t.match(/\s+$/);
-      if (m) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = m[0] + arr[i + 1].t; }
+      if (/\s$/.test(arr[i].t)) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = ' ' + arr[i + 1].t; }
     }
     arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
@@ -160,17 +160,16 @@ router.post('/autorizacion-pdf', (req, res) => {
     doc.moveDown(PARR);
   }
 
-  // Cabecera: logo a la izquierda + título a su derecha; centrado si no hay logo.
-  const topY = doc.y;
+  // Cabecera: logo ARRIBA (no flotante), luego salto de línea y el título debajo.
+  // El cuerpo arranca debajo del título a ancho completo.
   if (logoBuf) {
-    try { doc.image(logoBuf, M, topY, { fit: [120, 60] }); } catch (e) { /* logo inválido */ }
-    doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
-      .text('AUTORIZACIÓN DE VENTA', M + 130, topY + 20, { width: contentW - 130, align: 'left' });
-    doc.y = topY + 60;
-  } else {
-    doc.font('Helvetica-Bold').fontSize(14).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
+    const lw = 120;
+    try { doc.image(logoBuf, M + (contentW - lw) / 2, doc.y, { fit: [lw, 80] }); } catch (e) { /* logo inválido */ }
+    doc.y += 80 + 8;
   }
-  doc.moveDown(0.6);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
+    .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
+  doc.moveDown(0.8);
 
   parrafo([
     N('De una parte '), B(nombreVend), N(' con '), B(`${docVend} ${dniVend}`),
@@ -182,12 +181,15 @@ router.post('/autorizacion-pdf', (req, res) => {
 
   parrafo([N('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.')]);
 
-  parrafo([
+  // Parking y trastero solo se mencionan si tienen valor.
+  const segInmueble = [
     N('La parte vendedora vende a la parte compradora, el apartamento '),
-    B(`${edificio} ${planta} ${numPuerta}`), N(' y la plaza de parking '), B(numParking),
-    N(' situada en el mismo edificio y el trastero '), B(numTrastero),
-    N(' situado en el mismo edificio, dentro de la Urbanización Marina D\'or de Oropesa del Mar.'),
-  ]);
+    B(`${edificio} ${planta} ${numPuerta}`),
+  ];
+  if (numParking) segInmueble.push(N(' y la plaza de parking '), B(numParking), N(' situada en el mismo edificio'));
+  if (numTrastero) segInmueble.push(N(' y el trastero '), B(numTrastero), N(' situado en el mismo edificio'));
+  segInmueble.push(N(', dentro de la Urbanización Marina D\'or de Oropesa del Mar.'));
+  parrafo(segInmueble);
 
   parrafo([
     N('El importe total de esta operación será de: '), B(`${precioVenta} €`),
