@@ -304,8 +304,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 
 .fila-planning {
   display: flex;
-  border-bottom: 1px solid var(--border-soft);
-  min-height: 52px;
+  border-bottom: 1px solid #d1d5db;
+  min-height: 40px;
 }
 
 /* Filas alternadas (la fila-cabecera es nth-child(1)) */
@@ -319,6 +319,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   top: 0;
   z-index: 5;
   background: #f8f9fa;
+  border-bottom: 2px solid #9ca3af;
 }
 
 /* Columna izquierda: 160px, sticky */
@@ -328,8 +329,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   z-index: 4;
   width: 160px;
   min-width: 160px;
-  background: #fafafa;
-  border-right: 1px solid var(--border);
+  background: #ffffff;
+  border-right: 2px solid #d1d5db;
   padding: 6px 12px;
   display: flex;
   flex-direction: column;
@@ -346,8 +347,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   letter-spacing: 0.05em;
 }
 
-/* La celda sticky debe reflejar el fondo de su fila */
-.fila-aptos:nth-child(odd)  .celda-apto { background: var(--row-alt); }
+/* Columna izquierda siempre en blanco sólido (no sigue el tinte alterno de la fila). */
+.fila-aptos:nth-child(odd)  .celda-apto { background: #ffffff; }
 .fila-aptos:nth-child(even) .celda-apto { background: #ffffff; }
 .fila-aptos:hover .celda-apto { background: #f0f7ff; }
 
@@ -375,7 +376,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .dia {
   width: 28px;
   min-width: 28px;
-  border-right: 1px solid var(--border-soft);
+  border-right: 1px solid #d1d5db;
   text-align: center;
   font-size: 10px;
   color: var(--muted);
@@ -383,17 +384,39 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   padding-top: 4px;
   line-height: 1.3;
 }
-.dia.finde { background: var(--weekend-bg); }
-/* Día actual: destacado en oscuro en la cabecera. */
-.fila-cabecera .dia.hoy {
-  background: var(--nav);
-  color: #ffffff;
-  font-weight: 600;
+.dia.finde { background: #fef3cd; }
+/* Cabecera de día: reserva espacio arriba para el label del mes (absoluto). */
+.fila-cabecera .dia {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 18px 0 3px;
+  overflow: visible;
 }
+.fila-cabecera .dia .dia-num { font-size: 11px; font-weight: 600; color: #374151; }
+.fila-cabecera .dia .dia-dow { font-size: 10px; text-transform: uppercase; color: var(--muted); }
+/* Nombre del mes encima del día 1, sin ocupar columna del grid. */
+.mes-label {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a1a2e;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+/* Día actual: destacado en oscuro en la cabecera. */
+.fila-cabecera .dia.hoy { background: var(--nav); }
+.fila-cabecera .dia.hoy .dia-num,
+.fila-cabecera .dia.hoy .dia-dow { color: #ffffff; }
 /* Columna de hoy en las filas de apartamentos: tinte suave. */
 .dia.hoy-col { background: rgba(26, 26, 46, 0.06); }
-/* Borde de cambio de mes en todo el grid (primer día de un mes nuevo). */
-.dia.cambio-mes { border-left: 2px solid var(--input-border); }
+/* Frontera de mes en todo el grid (día 1 de un mes nuevo). */
+.dia.cambio-mes { border-left: 2px solid #1a1a2e; }
 
 /* Columna separadora de mes (decorativa, no es un día). */
 .col-sep-mes {
@@ -414,14 +437,14 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   border-right: 1px solid var(--border-soft);
 }
 
-.fila-aptos .dias { min-height: 52px; }
+.fila-aptos .dias { min-height: 40px; }
 /* Celdas de día clicables (menú contextual de crear reserva/bloqueo). */
 .fila-aptos .dia { cursor: pointer; }
 
 /* Barras de reserva */
 .barra-reserva {
   position: absolute;
-  top: 12px;
+  top: 6px;
   height: 28px;
   border-radius: 4px;
   color: #ffffff;

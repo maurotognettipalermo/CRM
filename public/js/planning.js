@@ -5,7 +5,6 @@ const Planning = (() => {
   // Vista continua de días (estilo Avantio). El nº de días visibles se calcula
   // según el ancho disponible; las columnas no se atan a un mes fijo.
   const ANCHO_DIA = 28;   // px por columna de día (debe coincidir con .dia width en el CSS)
-  const ANCHO_SEP = 32;   // px por columna separadora de mes (debe coincidir con .col-sep-mes width)
   const CELDA_APTO = 160; // px de la columna izquierda fija (debe coincidir con .celda-apto width)
   const MIN_DIAS = 7;     // nunca mostramos menos de una semana
 
@@ -35,6 +34,7 @@ const Planning = (() => {
   let bloqueoColor = '#7f1d1d';    // color del estado "Bloqueado" (estados_reserva); rojo oscuro por defecto
 
   const MESES_ABREV = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const MESES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const DOW_LETRA = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
   // ---- Utilidades de fecha ----
@@ -68,8 +68,9 @@ const Planning = (() => {
     return Math.max(MIN_DIAS, n || MIN_DIAS);
   }
 
-  // Construye la lista de columnas (días + separadores de mes) y la tabla de
-  // offsets en píxeles de cada día, usada para posicionar las barras.
+  // Construye la lista de columnas de día y la tabla de offsets en píxeles de
+  // cada día, usada para posicionar las barras. El nombre del mes va como label
+  // encima del día 1 (no es una columna del grid).
   // xDia[i] = x del día i; xDia[nDias] = ancho total del grid.
   function construirColumnas() {
     const cols = [];
@@ -79,19 +80,19 @@ const Planning = (() => {
     for (let i = 0; i < nDias; i++) {
       const fecha = addDias(fechaInicio, i);
       const mes = fecha.getMonth();
-      const cambioMes = mesPrev !== null && mes !== mesPrev;
-      if (cambioMes) {
-        // Columna separadora decorativa (no cuenta como día).
-        cols.push({ tipo: 'sep', etiqueta: MESES_ABREV[mes] });
-        x += ANCHO_SEP;
-      }
+      const cambioMes = mesPrev !== null && mes !== mesPrev; // frontera real de mes (día 1)
       xDia[i] = x;
       cols.push({
         tipo: 'dia',
         iso: iso(fecha),
         dia: fecha.getDate(),
         dow: fecha.getDay(),
+        mes,
+        anio: fecha.getFullYear(),
         cambioMes,
+        // El nombre del mes va como label ENCIMA del día 1 (y del primer día visible,
+        // para tener contexto). No ocupa columna del grid.
+        mostrarMes: fecha.getDate() === 1 || i === 0,
       });
       x += ANCHO_DIA;
       mesPrev = mes;
@@ -144,21 +145,18 @@ const Planning = (() => {
     const hoyISO = iso(hoy());
     const { cols, xDia, anchoTotal } = construirColumnas();
 
-    // Cabecera: nº de día + letra del día de la semana, con separadores de mes.
+    // Cabecera: nº de día + letra del día de la semana + label de mes sobre el día 1.
     const cab = document.createElement('div');
     cab.className = 'fila-planning fila-cabecera';
     let cabHTML = '<div class="celda-apto">Apartamento</div>' +
       `<div class="dias" style="width:${anchoTotal}px">`;
     for (const col of cols) {
-      if (col.tipo === 'sep') {
-        cabHTML += `<div class="col-sep-mes">${col.etiqueta}</div>`;
-        continue;
-      }
       const clases = ['dia'];
       if (col.dow === 0 || col.dow === 6) clases.push('finde');
       if (col.iso === hoyISO) clases.push('hoy');
       if (col.cambioMes) clases.push('cambio-mes');
-      cabHTML += `<div class="${clases.join(' ')}">${col.dia}<br>${DOW_LETRA[col.dow]}</div>`;
+      const mesLbl = col.mostrarMes ? `<span class="mes-label">${MESES_LARGO[col.mes]} ${col.anio}</span>` : '';
+      cabHTML += `<div class="${clases.join(' ')}">${mesLbl}<span class="dia-num">${col.dia}</span><span class="dia-dow">${DOW_LETRA[col.dow]}</span></div>`;
     }
     cabHTML += '</div>';
     cab.innerHTML = cabHTML;
@@ -201,14 +199,8 @@ const Planning = (() => {
       dias.className = 'dias';
       dias.style.width = anchoTotal + 'px';
 
-      // celdas de fondo (rejilla, findes, columna de hoy y separadores de mes)
+      // celdas de fondo (rejilla, findes, columna de hoy y frontera de mes)
       for (const col of cols) {
-        if (col.tipo === 'sep') {
-          const s = document.createElement('div');
-          s.className = 'col-sep-mes-row';
-          dias.appendChild(s);
-          continue;
-        }
         const c = document.createElement('div');
         c.className = 'dia' +
           (col.dow === 0 || col.dow === 6 ? ' finde' : '') +
