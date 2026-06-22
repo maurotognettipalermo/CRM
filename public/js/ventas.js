@@ -2561,18 +2561,27 @@ const Ventas = (() => {
 
     // Catálogos para los typeaheads (una vez).
     try {
-      const [prv, cli, props] = await Promise.all([
+      const [prv, cli, props, razones] = await Promise.all([
         API.get('/api/ventas/propietarios-venta').catch(() => []),
         API.get('/api/ventas/clientes').catch(() => []),
         API.get('/api/ventas/propiedades').catch(() => []),
+        API.get('/api/ajustes/razones-sociales').catch(() => []),
       ]);
-      autPrv = prv; autCli = cli; autProps = props;
-    } catch (e) { autPrv = []; autCli = []; autProps = []; }
+      autPrv = prv; autCli = cli; autProps = props; autvRazones = razones;
+    } catch (e) { autPrv = []; autCli = []; autProps = []; autvRazones = []; }
 
     const docOpts = ['DNI', 'NIE', 'Pasaporte'].map((d) => `<option value="${d}">${d}</option>`).join('');
+    const rsPrincipal = autvRazones.find((r) => /costa azahar/i.test(r.razon_social || '')) || autvRazones[0];
+    const rsOpts = autvRazones.map((r) =>
+      `<option value="${r.id}"${rsPrincipal && r.id === rsPrincipal.id ? ' selected' : ''}>${esc(r.razon_social)}</option>`).join('');
 
     panel.innerHTML = `
       <div class="aut-form">
+        <div class="aut-sec-tit">Razón social</div>
+        <div class="fila-campos" style="align-items:center">
+          <div class="campo"><label>Razón social emisora</label><select id="aut-razon">${rsOpts}</select></div>
+          <img id="aut-razon-logo" alt="" style="max-height:60px;max-width:160px;object-fit:contain;display:none">
+        </div>
         <div class="aut-sec-tit">Parte vendedora</div>
         <div class="campo vta-ta">
           <label>Nombre completo</label>
@@ -2636,9 +2645,14 @@ const Ventas = (() => {
           <div class="campo"><label>Fecha límite escrituración</label><input type="date" id="aut-e-fecha"></div>
         </div>
         <div class="fila-campos">
+          <div class="campo"><label>Comisión (%)</label><input type="number" step="0.01" id="aut-e-comision-pct" value="3"></div>
           <div class="campo"><label>Importe comisión (€)</label><input type="number" step="0.01" id="aut-e-comision"></div>
-          <div class="campo"><label>IVA de la comisión</label>
-            <label class="aut-iva-toggle"><input type="checkbox" id="aut-e-iva" checked> <span id="aut-iva-label">IVA incluido</span></label>
+        </div>
+        <div class="campo">
+          <label>IVA de la comisión</label>
+          <div id="aut-iva-pills" style="display:inline-flex;gap:6px;border:1px solid #d1d5db;border-radius:999px;padding:3px;background:#f9fafb">
+            <button type="button" class="aut-pill" data-iva="0">Más IVA</button>
+            <button type="button" class="aut-pill" data-iva="1">IVA incluido</button>
           </div>
         </div>
 
@@ -2692,7 +2706,7 @@ const Ventas = (() => {
         iIn.value = p.calle || p.referencia || '';
         setVal('aut-i-planta', p.planta || '');
         setVal('aut-i-puerta', p.numero || '');
-        if (p.precio != null) { setVal('aut-e-precio', p.precio); calcResto(); }
+        if (p.precio != null) { setVal('aut-e-precio', p.precio); calcResto(); calcComision(); }
         iRes.classList.add('oculto');
       }));
 
@@ -2702,17 +2716,30 @@ const Ventas = (() => {
     });
 
     // Resto a pagar = precio − señal (en vivo).
-    document.getElementById('aut-e-precio').addEventListener('input', calcResto);
+    document.getElementById('aut-e-precio').addEventListener('input', () => { calcResto(); calcComision(); });
     document.getElementById('aut-e-senal').addEventListener('input', calcResto);
-    document.getElementById('aut-e-iva').addEventListener('change', (e) => {
-      document.getElementById('aut-iva-label').textContent = e.target.checked ? 'IVA incluido' : 'Más IVA';
-    });
+    document.getElementById('aut-e-comision-pct').addEventListener('input', calcComision);
+
+    // Pills de IVA (radio estilizado tipo switch).
+    document.querySelectorAll('#aut-iva-pills .aut-pill').forEach((p) =>
+      p.addEventListener('click', () => pintarIvaPills(p.dataset.iva === '1')));
+    pintarIvaPills(false); // por defecto "Más IVA"
+
+    // Razón social → preview de logo.
+    const rsSel = document.getElementById('aut-razon');
+    const pintarLogo = () => {
+      const r = autvRazones.find((x) => String(x.id) === String(rsSel.value));
+      const img = document.getElementById('aut-razon-logo');
+      if (r && r.logo_url) { img.src = r.logo_url; img.style.display = ''; } else { img.style.display = 'none'; }
+    };
+    if (rsSel) { rsSel.addEventListener('change', pintarLogo); pintarLogo(); }
 
     document.getElementById('aut-descargar').addEventListener('click', () => generarAutorizacion('descargar'));
     document.getElementById('aut-imprimir').addEventListener('click', () => generarAutorizacion('imprimir'));
     document.getElementById('aut-limpiar').addEventListener('click', limpiarAutorizacion);
 
     calcResto();
+    calcComision();
   }
 
   function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; }
@@ -2761,17 +2788,37 @@ const Ventas = (() => {
     setVal('aut-e-resto', (precio - senal).toFixed(2));
   }
 
+  // Importe comisión = precio × % / 100 (editable después).
+  function calcComision() {
+    const precio = parseFloat(val('aut-e-precio')) || 0;
+    const pct = parseFloat(val('aut-e-comision-pct')) || 0;
+    setVal('aut-e-comision', (precio * pct / 100).toFixed(2));
+  }
+
+  // Pinta los pills de IVA (activo = azul oscuro, texto blanco).
+  function pintarIvaPills(incluido) {
+    document.querySelectorAll('#aut-iva-pills .aut-pill').forEach((p) => {
+      const activo = (p.dataset.iva === '1') === incluido;
+      p.style.cssText = 'border:0;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;' +
+        (activo ? 'background:#1a1a2e;color:#fff' : 'background:transparent;color:#374151');
+      p.dataset.activo = activo ? '1' : '0';
+    });
+  }
+  function ivaIncluido() {
+    const p = document.querySelector('#aut-iva-pills .aut-pill[data-activo="1"]');
+    return p ? p.dataset.iva === '1' : false;
+  }
+
   function limpiarAutorizacion() {
     ['aut-v-nombre', 'aut-v-numdoc', 'aut-v-dir', 'aut-v-ciudad', 'aut-v-prov',
       'aut-c-nombre', 'aut-c-numdoc', 'aut-c-dir', 'aut-c-ciudad', 'aut-c-prov',
       'aut-i-edificio', 'aut-i-planta', 'aut-i-puerta', 'aut-i-parking', 'aut-i-trastero',
       'aut-e-precio', 'aut-e-comision', 'aut-e-fecha'].forEach((id) => setVal(id, ''));
     setVal('aut-e-senal', '3000');
+    setVal('aut-e-comision-pct', '3');
     document.getElementById('aut-v-tipodoc').value = 'DNI';
     document.getElementById('aut-c-tipodoc').value = 'DNI';
-    const iva = document.getElementById('aut-e-iva');
-    iva.checked = true;
-    document.getElementById('aut-iva-label').textContent = 'IVA incluido';
+    pintarIvaPills(false);
     calcResto();
   }
 
@@ -2798,8 +2845,10 @@ const Ventas = (() => {
       senal: parseFloat(val('aut-e-senal')) || 0,
       resto_pago: parseFloat(val('aut-e-resto')) || 0,
       fecha_escritura: val('aut-e-fecha'),
+      porcentaje_comision: parseFloat(val('aut-e-comision-pct')) || 0,
       importe_comision: parseFloat(val('aut-e-comision')) || 0,
-      iva_incluido: document.getElementById('aut-e-iva').checked,
+      iva_incluido: ivaIncluido(),
+      razon_social_id: parseInt(val('aut-razon'), 10) || null,
     };
   }
 

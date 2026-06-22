@@ -14,6 +14,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const MM = 2.83465; // 1 mm en puntos PDF
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
+// Fecha ISO (YYYY-MM-DD) -> DD/MM/YYYY; si no es ISO, devuelve el valor tal cual.
+function fechaDDMM(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v || '');
+}
+
 // Lee el logo de una razón social desde el disco solo si es PNG/JPG (pdfkit no soporta SVG/WEBP).
 function leerLogoVenta(url) {
   if (!url) return null;
@@ -109,11 +115,20 @@ router.post('/autorizacion-pdf', (req, res) => {
   const precioVenta = money(b.precio_venta);
   const senal = money(b.senal);
   const restoPago = money(b.resto_pago);
-  const fechaEscritura = s(b.fecha_escritura);
+  const fechaEscritura = fechaDDMM(b.fecha_escritura);
   const importeComision = money(b.importe_comision);
   const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
 
-  const M = Math.round(25 * MM); // márgenes 25mm
+  // Logo de la razón social (si se indicó y es PNG/JPG).
+  const rsId = aEntero(b.razon_social_id);
+  const rsLogo = rsId != null ? db.prepare('SELECT logo_url FROM razones_sociales WHERE id = ?').get(rsId) : null;
+  const logoBuf = rsLogo ? leerLogoVenta(rsLogo.logo_url) : null;
+
+  const BODY = 10;   // tamaño de fuente del cuerpo (reducir a 9.5 si no cabe)
+  const LG = 3;      // interlineado ~1.3 con BODY
+  const PARR = 0.35; // espacio entre párrafos
+
+  const M = Math.round(20 * MM); // márgenes 20mm
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -126,22 +141,36 @@ router.post('/autorizacion-pdf', (req, res) => {
   doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
 
   const contentW = doc.page.width - M * 2;
-  const LG = 6; // interlineado ~1.5 con fontSize 11
   const N = (t) => ({ t, b: false });
   const B = (t) => ({ t, b: true });
 
   // Renderiza un párrafo con segmentos en negrita intercalados, justificado.
+  // pdfkit recorta el espacio FINAL de cada fragmento 'continued' → mueve esos
+  // espacios al inicio del siguiente para que los campos no queden pegados.
   function parrafo(segs) {
-    segs.forEach((seg, i) => {
-      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
-      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < segs.length - 1 });
+    const arr = segs.map((x) => ({ ...x }));
+    for (let i = 0; i < arr.length - 1; i++) {
+      const m = arr[i].t.match(/\s+$/);
+      if (m) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = m[0] + arr[i + 1].t; }
+    }
+    arr.forEach((seg, i) => {
+      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
+      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < arr.length - 1 });
     });
-    doc.moveDown(0.7);
+    doc.moveDown(PARR);
   }
 
-  // Título.
-  doc.font('Helvetica-Bold').fontSize(15).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
-  doc.moveDown(1.2);
+  // Cabecera: logo a la izquierda + título a su derecha; centrado si no hay logo.
+  const topY = doc.y;
+  if (logoBuf) {
+    try { doc.image(logoBuf, M, topY, { fit: [120, 60] }); } catch (e) { /* logo inválido */ }
+    doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
+      .text('AUTORIZACIÓN DE VENTA', M + 130, topY + 20, { width: contentW - 130, align: 'left' });
+    doc.y = topY + 60;
+  } else {
+    doc.font('Helvetica-Bold').fontSize(14).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
+  }
+  doc.moveDown(0.6);
 
   parrafo([
     N('De una parte '), B(nombreVend), N(' con '), B(`${docVend} ${dniVend}`),
@@ -167,7 +196,7 @@ router.post('/autorizacion-pdf', (req, res) => {
 
   parrafo([
     B(`${senal} €`),
-    N(' (tres mil euros) que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.'),
+    N(' que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.'),
   ]);
 
   parrafo([
@@ -188,14 +217,14 @@ router.post('/autorizacion-pdf', (req, res) => {
   ]);
 
   // Fecha y lugar.
-  doc.moveDown(1);
-  doc.font('Helvetica').fontSize(11)
+  doc.moveDown(0.5);
+  doc.font('Helvetica').fontSize(BODY)
     .text('En __________________________, a ______ de __________________ de 20______', { align: 'left' });
 
   // Tres columnas de firma con línea encima.
-  doc.moveDown(3.5);
+  doc.moveDown(1.5);
   let yF = doc.y;
-  if (yF > doc.page.height - M - 70) { doc.addPage(); yF = doc.y; }
+  if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
   const colW = (contentW - 40) / 3;
   const firmas = [
     ['Analia Palermo Cornet', '20473042Y'],
@@ -205,8 +234,8 @@ router.post('/autorizacion-pdf', (req, res) => {
   firmas.forEach((fm, i) => {
     const x = M + i * (colW + 20);
     doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(fm[0], x, yF + 6, { width: colW, align: 'center' });
-    doc.font('Helvetica').fontSize(9).text(fm[1], x, doc.y, { width: colW, align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text(fm[0], x, yF + 4, { width: colW, align: 'center' });
+    doc.font('Helvetica').fontSize(8).text(fm[1], x, doc.y, { width: colW, align: 'center' });
   });
 
   doc.end();
@@ -232,7 +261,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const precioTexto = s(b.precio_texto);
   const porcComision = s(b.porcentaje_comision) || '3';
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
-  const fechaDoc = s(b.fecha_documento);
+  const fechaDoc = fechaDDMM(b.fecha_documento);
 
   // Logo de la razón social (si coincide por nombre y es PNG/JPG).
   const rs = db.prepare('SELECT logo_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
@@ -254,9 +283,14 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const N = (t) => ({ t, b: false });
   const B = (t) => ({ t, b: true });
   function parrafo(segs) {
-    segs.forEach((seg, i) => {
+    const arr = segs.map((x) => ({ ...x }));
+    for (let i = 0; i < arr.length - 1; i++) {
+      const m = arr[i].t.match(/\s+$/);
+      if (m) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = m[0] + arr[i + 1].t; }
+    }
+    arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
-      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < segs.length - 1 });
+      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < arr.length - 1 });
     });
     doc.moveDown(0.7);
   }
