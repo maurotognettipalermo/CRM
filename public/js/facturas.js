@@ -556,6 +556,10 @@ const Facturas = (() => {
           <div class="campo"><label>Dirección</label><input id="wiz-rec-dir"></div>
           <div class="campo"><label>Email</label><input id="wiz-rec-email"></div>
         </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Ciudad</label><input id="wiz-rec-ciudad"></div>
+          <div class="campo"><label>Código postal</label><input id="wiz-rec-cp"></div>
+        </div>
         <div class="ficha-seccion-titulo">Líneas de factura</div>
         <table class="fac-libre-tabla" style="width:100%;border-collapse:collapse;margin-bottom:8px">
           <thead><tr style="text-align:left;color:#6b7280;font-size:13px">
@@ -845,7 +849,12 @@ const Facturas = (() => {
       if (!lineas.length) return toast('Añade al menos una línea de factura', 'error');
       body.receptor_nombre = nombre;
       body.receptor_cif = document.getElementById('wiz-rec-cif').value;
-      body.receptor_direccion = document.getElementById('wiz-rec-dir').value;
+      // Dirección + Ciudad + CP -> "Dirección, CP Ciudad".
+      const dir = document.getElementById('wiz-rec-dir').value.trim();
+      const ciudad = document.getElementById('wiz-rec-ciudad').value.trim();
+      const cp = document.getElementById('wiz-rec-cp').value.trim();
+      const cpCiudad = [cp, ciudad].filter(Boolean).join(' ');
+      body.receptor_direccion = [dir, cpCiudad].filter(Boolean).join(', ');
       body.receptor_email = document.getElementById('wiz-rec-email').value;
       body.porcentaje_iva = wiz.libreIva;
       body.porcentaje_retencion = wiz.libreRet;
