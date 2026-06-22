@@ -36,6 +36,7 @@ const Alojamientos = (() => {
   let calCargado = false;      // ya cargado el calendario para esta ficha
   let calEstados = {};         // { nombreEstado: color }
   let calEstadosActivos = [];  // estados activos (para la leyenda)
+  let calPortales = {};        // { nombrePortal: color } para los badges de la tabla de reservas
   const ANIOS_MANT = [2024, 2025, 2026];
   let mantAnio = new Date().getFullYear();
   let mantCargado = false;     // ya cargada la pestaña Mantenimiento para esta ficha
@@ -1704,7 +1705,8 @@ const Alojamientos = (() => {
         <div id="alo-cal-leyenda" class="alo-cal-leyenda"></div>
       </div>
       <div id="alo-cal-grid"></div>
-      <div id="alo-cal-resumen"></div>`;
+      <div id="alo-cal-resumen"></div>
+      <div id="alo-cal-reservas"></div>`;
   }
 
   // ---- Helpers de fecha (locales del calendario) ----
@@ -1730,6 +1732,13 @@ const Alojamientos = (() => {
       calEstadosActivos = estados.filter((e) => e.activo);
     } catch (e) { calEstados = {}; calEstadosActivos = []; }
 
+    // Colores de portal para los badges de la tabla de reservas (caché en memoria).
+    try {
+      const portales = await API.getPortales();
+      calPortales = {};
+      for (const p of portales) calPortales[p.nombre] = p.color;
+    } catch (e) { calPortales = {}; }
+
     let reservas = [];
     try {
       reservas = await API.get(`/api/reservas?desde=${calAnio}-01-01&hasta=${calAnio}-12-31`);
@@ -1745,6 +1754,82 @@ const Alojamientos = (() => {
     renderLeyenda();
     renderMeses(ocupacion);
     renderResumen(ocupacion);
+    renderReservasAnio(reservas);
+  }
+
+  // Estilo inline del badge (la tarea solo permite tocar este archivo).
+  const ALO_RSV_BADGE = 'display:inline-block;color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap';
+
+  // Tabla "Reservas del año": reutiliza las reservas ya cargadas para el calendario.
+  function renderReservasAnio(reservas) {
+    const cont = document.getElementById('alo-cal-reservas');
+    if (!cont) return;
+
+    const EXCLUIDOS = ['Cancelada', 'Bloqueado'];
+    const lista = (reservas || [])
+      .filter((r) => r.entrada && r.salida && !EXCLUIDOS.includes(r.tipo_reserva || ''))
+      .sort((a, b) => String(a.entrada).localeCompare(String(b.entrada)));
+
+    const titulo = '<div class="rsv-seccion-titulo">Reservas del año</div>';
+    if (!lista.length) {
+      cont.innerHTML = `${titulo}<div class="cnt-vacio">Sin reservas confirmadas en ${calAnio}.</div>`;
+      return;
+    }
+
+    let totalNoches = 0;
+    let totalEur = 0;
+    const filas = lista.map((r) => {
+      const noches = Math.max(0, Math.round((new Date(r.salida + 'T00:00:00') - new Date(r.entrada + 'T00:00:00')) / 86400000));
+      const precio = (r.pagado != null && Number(r.pagado) > 0) ? Number(r.pagado) : (Number(r.precio_total) || 0);
+      totalNoches += noches;
+      totalEur += precio;
+
+      const estado = r.tipo_reserva || 'Sin estado';
+      const colEstado = calEstados[estado] || CAL_COLOR_DEFECTO;
+      const badgeEstado = `<span style="${ALO_RSV_BADGE};background:${esc(colEstado)}">${esc(estado)}</span>`;
+
+      const portal = r.portal || '';
+      const colPortal = calPortales[portal];
+      const badgePortal = portal
+        ? `<span style="${ALO_RSV_BADGE};background:${esc(colPortal || CAL_COLOR_DEFECTO)}">${esc(portal)}</span>`
+        : '<span style="color:var(--muted)">—</span>';
+
+      return `
+        <tr data-reserva="${r.id}" style="cursor:pointer">
+          <td><strong>${esc(r.nombre_cliente || '—')}</strong></td>
+          <td>${badgePortal}</td>
+          <td>${fechaES(r.entrada)}</td>
+          <td>${fechaES(r.salida)}</td>
+          <td>${noches}</td>
+          <td>${euro(precio)}</td>
+          <td>${badgeEstado}</td>
+        </tr>`;
+    }).join('');
+
+    cont.innerHTML = `
+      ${titulo}
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Cliente</th><th>Portal</th><th>Entrada</th><th>Salida</th><th>Noches</th><th>Precio</th><th>Estado</th></tr></thead>
+          <tbody>${filas}</tbody>
+          <tfoot>
+            <tr style="font-weight:700;border-top:2px solid var(--border)">
+              <td colspan="4">${lista.length} reserva${lista.length === 1 ? '' : 's'} en ${calAnio}</td>
+              <td>${totalNoches}</td>
+              <td>${euro(totalEur)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+
+    cont.querySelectorAll('tr[data-reserva]').forEach((tr) =>
+      tr.addEventListener('click', () => {
+        const rid = tr.dataset.reserva;
+        cerrarPanel();
+        if (typeof activarTab === 'function') activarTab('reservas');
+        if (typeof Reservas !== 'undefined' && Reservas.abrirFicha) Reservas.abrirFicha(rid);
+      }));
   }
 
   // Mapa 'YYYY-MM-DD' → { reserva, color, estado } para los días ocupados (entrada..salida-1).
