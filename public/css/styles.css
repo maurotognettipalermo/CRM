@@ -3645,3 +3645,54 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
 .plan-chip-x:hover { color: #b91c1c; }
 .plan-check-lista { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .plan-check { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; }
+
+/* ==================== Fechas del propietario (Contratos) ==================== */
+/* Badge morado "Uso propietario". */
+.badge-uso-prop {
+  display: inline-block;
+  background: #ede9fe;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Cabecera de la sección en la ficha: título + botón Añadir. */
+.cnt-fp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
+.cnt-fp-titulo { margin: 0; }
+
+/* Lista de fechas en la ficha. */
+.cnt-fp-lista { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cnt-fp-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: #fafafa;
+}
+.cnt-fp-item-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.cnt-fp-fechas { font-weight: 600; font-size: 13px; color: var(--text); }
+.cnt-fp-motivo { font-size: 12px; color: var(--muted); }
+
+/* Resumen de disponibilidad. */
+.cnt-fp-resumen {
+  margin-top: 12px; border: 1px solid #e5e7eb; border-radius: 8px;
+  background: #f9fafb; padding: 10px 12px;
+}
+.cnt-fp-resumen-tit { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.cnt-fp-resumen ul { margin: 0; padding-left: 18px; }
+.cnt-fp-resumen li { font-size: 13px; color: #374151; margin: 2px 0; }
+
+/* Aviso de fechas fuera del período del contrato (modal). */
+.cnt-fp-aviso {
+  background: #fffbeb; color: #b45309; border: 1px solid #fde68a;
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 10px;
+}
+
+/* Filas dinámicas de fechas del propietario en el modal de contrato. */
+.cnt-fp-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cnt-fp-fila-sep { color: var(--muted); }
+.cnt-fp-fila .cnt-fp-f-inicio,
+.cnt-fp-fila .cnt-fp-f-fin { flex: 0 0 auto; }
+.cnt-fp-fila .cnt-fp-f-motivo { flex: 1 1 auto; min-width: 0; }
+.cnt-fp-modal-vacio { font-size: 13px; color: var(--muted); padding: 6px 2px; }

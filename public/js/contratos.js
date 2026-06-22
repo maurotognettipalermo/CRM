@@ -15,6 +15,7 @@ const Contratos = (() => {
   let fichaActual = null;    // contrato abierto en el panel
   let aptoSelId = null;      // apartamento seleccionado en el modal
   let cuotasModal = [];      // cuotas en edición en el modal
+  let fechasModal = [];      // fechas del propietario en edición en el modal
   let taMatches = [];        // resultados actuales del autocompletado de apartamento
   let taIndex = -1;          // opción resaltada en el dropdown (navegación con teclado)
 
@@ -34,6 +35,23 @@ const Contratos = (() => {
   }
   function estadoTexto(e) {
     return (e || 'activo').charAt(0).toUpperCase() + (e || 'activo').slice(1);
+  }
+  // Fecha ISO -> "DD/MM" (para el resumen de disponibilidad).
+  function fechaCorta(iso) {
+    if (!iso) return '—';
+    const [, m, d] = String(iso).split('-');
+    return d && m ? `${d}/${m}` : iso;
+  }
+  // Días entre dos fechas ISO contando ambos extremos (inclusive).
+  function diasInclusive(a, b) {
+    if (!a || !b) return 0;
+    const ms = new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00');
+    return Math.round(ms / 86400000) + 1;
+  }
+  // Días del año (maneja bisiestos).
+  function diasAnio(anio) {
+    const y = Number(anio);
+    return Math.round((new Date(y, 11, 31) - new Date(y, 0, 1)) / 86400000) + 1;
   }
 
   // ---- Badges ----
@@ -256,7 +274,10 @@ const Contratos = (() => {
       <div class="rsv-grid"><div>${izquierda}</div><div>${derecha}</div></div>
       ${c.notas ? `<div class="rsv-dato" style="margin-top:8px"><div class="etq">Notas</div><div class="val">${esc(c.notas)}</div></div>` : ''}
       ${calculoFiscal}
-      ${cuerpoExtra}`;
+      ${cuerpoExtra}
+      <div id="cnt-fechas-prop"></div>`;
+
+    await renderFechasPropietario(c);
 
     const link = document.querySelector('#cnt-cuerpo [data-ir-apto]');
     if (link) link.addEventListener('click', () => {
@@ -403,6 +424,119 @@ const Contratos = (() => {
     }
   }
 
+  // ==================== Fechas del propietario (ficha) ====================
+
+  // Sección "Fechas del propietario" del panel: lista + resumen de disponibilidad.
+  async function renderFechasPropietario(c) {
+    const cont = document.getElementById('cnt-fechas-prop');
+    if (!cont) return;
+    let fechas = [];
+    try { fechas = await API.get(`/api/contratos/${c.id}/fechas-propietario`); }
+    catch (e) { fechas = []; }
+
+    const lista = fechas.length
+      ? fechas.map((f) => `
+          <div class="cnt-fp-item">
+            <div class="cnt-fp-item-main">
+              <span class="badge-uso-prop">Uso propietario</span>
+              <span class="cnt-fp-fechas">${fechaES(f.fecha_inicio)} → ${fechaES(f.fecha_fin)}</span>
+              ${f.motivo ? `<span class="cnt-fp-motivo">${esc(f.motivo)}</span>` : ''}
+            </div>
+            <button class="btn-mini" data-del-fp="${f.id}" title="Eliminar">🗑</button>
+          </div>`).join('')
+      : '<div class="cnt-vacio">El propietario no ha reservado fechas este período.</div>';
+
+    const periodo = diasInclusive(c.temporada_inicio, c.temporada_fin);
+    const uso = fechas.reduce((s, f) => s + diasInclusive(f.fecha_inicio, f.fecha_fin), 0);
+    const disponible = periodo - uso;
+    const anio = c.anio || Number(String(c.temporada_inicio).slice(0, 4));
+    const fuera = diasAnio(anio) - periodo;
+
+    cont.innerHTML = `
+      <div class="cnt-fp-head">
+        <span class="rsv-seccion-titulo cnt-fp-titulo">Fechas del propietario</span>
+        <button class="btn-sec" id="cnt-fp-add">＋ Añadir fechas</button>
+      </div>
+      <div class="cnt-fp-lista">${lista}</div>
+      <div class="cnt-fp-resumen">
+        <div class="cnt-fp-resumen-tit">📊 Resumen de disponibilidad</div>
+        <ul>
+          <li>Período del contrato: ${fechaCorta(c.temporada_inicio)} — ${fechaCorta(c.temporada_fin)} (${periodo} días)</li>
+          <li>Uso propietario: ${uso} días</li>
+          <li>Disponible para alquiler: ${disponible} días</li>
+          <li>Fuera de contrato (bloqueado): ${fuera} días</li>
+        </ul>
+      </div>`;
+
+    document.getElementById('cnt-fp-add').addEventListener('click', () => modalAnadirFechas(c));
+    cont.querySelectorAll('[data-del-fp]').forEach((b) =>
+      b.addEventListener('click', () => borrarFechaProp(c.id, Number(b.dataset.delFp))));
+  }
+
+  // Modal "Añadir fechas del propietario" (valida que caigan dentro del contrato).
+  function modalAnadirFechas(c) {
+    const rango = `${fechaCorta(c.temporada_inicio)} — ${fechaCorta(c.temporada_fin)}`;
+    abrirModal(`
+      <h3>Añadir fechas del propietario</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="cnt-fp-inicio" min="${c.temporada_inicio}" max="${c.temporada_fin}" value="${c.temporada_inicio}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="cnt-fp-fin" min="${c.temporada_inicio}" max="${c.temporada_fin}"></div>
+      </div>
+      <div class="cnt-fp-aviso oculto" id="cnt-fp-aviso"></div>
+      <div class="campo"><label>Motivo</label><textarea id="cnt-fp-motivo" placeholder="Vacaciones del propietario, uso personal..."></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="cnt-fp-cancelar">Cancelar</button>
+        <button class="btn-pri" id="cnt-fp-guardar">Guardar</button>
+      </div>`);
+
+    const ini = document.getElementById('cnt-fp-inicio');
+    const fin = document.getElementById('cnt-fp-fin');
+    const aviso = document.getElementById('cnt-fp-aviso');
+    const fuera = () => {
+      const fi = ini.value; const ff = fin.value;
+      return fi && ff && (fi < c.temporada_inicio || ff > c.temporada_fin);
+    };
+    const chk = () => {
+      if (fuera()) {
+        aviso.textContent = `⚠️ Las fechas deben estar dentro del período del contrato (${rango})`;
+        aviso.classList.remove('oculto');
+      } else {
+        aviso.classList.add('oculto');
+      }
+    };
+    ini.addEventListener('change', chk);
+    fin.addEventListener('change', chk);
+
+    document.getElementById('cnt-fp-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('cnt-fp-guardar').addEventListener('click', async () => {
+      const fi = ini.value; const ff = fin.value;
+      if (!fi || !ff) return toast('Indica fecha inicio y fin', 'error');
+      if (!(fi < ff)) return toast('La fecha de inicio debe ser anterior a la de fin', 'error');
+      if (fi < c.temporada_inicio || ff > c.temporada_fin) return toast('Las fechas deben estar dentro del período del contrato', 'error');
+      try {
+        await API.post(`/api/contratos/${c.id}/fechas-propietario`, {
+          fecha_inicio: fi, fecha_fin: ff, motivo: document.getElementById('cnt-fp-motivo').value.trim(),
+        });
+        cerrarModal();
+        await abrirFicha(c.id); // recarga la ficha (regenera la sección)
+        toast('Fechas añadidas y bloqueo creado en el planning', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  async function borrarFechaProp(contratoId, fpId) {
+    if (!confirm('¿Eliminar esta fecha del propietario?')) return;
+    try {
+      await API.del(`/api/contratos/${contratoId}/fechas-propietario/${fpId}`);
+      await abrirFicha(contratoId);
+      toast('Fecha eliminada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
   // ==================== Modal nuevo / editar ====================
 
   async function cargarApartamentos() {
@@ -430,6 +564,7 @@ const Contratos = (() => {
       fecha_prevista: q.fecha_prevista || '', importe: Number(q.importe) || 0,
       pagado: q.pagado ? 1 : 0, fecha_pago: q.fecha_pago || null,
     }));
+    fechasModal = []; // las fechas del propietario añadidas aquí se POSTean tras guardar
 
     const estados = ['activo', 'finalizado', 'cancelado'];
     const estadoOpts = estados.map((e) => `<option value="${e}"${c.estado === e ? ' selected' : ''}>${estadoTexto(e)}</option>`).join('');
@@ -499,6 +634,14 @@ const Contratos = (() => {
         <div class="cnt-total-cuotas" id="cnt-f-total"></div>
       </div>
 
+      <div id="cnt-f-fechasprop">
+        <div class="cnt-plan-head">
+          <span class="cnt-plan-titulo">Fechas del propietario</span>
+          <button type="button" class="btn-sec" id="cnt-f-add-fp">＋ Añadir fechas</button>
+        </div>
+        <div id="cnt-f-fp-lista"></div>
+      </div>
+
       <div class="cnt-error-inline oculto" id="cnt-f-error"></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="cnt-f-cancelar">Cancelar</button>
@@ -542,12 +685,56 @@ const Contratos = (() => {
     });
     document.getElementById('cnt-f-distribuir').addEventListener('click', distribuirAuto);
 
+    // --- Fechas del propietario ---
+    document.getElementById('cnt-f-add-fp').addEventListener('click', () => {
+      leerFechasDelDOM();
+      fechasModal.push({ fecha_inicio: '', fecha_fin: '', motivo: '' });
+      renderFechasModal();
+    });
+
     document.getElementById('cnt-f-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('cnt-f-guardar').addEventListener('click', () => guardar(id));
 
     aplicarTipo();
     actualizarRangoInfo();
     renderCuotasModal();
+    renderFechasModal();
+  }
+
+  // Lee los inputs de fechas del propietario del DOM al array (no perder ediciones).
+  function leerFechasDelDOM() {
+    document.querySelectorAll('#cnt-f-fp-lista .cnt-fp-fila').forEach((fila, i) => {
+      if (!fechasModal[i]) return;
+      fechasModal[i].fecha_inicio = fila.querySelector('.cnt-fp-f-inicio').value;
+      fechasModal[i].fecha_fin = fila.querySelector('.cnt-fp-f-fin').value;
+      fechasModal[i].motivo = fila.querySelector('.cnt-fp-f-motivo').value;
+    });
+  }
+
+  function renderFechasModal() {
+    const cont = document.getElementById('cnt-f-fp-lista');
+    if (!cont) return;
+    if (!fechasModal.length) {
+      cont.innerHTML = '<div class="cnt-fp-modal-vacio">Sin fechas reservadas por el propietario (se pueden añadir después).</div>';
+      return;
+    }
+    cont.innerHTML = fechasModal.map((f, i) => `
+      <div class="cnt-fp-fila" data-idx="${i}">
+        <input type="date" class="cnt-fp-f-inicio" value="${f.fecha_inicio || ''}">
+        <span class="cnt-fp-fila-sep">→</span>
+        <input type="date" class="cnt-fp-f-fin" value="${f.fecha_fin || ''}">
+        <input type="text" class="cnt-fp-f-motivo" placeholder="Motivo (opcional)" value="${esc(f.motivo || '')}">
+        <button type="button" class="cnt-cuota-borrar" data-borrar-fp="${i}" title="Eliminar">×</button>
+      </div>`).join('');
+
+    cont.querySelectorAll('.cnt-fp-f-inicio, .cnt-fp-f-fin, .cnt-fp-f-motivo').forEach((inp) =>
+      inp.addEventListener('change', leerFechasDelDOM));
+    cont.querySelectorAll('[data-borrar-fp]').forEach((b) =>
+      b.addEventListener('click', () => {
+        leerFechasDelDOM();
+        fechasModal.splice(Number(b.dataset.borrarFp), 1);
+        renderFechasModal();
+      }));
   }
 
   // ---- Autocompletado (typeahead) del apartamento ----
@@ -819,8 +1006,23 @@ const Contratos = (() => {
     };
 
     try {
+      let contratoId = id;
       if (id) await API.put('/api/contratos/' + id, body);
-      else await API.post('/api/contratos', body);
+      else { const res = await API.post('/api/contratos', body); contratoId = res && res.id; }
+
+      // Fechas del propietario añadidas en el modal: se POSTean tras el contrato.
+      leerFechasDelDOM();
+      const fechasValidas = fechasModal.filter((f) => f.fecha_inicio && f.fecha_fin);
+      if (contratoId && fechasValidas.length) {
+        for (const f of fechasValidas) {
+          try {
+            await API.post(`/api/contratos/${contratoId}/fechas-propietario`, {
+              fecha_inicio: f.fecha_inicio, fecha_fin: f.fecha_fin, motivo: f.motivo || '',
+            });
+          } catch (e) { /* fecha fuera de rango u otro error: se omite */ }
+        }
+      }
+
       cerrarModal();
       await cargar();
       if (fichaActual && id && Number(id) === fichaActual.id) await abrirFicha(id);
