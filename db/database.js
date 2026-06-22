@@ -170,6 +170,7 @@ const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
 
 // Columnas extra de propiedades_venta (datos de la venta cerrada). ALTER si faltan.
 const COLUMNAS_PROPIEDADES_VENTA = {
+  apartamento_nombre: 'TEXT',
   fecha_venta: 'TEXT',
   fecha_escritura: 'TEXT',
   precio_venta_final: 'REAL',

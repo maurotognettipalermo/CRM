@@ -130,11 +130,11 @@ const Ventas = (() => {
     actualizarBadgeFiltros();
 
     if (!propiedades.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="vta-vacio">No hay propiedades. Importa el Excel de Idealista o crea una nueva.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="vta-vacio">No hay propiedades. Importa el Excel de Idealista o crea una nueva.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="vta-vacio">Ninguna propiedad coincide con los filtros.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="vta-vacio">Ninguna propiedad coincide con los filtros.</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map(filaHTML).join('');
@@ -163,6 +163,7 @@ const Ventas = (() => {
     return `
       <tr data-ficha="${p.id}">
         <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
+        <td>${esc(p.apartamento_nombre) || '—'}</td>
         <td>${esc(p.tipo) || '—'}</td>
         <td>${esc(dir)}</td>
         <td>${esc(p.zona) || '—'}</td>
@@ -330,8 +331,10 @@ const Ventas = (() => {
   function renderCuerpo(d) {
     const datos = `
       <div class="vta-d-seccion">
+        ${d.apartamento_nombre ? `<div style="font-size:18px;font-weight:700;color:#1a1a2e;margin-bottom:8px">${esc(d.apartamento_nombre)}</div>` : ''}
         <div class="vta-d-precio">${euro(d.precio)}</div>
         <div class="vta-d-grid">
+          ${dato('Apartamento', esc(d.apartamento_nombre) || '—')}
           ${dato('Referencia', esc(d.referencia) || '—')}
           ${dato('Código Idealista', esc(d.codigo_idealista) || '—')}
           ${dato('Tipo', esc(d.tipo) || '—')}
@@ -463,6 +466,7 @@ const Ventas = (() => {
 
     abrirModal(`
       <h3>${esNueva ? '＋ Nueva propiedad' : '✏️ Editar propiedad'}</h3>
+      <div class="campo"><label>Nombre del apartamento</label><input id="vf-apartamento_nombre" value="${esc(p.apartamento_nombre)}" placeholder="COSTA MARINA I 1º 10"></div>
       <div class="fila-campos">
         <div class="campo"><label>Referencia *</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? '' : ''}></div>
         <div class="campo"><label>Tipo</label><select id="vf-tipo">${optTipo}</select></div>
@@ -561,6 +565,7 @@ const Ventas = (() => {
   }
 
   const CAMPOS_FORM = [
+    'apartamento_nombre',
     'referencia', 'tipo', 'calle', 'numero', 'planta', 'zona', 'localidad', 'precio', 'estado',
     'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje',
     'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
@@ -3051,6 +3056,16 @@ const Ventas = (() => {
 
   function init() {
     construirFiltros();
+
+    // Inyecta la columna "Apartamento" en la cabecera (la tabla está en index.html).
+    const thead = document.querySelector('#tabla-propiedades thead tr');
+    if (thead && !thead.querySelector('.vta-th-apto')) {
+      const thRef = thead.querySelector('th');
+      const th = document.createElement('th');
+      th.className = 'vta-th-apto';
+      th.textContent = 'Apartamento';
+      if (thRef) thRef.insertAdjacentElement('afterend', th); else thead.appendChild(th);
+    }
 
     document.getElementById('vta-buscar')?.addEventListener('input', (e) => { busqueda = e.target.value; renderTabla(); });
     document.getElementById('vta-nueva')?.addEventListener('click', () => modalFormulario(null));
