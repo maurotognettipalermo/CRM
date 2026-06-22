@@ -14,7 +14,7 @@ const router = express.Router();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
-const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista'];
+const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre'];
 const ESTADOS = ['borrador', 'emitida', 'pagada', 'anulada'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -312,6 +312,42 @@ function construirMayorista(body) {
   return { f, lineas, pagoIds: pagos.map((p) => p.id) };
 }
 
+// Factura libre: emisor = razón social elegida; receptor, líneas y fiscalidad 100% manuales.
+// Sin contrato/apartamento/propietario/reserva (quedan a null).
+function construirLibre(body) {
+  const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(body.razon_social_id));
+  if (!rs) return { error: 'Razón social no válida' };
+
+  const receptorNombre = String(body.receptor_nombre || '').trim();
+  if (!receptorNombre) return { error: 'El nombre del receptor es obligatorio' };
+
+  const lineas = (Array.isArray(body.lineas) ? body.lineas : [])
+    .map((l) => {
+      const cantidad = l.cantidad != null && l.cantidad !== '' ? num(l.cantidad) : 1;
+      const precio = round2(l.precio_unitario);
+      return {
+        descripcion: String(l.descripcion || '').trim(),
+        cantidad,
+        precio_unitario: precio,
+        importe: round2(cantidad * precio),
+      };
+    })
+    .filter((l) => l.descripcion || l.importe);
+  if (!lineas.length) return { error: 'Añade al menos una línea de factura' };
+
+  const f = nuevaFactura();
+  f.tipo = 'libre';
+  f.porcentaje_iva = num(body.porcentaje_iva);
+  f.porcentaje_retencion = num(body.porcentaje_retencion);
+  f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+  Object.assign(f, emisorDeRazon(rs));
+  f.receptor_nombre = receptorNombre;
+  f.receptor_cif = txt(body.receptor_cif) || null;
+  f.receptor_direccion = txt(body.receptor_direccion) || null;
+  f.receptor_email = txt(body.receptor_email) || null;
+  return { f, lineas };
+}
+
 // ==================== Endpoints ====================
 
 // GET /api/facturas?anio=&tipo=&estado=&propietario_id=&reserva_id=
@@ -471,6 +507,7 @@ router.post('/', (req, res) => {
   else if (body.tipo === 'autofactura') construido = construirPropietario(body, true);
   else if (body.tipo === 'gastos') construido = construirGastos(body);
   else if (body.tipo === 'mayorista') construido = construirMayorista(body);
+  else if (body.tipo === 'libre') construido = construirLibre(body);
   else construido = construirHuesped(body);
 
   if (construido.error) return res.status(400).json({ error: construido.error });

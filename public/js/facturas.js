@@ -23,7 +23,7 @@ const Facturas = (() => {
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
   function hoyISO() { return new Date().toISOString().slice(0, 10); }
   function tipoTexto(t) {
-    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped' }[t] || t;
+    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre' }[t] || t;
   }
   function estadoTexto(e) { return (e || '').charAt(0).toUpperCase() + (e || '').slice(1); }
   function badgeTipo(t) { return `<span class="badge-fac-tipo bf-${t === 'huésped' ? 'huesped' : t}">${tipoTexto(t)}</span>`; }
@@ -424,6 +424,7 @@ const Facturas = (() => {
     { tipo: 'autofactura', icono: '📄', titulo: 'Autofactura', desc: 'Emitida en nombre del propietario hacia nosotros' },
     { tipo: 'gastos', icono: '🔧', titulo: 'Gastos', desc: 'Refacturación de gastos del apartamento al propietario' },
     { tipo: 'huésped', icono: '👤', titulo: 'Huésped', desc: 'Factura de estancia al cliente' },
+    { tipo: 'libre', icono: '✏️', titulo: 'Libre', desc: 'Factura personalizada con datos manuales' },
   ];
 
   async function ensureRazones() { if (!razonesCache) razonesCache = await API.get('/api/ajustes/razones-sociales'); return razonesCache; }
@@ -438,6 +439,7 @@ const Facturas = (() => {
       paso: 1, tipo: null, razonId: null, anio: filtroAnio,
       propSel: null, contratoSel: null, cuotas: [], cuotaSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
+      libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
     // Preselección de razón social: única -> esa; si hay varias -> "COSTA AZAHAR..." si existe;
@@ -541,6 +543,35 @@ const Facturas = (() => {
         <div id="wiz-gastos"></div>
         <div id="wiz-gastos-resumen" class="fac-resumen oculto"></div>
         ${camposFechasHTML()}`;
+    } else if (wiz.tipo === 'libre') {
+      const ivaOps = [0, 10, 21].map((v) => `<option value="${v}"${wiz.libreIva === v ? ' selected' : ''}>${v}%</option>`).join('');
+      const retOps = [0, 19, 24].map((v) => `<option value="${v}"${wiz.libreRet === v ? ' selected' : ''}>${v}%</option>`).join('');
+      cuerpo = `
+        <div class="ficha-seccion-titulo">Receptor</div>
+        <div class="fila-campos">
+          <div class="campo"><label>Nombre receptor *</label><input id="wiz-rec-nombre"></div>
+          <div class="campo"><label>CIF/NIF</label><input id="wiz-rec-cif"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Dirección</label><input id="wiz-rec-dir"></div>
+          <div class="campo"><label>Email</label><input id="wiz-rec-email"></div>
+        </div>
+        <div class="ficha-seccion-titulo">Líneas de factura</div>
+        <table class="fac-libre-tabla" style="width:100%;border-collapse:collapse;margin-bottom:8px">
+          <thead><tr style="text-align:left;color:#6b7280;font-size:13px">
+            <th style="padding:4px">Descripción</th><th style="padding:4px;width:78px">Cantidad</th>
+            <th style="padding:4px;width:98px">Precio unit.</th><th style="padding:4px;width:90px;text-align:right">Importe</th><th style="width:44px"></th>
+          </tr></thead>
+          <tbody id="wiz-libre-body"></tbody>
+        </table>
+        <button type="button" class="btn-sec" id="wiz-libre-add">＋ Añadir línea</button>
+        <div class="ficha-seccion-titulo">Fiscalidad</div>
+        <div class="fila-campos">
+          <div class="campo"><label>IVA %</label><select id="wiz-libre-iva">${ivaOps}</select></div>
+          <div class="campo"><label>Retención %</label><select id="wiz-libre-ret">${retOps}</select></div>
+        </div>
+        <div id="wiz-libre-tot" class="fac-resumen"></div>
+        ${camposFechasHTML()}`;
     } else {
       cuerpo = `
         <div class="campo cnt-typeahead">
@@ -580,7 +611,59 @@ const Facturas = (() => {
 
     if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') wirePropietario();
     else if (wiz.tipo === 'gastos') wireGastos();
+    else if (wiz.tipo === 'libre') wireLibre();
     else wireHuesped();
+  }
+
+  // ---- Libre ----
+  function wireLibre() {
+    const body = document.getElementById('wiz-libre-body');
+    const impLinea = (l) => euro((Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0));
+
+    const repintarTot = () => {
+      const base = wiz.libreLineas.reduce((s, l) => s + (Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0), 0);
+      const iva = base * wiz.libreIva / 100;
+      const ret = base * wiz.libreRet / 100;
+      const tot = base + iva - ret;
+      const fila = 'display:flex;justify-content:space-between;padding:2px 0';
+      document.getElementById('wiz-libre-tot').innerHTML = `
+        <div style="${fila}"><span>Base imponible</span><strong>${euro(base)}</strong></div>
+        <div style="${fila}"><span>IVA (${wiz.libreIva}%)</span><strong>${euro(iva)}</strong></div>
+        ${wiz.libreRet > 0 ? `<div style="${fila}"><span>Retención (${wiz.libreRet}%)</span><strong>−${euro(ret)}</strong></div>` : ''}
+        <div style="${fila};font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:4px"><span>TOTAL</span><strong>${euro(tot)}</strong></div>`;
+    };
+
+    const repintarBody = () => {
+      body.innerHTML = wiz.libreLineas.map((l, i) => `
+        <tr>
+          <td style="padding:3px"><input class="lib-f" data-k="descripcion" data-i="${i}" value="${esc(l.descripcion || '')}" placeholder="Concepto" style="width:100%"></td>
+          <td style="padding:3px"><input class="lib-f" data-k="cantidad" data-i="${i}" type="number" step="0.01" min="0" value="${l.cantidad}" style="width:72px"></td>
+          <td style="padding:3px"><input class="lib-f" data-k="precio_unitario" data-i="${i}" type="number" step="0.01" value="${l.precio_unitario}" style="width:92px"></td>
+          <td style="padding:3px;text-align:right" id="lib-imp-${i}">${impLinea(l)}</td>
+          <td style="padding:3px"><button type="button" class="btn-peligro lib-del" data-i="${i}">🗑</button></td>
+        </tr>`).join('');
+      body.querySelectorAll('.lib-f').forEach((inp) => inp.addEventListener('input', () => {
+        const i = Number(inp.dataset.i);
+        wiz.libreLineas[i][inp.dataset.k] = inp.value;
+        document.getElementById('lib-imp-' + i).textContent = impLinea(wiz.libreLineas[i]);
+        repintarTot();
+      }));
+      body.querySelectorAll('.lib-del').forEach((btn) => btn.addEventListener('click', () => {
+        wiz.libreLineas.splice(Number(btn.dataset.i), 1);
+        if (!wiz.libreLineas.length) wiz.libreLineas.push({ descripcion: '', cantidad: 1, precio_unitario: 0 });
+        repintarBody(); repintarTot();
+      }));
+    };
+
+    document.getElementById('wiz-libre-add').addEventListener('click', () => {
+      wiz.libreLineas.push({ descripcion: '', cantidad: 1, precio_unitario: 0 });
+      repintarBody(); repintarTot();
+    });
+    document.getElementById('wiz-libre-iva').addEventListener('change', (e) => { wiz.libreIva = Number(e.target.value) || 0; repintarTot(); });
+    document.getElementById('wiz-libre-ret').addEventListener('change', (e) => { wiz.libreRet = Number(e.target.value) || 0; repintarTot(); });
+
+    repintarBody();
+    repintarTot();
   }
 
   // ---- Typeahead genérico ----
@@ -753,6 +836,20 @@ const Facturas = (() => {
       if (!wiz.gastoSel.length) return toast('Selecciona al menos un gasto', 'error');
       body.apartamento_id = wiz.aptoSel;
       body.gasto_ids = wiz.gastoSel;
+    } else if (wiz.tipo === 'libre') {
+      const nombre = document.getElementById('wiz-rec-nombre').value.trim();
+      if (!nombre) return toast('El nombre del receptor es obligatorio', 'error');
+      const lineas = wiz.libreLineas
+        .map((l) => ({ descripcion: (l.descripcion || '').trim(), cantidad: Number(l.cantidad) || 0, precio_unitario: Number(l.precio_unitario) || 0 }))
+        .filter((l) => l.descripcion || l.precio_unitario);
+      if (!lineas.length) return toast('Añade al menos una línea de factura', 'error');
+      body.receptor_nombre = nombre;
+      body.receptor_cif = document.getElementById('wiz-rec-cif').value;
+      body.receptor_direccion = document.getElementById('wiz-rec-dir').value;
+      body.receptor_email = document.getElementById('wiz-rec-email').value;
+      body.porcentaje_iva = wiz.libreIva;
+      body.porcentaje_retencion = wiz.libreRet;
+      body.lineas = lineas;
     } else {
       if (!wiz.reservaSel) return toast('Selecciona una reserva', 'error');
       const nombre = document.getElementById('wiz-rec-nombre').value.trim();

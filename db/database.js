@@ -347,22 +347,23 @@ function migrarPropiedadesVenta() {
   anadirColumnasFaltantes('propiedades_venta', COLUMNAS_PROPIEDADES_VENTA);
 }
 
-// Amplía el CHECK de facturas.tipo para admitir 'mayorista'. SQLite no permite alterar un
-// CHECK, así que se recrea la tabla (CREATE temp → INSERT SELECT → DROP → RENAME) solo si el
-// CHECK actual aún no incluye 'mayorista'. Genérico: reescribe el SQL de la tabla por regex
-// (no duplica el esquema), por lo que sobrevive a columnas futuras de facturas. Idempotente.
-// FKs desactivadas durante el rebuild para que el DROP no afecte a tablas que la referencian.
+// Amplía el CHECK de facturas.tipo para admitir 'mayorista' y 'libre'. SQLite no permite alterar
+// un CHECK, así que se recrea la tabla (CREATE temp → INSERT SELECT → DROP → RENAME) solo si el
+// CHECK actual aún no incluye el tipo más reciente ('libre'). Genérico: reescribe el SQL de la
+// tabla por regex (no duplica el esquema), por lo que sobrevive a columnas futuras de facturas.
+// Idempotente. FKs desactivadas durante el rebuild para que el DROP no afecte a tablas que la
+// referencian.
 function migrarFacturasTipo() {
   const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facturas'").get();
-  if (!def || /'mayorista'/.test(def.sql)) return; // ya admite el tipo (o tabla no creada aún)
+  if (!def || /'libre'/.test(def.sql)) return; // ya admite el tipo más reciente (o tabla no creada aún)
 
   // Reescribe el nombre de la tabla y amplía la lista del CHECK del tipo.
   const sqlNueva = def.sql
     .replace(/CREATE TABLE\s+"?facturas"?/i, 'CREATE TABLE facturas_nueva')
     .replace(/CHECK\s*\(\s*tipo\s+IN\s*\([^)]*\)\s*\)/i,
-      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista'))");
+      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista','libre'))");
 
-  if (!/facturas_nueva/.test(sqlNueva) || !/'mayorista'/.test(sqlNueva)) {
+  if (!/facturas_nueva/.test(sqlNueva) || !/'libre'/.test(sqlNueva)) {
     console.error('AVISO: no se pudo reescribir el CHECK de facturas.tipo; se omite la migración.');
     return;
   }
@@ -380,7 +381,7 @@ function migrarFacturasTipo() {
   db.pragma('foreign_keys = ON');
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo:', rotas);
-  console.log("Migración: facturas.tipo ahora admite 'mayorista'.");
+  console.log("Migración: facturas.tipo ahora admite 'mayorista' y 'libre'.");
 }
 
 // Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no
