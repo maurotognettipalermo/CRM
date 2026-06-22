@@ -25,6 +25,54 @@ function txt(v) {
   return v === undefined || v === null ? null : String(v);
 }
 
+// Regenera las reservas automáticas de un contrato: bloqueos fuera de la temporada
+// y reservas "De propietario" por cada fecha de uso. Idempotente: borra primero las
+// reservas que este contrato hubiera generado (contrato_origen_id o nº BLQ-/PROP-).
+function generarBloqueosContrato(db, contratoId) {
+  const c = db.prepare(
+    'SELECT id, apartamento_id, temporada_inicio, temporada_fin, anio FROM contratos WHERE id = ?'
+  ).get(contratoId);
+  if (!c || c.apartamento_id == null) return;
+
+  const fechasProp = db.prepare(
+    'SELECT * FROM contrato_fechas_propietario WHERE contrato_id = ? ORDER BY fecha_inicio'
+  ).all(contratoId);
+
+  const gen = db.transaction(() => {
+    // Limpia las reservas auto-generadas previas de este contrato (incluye legado por nº).
+    db.prepare(
+      'DELETE FROM reservas WHERE contrato_origen_id = ? OR numero_reserva LIKE ? OR numero_reserva LIKE ?'
+    ).run(contratoId, `BLQ-${contratoId}-%`, `PROP-${contratoId}-%`);
+
+    const ins = db.prepare(`
+      INSERT INTO reservas
+        (numero_reserva, nombre_cliente, apartamento_id, entrada, salida, tipo_reserva, contrato_origen_id, observaciones)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const inicioAnio = `${c.anio}-01-01`;
+    const finAnio = `${c.anio}-12-31`;
+    let n = 0;
+    if (c.temporada_inicio > inicioAnio) {
+      n++;
+      ins.run(`BLQ-${contratoId}-${n}`, 'BLOQUEADO', c.apartamento_id, inicioAnio, c.temporada_inicio,
+        'Bloqueado', contratoId, 'Bloqueo automático fuera de contrato');
+    }
+    if (c.temporada_fin < finAnio) {
+      n++;
+      ins.run(`BLQ-${contratoId}-${n}`, 'BLOQUEADO', c.apartamento_id, c.temporada_fin, finAnio,
+        'Bloqueado', contratoId, 'Bloqueo automático fuera de contrato');
+    }
+    let m = 0;
+    for (const fp of fechasProp) {
+      m++;
+      ins.run(`PROP-${contratoId}-${m}`, 'USO PROPIETARIO', c.apartamento_id, fp.fecha_inicio, fp.fecha_fin,
+        'De propietario', contratoId, fp.motivo || 'Uso del propietario');
+    }
+  });
+  gen();
+}
+
 // Valida el cuerpo de un contrato (POST/PUT). Devuelve { error } o { ok, datos, cuotas }.
 function validarContrato(body) {
   const b = body || {};
@@ -250,6 +298,7 @@ router.post('/', (req, res) => {
   });
 
   const id = insertarTodo(v.datos, v.cuotas, req.usuario.username);
+  generarBloqueosContrato(db, id); // bloqueos fuera de temporada + reservas de propietario
   registrarActividad(db, req.usuario.id, req.usuario.nombre, 'crear', 'contrato', id,
     `Contrato ${v.datos.tipo} (${v.cuotas.length} cuota(s))`);
   res.status(201).json({ id });
@@ -288,6 +337,7 @@ router.put('/:id', (req, res) => {
   });
 
   actualizarTodo(v.datos, v.cuotas);
+  generarBloqueosContrato(db, id); // regenera bloqueos/uso de propietario tras editar
   registrarActividad(db, req.usuario.id, req.usuario.nombre, 'editar', 'contrato', id,
     `Contrato ${v.datos.tipo} (${v.cuotas.length} cuota(s))`);
   res.json({ ok: true });
@@ -334,6 +384,55 @@ router.put('/:id/cuotas/:cuota_id', (req, res) => {
   registrarActividad(db, req.usuario.id, req.usuario.nombre, 'pago', 'contrato', contratoId,
     `Cuota ${cuota.numero_cuota} ${pagado ? 'marcada como pagada' : 'marcada como pendiente'}`);
   res.json({ ok: true, pagado, fecha_pago: fechaPago });
+});
+
+// ---- Fechas de uso del propietario (generan reservas "De propietario") ----
+
+// GET /api/contratos/:id/fechas-propietario — lista de fechas del contrato.
+router.get('/:id/fechas-propietario', (req, res) => {
+  const id = Number(req.params.id);
+  const c = db.prepare('SELECT id FROM contratos WHERE id = ?').get(id);
+  if (!c) return res.status(404).json({ error: 'Contrato no encontrado' });
+  const filas = db.prepare(
+    'SELECT * FROM contrato_fechas_propietario WHERE contrato_id = ? ORDER BY fecha_inicio'
+  ).all(id);
+  res.json(filas);
+});
+
+// POST /api/contratos/:id/fechas-propietario — { fecha_inicio, fecha_fin, motivo }.
+// Las fechas deben estar dentro del período del contrato. Regenera los bloqueos.
+router.post('/:id/fechas-propietario', (req, res) => {
+  const id = Number(req.params.id);
+  const c = db.prepare('SELECT id, temporada_inicio, temporada_fin FROM contratos WHERE id = ?').get(id);
+  if (!c) return res.status(404).json({ error: 'Contrato no encontrado' });
+
+  const b = req.body || {};
+  const fi = String(b.fecha_inicio || '').trim();
+  const ff = String(b.fecha_fin || '').trim();
+  if (!fi || !ff) return res.status(400).json({ error: 'Las fechas son obligatorias' });
+  if (!(fi < ff)) return res.status(400).json({ error: 'La fecha de inicio debe ser anterior a la de fin' });
+  if (fi < c.temporada_inicio || ff > c.temporada_fin) {
+    return res.status(400).json({ error: 'Las fechas deben estar dentro del período del contrato' });
+  }
+
+  const info = db.prepare(
+    'INSERT INTO contrato_fechas_propietario (contrato_id, fecha_inicio, fecha_fin, motivo) VALUES (?, ?, ?, ?)'
+  ).run(id, fi, ff, txt(b.motivo));
+  generarBloqueosContrato(db, id);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// DELETE /api/contratos/:id/fechas-propietario/:fp_id — elimina y regenera bloqueos.
+router.delete('/:id/fechas-propietario/:fp_id', (req, res) => {
+  const id = Number(req.params.id);
+  const fpId = Number(req.params.fp_id);
+  const fp = db.prepare(
+    'SELECT id FROM contrato_fechas_propietario WHERE id = ? AND contrato_id = ?'
+  ).get(fpId, id);
+  if (!fp) return res.status(404).json({ error: 'Fecha no encontrada' });
+  db.prepare('DELETE FROM contrato_fechas_propietario WHERE id = ?').run(fpId);
+  generarBloqueosContrato(db, id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

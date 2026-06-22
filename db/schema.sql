@@ -210,10 +210,22 @@ CREATE TABLE IF NOT EXISTS contrato_cuotas (
   notas          TEXT
 );
 
+-- Fechas de uso del propietario dentro de un contrato (generan reservas "De propietario";
+-- el resto de la temporada fuera del contrato se rellena con bloqueos automáticos).
+CREATE TABLE IF NOT EXISTS contrato_fechas_propietario (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  contrato_id   INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+  fecha_inicio  TEXT NOT NULL,
+  fecha_fin     TEXT NOT NULL,
+  motivo        TEXT,
+  created_at    TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_contratos_apartamento ON contratos(apartamento_id);
 CREATE INDEX IF NOT EXISTS idx_contratos_propietario ON contratos(propietario_id);
 CREATE INDEX IF NOT EXISTS idx_contratos_anio ON contratos(anio);
 CREATE INDEX IF NOT EXISTS idx_cuotas_contrato ON contrato_cuotas(contrato_id);
+CREATE INDEX IF NOT EXISTS idx_contrato_fechas_prop ON contrato_fechas_propietario(contrato_id);
 
 -- Catálogo de gastos reutilizables (limpieza, mantenimiento, etc.); se gestiona en Ajustes.
 CREATE TABLE IF NOT EXISTS catalogo_gastos (

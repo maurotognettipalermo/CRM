@@ -73,6 +73,9 @@ const COLUMNAS_RESERVAS = {
   ocupante: 'TEXT',
   // Vínculo con la tabla clientes. ADD COLUMN con REFERENCES exige default NULL (implícito).
   cliente_id: 'INTEGER REFERENCES clientes(id) ON DELETE SET NULL',
+  // Contrato que generó automáticamente esta reserva (bloqueo / uso de propietario).
+  // Permite borrarlas y regenerarlas al editar el contrato. REFERENCES exige default NULL.
+  contrato_origen_id: 'INTEGER REFERENCES contratos(id) ON DELETE SET NULL',
 };
 
 // Portales de venta por defecto (se insertan si la tabla está vacía).
@@ -247,6 +250,8 @@ function anadirColumnasFaltantes(tabla, columnas) {
 function migrarReservas() {
   anadirColumnasFaltantes('reservas', COLUMNAS_RESERVAS);
   db.prepare("UPDATE reservas SET fecha_creacion = datetime('now') WHERE fecha_creacion IS NULL OR fecha_creacion = ''").run();
+  // Índice sobre la columna añadida por ALTER (no puede ir en schema.sql, que corre antes).
+  db.prepare('CREATE INDEX IF NOT EXISTS idx_reservas_contrato_origen ON reservas(contrato_origen_id)').run();
 }
 
 // Migración de la tabla portales: añade color (def. azul) e imagen_url.
@@ -437,6 +442,13 @@ function seedEstadosReserva() {
     for (const e of ESTADOS_RESERVA_DEFECTO) insertar.run(e.nombre, e.color, e.orden, e.es_sistema);
     console.log('Estados de reserva por defecto creados.');
   }
+  // Garantiza que existan los estados usados por los auto-bloqueos de contrato
+  // (en BD ya pobladas que pudieran no tenerlos). Morado para "De propietario".
+  const garantizar = db.prepare(
+    "INSERT OR IGNORE INTO estados_reserva (nombre, color, orden, es_sistema) VALUES (?, ?, ?, 0)"
+  );
+  garantizar.run('De propietario', '#8b5cf6', 5);
+  garantizar.run('Bloqueado', '#dc2626', 6);
 }
 
 // Inserta los mayoristas por defecto si la tabla está vacía.
