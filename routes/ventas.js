@@ -2,6 +2,8 @@
 // compradores, visitas (con notas) y un resumen para el dashboard.
 const express = require('express');
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const db = require('../db/database');
 const { importarPropiedades } = require('../services/importPropiedades');
@@ -10,6 +12,15 @@ const { registrarActividad } = require('../services/actividadService');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const MM = 2.83465; // 1 mm en puntos PDF
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+// Lee el logo de una razón social desde el disco solo si es PNG/JPG (pdfkit no soporta SVG/WEBP).
+function leerLogoVenta(url) {
+  if (!url) return null;
+  const ext = path.extname(url).toLowerCase();
+  if (!['.png', '.jpg', '.jpeg'].includes(ext)) return null;
+  try { return fs.readFileSync(path.join(PUBLIC_DIR, url)); } catch (e) { return null; }
+}
 
 function txt(v) { return v === undefined || v === null || v === '' ? null : String(v); }
 function aEntero(v) {
@@ -197,6 +208,110 @@ router.post('/autorizacion-pdf', (req, res) => {
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(fm[0], x, yF + 6, { width: colW, align: 'center' });
     doc.font('Helvetica').fontSize(9).text(fm[1], x, doc.y, { width: colW, align: 'center' });
   });
+
+  doc.end();
+});
+
+// POST /api/ventas/autorizacion-venta-pdf — mandato de autorización de venta (pdfkit).
+router.post('/autorizacion-venta-pdf', (req, res) => {
+  const b = req.body || {};
+  const s = (v) => (v === undefined || v === null) ? '' : String(v);
+  const money = (v) => (Number(v) || 0).toLocaleString('es-ES');
+
+  const nombreVend = s(b.nombre_vendedor);
+  const estadoCivil = s(b.estado_civil);
+  const dniVend = s(b.dni_vendedor);
+  const dirVend = s(b.direccion_vendedor);
+  const ciuVend = s(b.ciudad_vendedor);
+  const provVend = s(b.provincia_vendedor);
+  const telVend = s(b.telefono_vendedor);
+  const edificio = s(b.edificio);
+  const planta = s(b.planta);
+  const puerta = s(b.puerta);
+  const precioVenta = money(b.precio_venta);
+  const precioTexto = s(b.precio_texto);
+  const porcComision = s(b.porcentaje_comision) || '3';
+  const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
+  const fechaDoc = s(b.fecha_documento);
+
+  // Logo de la razón social (si coincide por nombre y es PNG/JPG).
+  const rs = db.prepare('SELECT logo_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
+  const logoBuf = rs ? leerLogoVenta(rs.logo_url) : null;
+
+  const M = Math.round(25 * MM);
+  const doc = new PDFDocument({ size: 'A4', margin: M });
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  doc.on('end', () => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="autorizacion-venta.pdf"');
+    res.send(Buffer.concat(chunks));
+  });
+  doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
+
+  const contentW = doc.page.width - M * 2;
+  const LG = 6;
+  const N = (t) => ({ t, b: false });
+  const B = (t) => ({ t, b: true });
+  function parrafo(segs) {
+    segs.forEach((seg, i) => {
+      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
+      doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < segs.length - 1 });
+    });
+    doc.moveDown(0.7);
+  }
+
+  doc.font('Helvetica-Bold').fontSize(15).text('AUTORIZACIÓN DE VENTA', { align: 'center' });
+  doc.moveDown(1.2);
+
+  parrafo([
+    N('Don/Dña '), B(nombreVend), N(' de estado civil '), B(estadoCivil),
+    N(', con D.N.I. nº '), B(dniVend), N(', con domicilio en '), B(dirVend),
+    N(' ('), B(ciuVend), N(') '), B(provVend), N(' y teléfono '), B(telVend), N('.'),
+  ]);
+
+  parrafo([
+    N('AUTORIZA a la mercantil '), B(razonSocial),
+    N(' para que proceda a la venta de mi propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio '),
+    B(edificio), N(' planta '), B(planta), N(' puerta '), B(puerta), N('.'),
+  ]);
+
+  parrafo([
+    N('El precio para la citada venta es de '), B(`${precioVenta} €`), N(' ('), B(precioTexto), N(')'),
+  ]);
+
+  parrafo([
+    B(razonSocial),
+    N(' percibirá del propietario del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al '),
+    B(`${porcComision} %`),
+    N(' del precio de la venta mas el IVA correspondiente. La propiedad autoriza expresamente a '),
+    B(razonSocial),
+    N(' a percibir sus honorarios en la primera entrega de cantidad dada a cuenta. A tal fin, la propiedad concede plena autorización a '),
+    B(razonSocial),
+    N(' para percibir cantidades en concepto de señal de arras, o a cuenta del precio pactado como paso previo para la formalización del contrato privado de compraventa.'),
+  ]);
+
+  parrafo([N('La duración del presente mandato se pacta en 365 días, a contar desde el día de la fecha prorrogándose por periodos iguales, si no media denuncia expresa por cualquiera de las partes en el plazo de quince días antes de su vencimiento.')]);
+
+  parrafo([N('En el caso de desistimiento o incumplimiento por parte de los compradores de la compra en las condiciones pactadas en el presente documento, estos perderán la cantidad entregada como reserva en concepto de indemnización por daños y perjuicios. Si el desistimiento o incumplimiento fuese por los vendedores, estos deberán devolver a los compradores la cantidad recibida como reserva doblada.')]);
+
+  parrafo([
+    N('Y en prueba de conformidad, firman el presente documento por duplicado y a un solo efecto en Oropesa del Mar, a '),
+    B(fechaDoc), N('.'),
+  ]);
+
+  // Dos columnas de firma con línea encima.
+  doc.moveDown(3.5);
+  let yF = doc.y;
+  if (yF > doc.page.height - M - 90) { doc.addPage(); yF = doc.y; }
+  const colW = (contentW - 30) / 2;
+  const xIzq = M;
+  const xDer = M + colW + 30;
+  doc.moveTo(xIzq, yF).lineTo(xIzq + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
+  doc.moveTo(xDer, yF).lineTo(xDer + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
+  if (logoBuf) { try { doc.image(logoBuf, xIzq + (colW - 90) / 2, yF + 8, { fit: [90, 40] }); } catch (e) { /* logo inválido */ } }
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(razonSocial, xIzq, yF + (logoBuf ? 52 : 8), { width: colW, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(10).text('El Vendedor', xDer, yF + 8, { width: colW, align: 'center' });
 
   doc.end();
 });

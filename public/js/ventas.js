@@ -39,10 +39,12 @@ const Ventas = (() => {
   let prvCache = [];           // caché para el typeahead del modal de propiedad
   let prvCacheOk = false;
   let vfPropVentaId = null;    // propietario_venta_id seleccionado en el modal de propiedad
-  let autConstruido = false;   // sub-pestaña Autorización ya construida
+  let autConstruido = false;   // sub-pestaña Arras ya construida
   let autPrv = [];             // propietarios de venta (typeahead vendedor)
   let autCli = [];             // clientes compradores (typeahead comprador)
   let autProps = [];           // propiedades de venta (typeahead inmueble)
+  let autvConstruido = false;  // sub-pestaña Autorización ya construida
+  let autvRazones = [];        // razones sociales (select)
 
   // ==================== Helpers ====================
   function euro(n) {
@@ -2550,10 +2552,10 @@ const Ventas = (() => {
   }
 
   // ==================== Init ====================
-  // ==================== Sub-pestaña Autorización ====================
+  // ==================== Sub-pestaña Arras ====================
   async function construirAutorizacion() {
     if (autConstruido) return;
-    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="autorizacion"]');
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="arras"]');
     if (!panel) return;
     autConstruido = true;
 
@@ -2830,6 +2832,178 @@ const Ventas = (() => {
     }
   }
 
+  // ==================== Sub-pestaña Autorización (mandato de venta) ====================
+  async function construirAutVenta() {
+    if (autvConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="autorizacion"]');
+    if (!panel) return;
+    autvConstruido = true;
+
+    try {
+      const [prv, props, razones] = await Promise.all([
+        API.get('/api/ventas/propietarios-venta').catch(() => []),
+        API.get('/api/ventas/propiedades').catch(() => []),
+        API.get('/api/ajustes/razones-sociales').catch(() => []),
+      ]);
+      autPrv = prv; autProps = props; autvRazones = razones;
+    } catch (e) { autPrv = []; autProps = []; autvRazones = []; }
+
+    const civilOpts = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a']
+      .map((c) => `<option value="${c}">${c}</option>`).join('');
+    // Razón social por defecto: COSTA AZAHAR si existe, si no la primera.
+    const principal = autvRazones.find((r) => /costa azahar/i.test(r.razon_social || '')) || autvRazones[0];
+    const rsOpts = autvRazones.map((r) =>
+      `<option value="${esc(r.razon_social)}"${principal && r.id === principal.id ? ' selected' : ''}>${esc(r.razon_social)}</option>`).join('');
+
+    panel.innerHTML = `
+      <div class="aut-form">
+        <div class="aut-sec-tit">Vendedor</div>
+        <div class="campo vta-ta">
+          <label>Nombre completo</label>
+          <input id="autv-nombre" class="input-buscar" autocomplete="off" placeholder="Buscar propietario de venta...">
+          <div id="autv-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Estado civil</label><select id="autv-civil">${civilOpts}</select></div>
+          <div class="campo"><label>DNI</label><input id="autv-dni"></div>
+        </div>
+        <div class="campo"><label>Dirección</label><input id="autv-dir"></div>
+        <div class="fila-campos">
+          <div class="campo"><label>Ciudad</label><input id="autv-ciudad"></div>
+          <div class="campo"><label>Provincia</label><input id="autv-prov"></div>
+        </div>
+        <div class="campo"><label>Teléfono</label><input id="autv-tel"></div>
+
+        <div class="aut-sec-tit">Inmueble</div>
+        <div class="campo vta-ta">
+          <label>Referencia propiedad</label>
+          <input id="autv-ref" class="input-buscar" autocomplete="off" placeholder="Buscar por referencia o calle...">
+          <div id="autv-ref-res" class="vta-ta-res oculto"></div>
+        </div>
+        <div id="autv-card" class="oculto" style="margin:0 0 10px;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;font-weight:600;color:#1e40af"></div>
+        <div class="fila-campos">
+          <div class="campo"><label>Edificio</label><input id="autv-edificio"></div>
+          <div class="campo"><label>Planta</label><input id="autv-planta"></div>
+          <div class="campo"><label>Puerta</label><input id="autv-puerta"></div>
+        </div>
+        <div class="fila-campos">
+          <div class="campo"><label>Precio de venta (€)</label><input type="number" step="0.01" id="autv-precio"></div>
+          <div class="campo"><label>Precio en texto</label><input id="autv-preciotxt" placeholder="cien mil euros"></div>
+        </div>
+
+        <div class="aut-sec-tit">Condiciones</div>
+        <div class="fila-campos">
+          <div class="campo"><label>Porcentaje comisión (%)</label><input type="number" step="0.01" id="autv-comision" value="3"></div>
+          <div class="campo"><label>Razón social</label><select id="autv-razon">${rsOpts}</select></div>
+        </div>
+        <div class="campo"><label>Fecha del documento</label><input type="date" id="autv-fecha" value="${hoyStr()}"></div>
+
+        <div class="aut-acciones">
+          <button class="btn-pri" id="autv-descargar">📥 Descargar PDF</button>
+          <button class="btn-sec" id="autv-limpiar">Limpiar formulario</button>
+        </div>
+      </div>`;
+
+    // Typeahead vendedor.
+    const vIn = document.getElementById('autv-nombre');
+    const vRes = document.getElementById('autv-res');
+    vIn.addEventListener('input', () => renderTA(vRes,
+      autPrv.filter((p) => `${p.nombre} ${p.apellidos || ''} ${p.dni || ''}`.toLowerCase().includes(vIn.value.trim().toLowerCase())),
+      (p) => `${esc([p.nombre, p.apellidos].filter(Boolean).join(' '))}${p.dni ? ' · ' + esc(p.dni) : ''}`,
+      (p) => {
+        vIn.value = [p.nombre, p.apellidos].filter(Boolean).join(' ');
+        setVal('autv-dni', p.dni || '');
+        setVal('autv-dir', p.direccion || '');
+        setVal('autv-ciudad', p.ciudad || '');
+        setVal('autv-prov', p.provincia || '');
+        setVal('autv-tel', p.telefono || '');
+        vRes.classList.add('oculto');
+      }));
+
+    // Typeahead referencia de propiedad.
+    const rIn = document.getElementById('autv-ref');
+    const rRes = document.getElementById('autv-ref-res');
+    rIn.addEventListener('input', () => renderTA(rRes,
+      autProps.filter((p) => `${p.referencia || ''} ${p.calle || ''} ${p.zona || ''}`.toLowerCase().includes(rIn.value.trim().toLowerCase())),
+      (p) => `${esc(p.referencia || '')} · ${esc(p.calle) || '—'}${p.precio ? ' · ' + euro(p.precio) : ''}`,
+      (p) => {
+        rIn.value = p.referencia || '';
+        setVal('autv-edificio', p.calle || p.zona || p.referencia || '');
+        setVal('autv-planta', p.planta || '');
+        setVal('autv-puerta', p.numero || '');
+        if (p.precio != null) setVal('autv-precio', p.precio);
+        const card = document.getElementById('autv-card');
+        if (card) {
+          const partes = [
+            `Ref: ${p.referencia || '—'}`,
+            [p.calle || '', p.planta ? 'Planta ' + p.planta : ''].filter(Boolean).join(', '),
+            p.precio != null ? euro(p.precio) : '',
+          ].filter(Boolean);
+          card.textContent = partes.join(' — ');
+          card.classList.remove('oculto');
+        }
+        rRes.classList.add('oculto');
+      }));
+
+    panel.addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) { vRes.classList.add('oculto'); rRes.classList.add('oculto'); }
+    });
+
+    document.getElementById('autv-descargar').addEventListener('click', generarAutVenta);
+    document.getElementById('autv-limpiar').addEventListener('click', limpiarAutVenta);
+  }
+
+  function limpiarAutVenta() {
+    ['autv-nombre', 'autv-dni', 'autv-dir', 'autv-ciudad', 'autv-prov', 'autv-tel',
+      'autv-ref', 'autv-edificio', 'autv-planta', 'autv-puerta', 'autv-precio', 'autv-preciotxt'].forEach((id) => setVal(id, ''));
+    setVal('autv-comision', '3');
+    setVal('autv-fecha', hoyStr());
+    const civil = document.getElementById('autv-civil');
+    if (civil) civil.selectedIndex = 0;
+    const card = document.getElementById('autv-card');
+    if (card) { card.classList.add('oculto'); card.textContent = ''; }
+  }
+
+  async function generarAutVenta() {
+    const body = {
+      nombre_vendedor: val('autv-nombre'),
+      estado_civil: val('autv-civil'),
+      dni_vendedor: val('autv-dni'),
+      direccion_vendedor: val('autv-dir'),
+      ciudad_vendedor: val('autv-ciudad'),
+      provincia_vendedor: val('autv-prov'),
+      telefono_vendedor: val('autv-tel'),
+      edificio: val('autv-edificio'),
+      planta: val('autv-planta'),
+      puerta: val('autv-puerta'),
+      precio_venta: parseFloat(val('autv-precio')) || 0,
+      precio_texto: val('autv-preciotxt'),
+      porcentaje_comision: parseFloat(val('autv-comision')) || 0,
+      razon_social: val('autv-razon'),
+      fecha_documento: val('autv-fecha'),
+    };
+    const btn = document.getElementById('autv-descargar');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('/api/ventas/autorizacion-venta-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('No se pudo generar el PDF');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'autorizacion-venta.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function init() {
     construirFiltros();
 
@@ -2868,6 +3042,7 @@ const Ventas = (() => {
     };
     inyectarSub('calendario', 'Calendario');
     inyectarSub('vendidos', 'Vendidos');
+    inyectarSub('arras', 'Arras');
     inyectarSub('autorizacion', 'Autorización');
 
     // Sub-pestañas Propiedades / Clientes / Visitas / Calendario / Vendidos.
@@ -2881,7 +3056,8 @@ const Ventas = (() => {
         if (b.dataset.sub === 'visitas') { construirVisitas(); cargarVisitas(); }
         if (b.dataset.sub === 'calendario') { construirCalendario(); cargarCalendario(); }
         if (b.dataset.sub === 'vendidos') { construirVendidos(); cargarVendidos(); }
-        if (b.dataset.sub === 'autorizacion') { construirAutorizacion(); }
+        if (b.dataset.sub === 'arras') { construirAutorizacion(); }
+        if (b.dataset.sub === 'autorizacion') { construirAutVenta(); }
       }));
   }
 
