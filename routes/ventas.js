@@ -163,9 +163,8 @@ router.post('/autorizacion-pdf', (req, res) => {
   // Cabecera: logo ARRIBA (no flotante), luego salto de línea y el título debajo.
   // El cuerpo arranca debajo del título a ancho completo.
   if (logoBuf) {
-    const lw = 120;
-    try { doc.image(logoBuf, M + (contentW - lw) / 2, doc.y, { fit: [lw, 80] }); } catch (e) { /* logo inválido */ }
-    doc.y += 80 + 8;
+    try { doc.image(logoBuf, M, doc.y, { fit: [100, 50] }); } catch (e) { /* logo inválido */ }
+    doc.y += 50 + 8;
   }
   doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
     .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
@@ -218,13 +217,16 @@ router.post('/autorizacion-pdf', (req, res) => {
     N(', en concepto de honorarios por la mediación en esta compraventa, conforme el pacto establecido.'),
   ]);
 
-  // Fecha y lugar.
+  // Fecha y lugar con la fecha actual en texto.
+  const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const ahora = new Date();
+  const fechaTexto = `En Oropesa del Mar, a ${ahora.getDate()} de ${MESES_ES[ahora.getMonth()]} de ${ahora.getFullYear()}`;
   doc.moveDown(0.5);
-  doc.font('Helvetica').fontSize(BODY)
-    .text('En __________________________, a ______ de __________________ de 20______', { align: 'left' });
+  doc.font('Helvetica').fontSize(BODY).text(fechaTexto, { align: 'left' });
 
-  // Tres columnas de firma con línea encima.
-  doc.moveDown(1.5);
+  // Tres columnas de firma con línea encima (espacio real para firmar).
+  doc.moveDown(3);
   let yF = doc.y;
   if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
   const colW = (contentW - 40) / 3;
