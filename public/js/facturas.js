@@ -9,6 +9,7 @@ const Facturas = (() => {
   let filtroAnio = new Date().getFullYear();
   let filtroTipo = '';
   let filtroEstado = '';
+  let filtroRazon = ''; // razon_social_id como string, '' = todas (filtro en cliente)
   let fichaActual = null;
 
   // Cachés cargadas bajo demanda para el wizard.
@@ -43,17 +44,18 @@ const Facturas = (() => {
   }
 
   function render() {
+    const lista = filtroRazon ? todas.filter((f) => String(f.razon_social_id) === filtroRazon) : todas;
     const cont = document.getElementById('fac-contador');
-    const total = todas.reduce((s, f) => s + (Number(f.total) || 0), 0);
-    if (cont) cont.textContent = `Total: ${todas.length} factura${todas.length === 1 ? '' : 's'} — ${euro(total)}`;
+    const total = lista.reduce((s, f) => s + (Number(f.total) || 0), 0);
+    if (cont) cont.textContent = `Total: ${lista.length} factura${lista.length === 1 ? '' : 's'} — ${euro(total)}`;
 
     const tbody = document.querySelector('#tabla-facturas tbody');
     tbody.innerHTML = '';
-    if (!todas.length) {
+    if (!lista.length) {
       tbody.innerHTML = '<tr><td colspan="10" style="color:#6b7280;text-align:center;padding:24px">No hay facturas con los filtros actuales.</td></tr>';
       return;
     }
-    for (const f of todas) {
+    for (const f of lista) {
       const logo = f.emisor_logo_url ? `<img class="fac-logo-mini" src="${esc(f.emisor_logo_url)}" alt="" onerror="this.style.display='none'"> ` : '';
       const accVer = `<button class="btn-mini" data-ver="${f.id}" data-numero="${esc(f.numero)}" title="Ver PDF">👁</button>`;
       const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada') ? `<button class="btn-mini" data-pagar="${f.id}" title="Marcar pagada">✓</button>` : '';
@@ -898,6 +900,24 @@ const Facturas = (() => {
     document.getElementById('fac-filtro-anio').addEventListener('change', (e) => { filtroAnio = Number(e.target.value); cargar().catch((err) => toast(err.message, 'error')); });
     document.getElementById('fac-filtro-tipo').addEventListener('change', (e) => { filtroTipo = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
     document.getElementById('fac-filtro-estado').addEventListener('change', (e) => { filtroEstado = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
+    inyectarFiltroRazon();
+  }
+
+  // Inyecta el select "Razón social" junto a los filtros existentes (filtra en cliente).
+  async function inyectarFiltroRazon() {
+    const estado = document.getElementById('fac-filtro-estado');
+    if (!estado || document.getElementById('fac-filtro-razon')) return;
+    const sel = document.createElement('select');
+    sel.id = 'fac-filtro-razon';
+    sel.className = estado.className || 'select-filtro';
+    sel.innerHTML = '<option value="">Todas las razones sociales</option>';
+    estado.insertAdjacentElement('afterend', sel);
+    sel.addEventListener('change', (e) => { filtroRazon = e.target.value; render(); });
+    try {
+      const razones = await ensureRazones();
+      sel.innerHTML = '<option value="">Todas las razones sociales</option>' +
+        razones.map((r) => `<option value="${r.id}">${esc(r.razon_social || r.nombre_comercial || ('Razón #' + r.id))}</option>`).join('');
+    } catch (e) { /* sin razones: queda solo "Todas" */ }
   }
 
   return { init, cargar, abrirFicha };
