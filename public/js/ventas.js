@@ -466,7 +466,7 @@ const Ventas = (() => {
 
     abrirModal(`
       <h3>${esNueva ? '＋ Nueva propiedad' : '✏️ Editar propiedad'}</h3>
-      <div class="campo"><label>Nombre del apartamento</label><input id="vf-apartamento_nombre" value="${esc(p.apartamento_nombre)}" placeholder="COSTA MARINA I 1º 10"></div>
+      <div class="campo"><label>Nombre del apartamento</label><input id="vf-apartamento_nombre" value="${esc(p.apartamento_nombre)}"></div>
       <div class="fila-campos">
         <div class="campo"><label>Referencia *</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? '' : ''}></div>
         <div class="campo"><label>Tipo</label><select id="vf-tipo">${optTipo}</select></div>
