@@ -202,16 +202,16 @@ router.post('/autorizacion-pdf', (req, res) => {
   const B = (t) => ({ t, b: true });
 
   // Renderiza un párrafo con segmentos en negrita intercalados, justificado.
-  // pdfkit recorta el espacio al final de los fragmentos 'continued'; el espacio
-  // de separación se normaliza a uno solo y se coloca al INICIO del fragmento
-  // siguiente (pdfkit sí conserva el espacio inicial). Funciona en ambos sentidos.
+  // pdfkit, en texto 'continued', conserva el espacio FINAL de cada fragmento pero
+  // recorta el INICIAL; por eso el espacio de separación se coloca al FINAL del
+  // fragmento izquierdo (sirve tanto para texto→campo como campo→texto).
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
       const sep = /\s$/.test(arr[i].t) || /^\s/.test(arr[i + 1].t);
       arr[i].t = arr[i].t.replace(/\s+$/, '');
       arr[i + 1].t = arr[i + 1].t.replace(/^\s+/, '');
-      if (sep) arr[i + 1].t = ' ' + arr[i + 1].t;
+      if (sep) arr[i].t = arr[i].t + ' ';
     }
     arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
@@ -330,11 +330,11 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const rs = db.prepare('SELECT logo_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
   const logoBuf = rs ? leerLogoVenta(rs.logo_url) : null;
 
-  const BODY = 9.5;  // tamaño de fuente del cuerpo
-  const LG = 2.4;    // interlineado ~1.25 con BODY
-  const PARR = 0.35; // espacio entre párrafos
+  const BODY = 11;   // tamaño de fuente del cuerpo
+  const LG = 4.4;    // interlineado ~1.4 con BODY
+  const PARR = 0.5;  // espacio entre párrafos
 
-  const M = Math.round(20 * MM); // márgenes 20mm
+  const M = Math.round(22 * MM); // márgenes 22mm
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -348,15 +348,16 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const contentW = doc.page.width - M * 2;
   const N = (t) => ({ t, b: false });
   const B = (t) => ({ t, b: true });
-  // Normaliza los espacios en ambos sentidos con un espacio al inicio del fragmento
-  // siguiente (pdfkit recorta el espacio final de los 'continued', no el inicial).
+  // pdfkit, en texto 'continued', conserva el espacio FINAL de cada fragmento pero
+  // recorta el INICIAL. Por eso el espacio de separación se normaliza a un único
+  // espacio al FINAL del fragmento izquierdo (sirve tanto para texto→campo como campo→texto).
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
       const sep = /\s$/.test(arr[i].t) || /^\s/.test(arr[i + 1].t);
       arr[i].t = arr[i].t.replace(/\s+$/, '');
       arr[i + 1].t = arr[i + 1].t.replace(/^\s+/, '');
-      if (sep) arr[i + 1].t = ' ' + arr[i + 1].t;
+      if (sep) arr[i].t = arr[i].t + ' ';
     }
     arr.forEach((seg, i) => {
       doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
@@ -367,12 +368,12 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
 
   // Cabecera: logo arriba a la izquierda (mismo estilo que el PDF de Arras).
   if (logoBuf) {
-    try { doc.image(logoBuf, M, doc.y, { fit: [80, 40] }); } catch (e) { /* logo inválido */ }
-    doc.y += 40 + 6;
+    try { doc.image(logoBuf, M, doc.y, { fit: [100, 50] }); } catch (e) { /* logo inválido */ }
+    doc.y += 50 + 8;
   }
-  doc.font('Helvetica-Bold').fontSize(13).fillColor('#000000')
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
     .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
-  doc.moveDown(0.5);
+  doc.moveDown(0.6);
 
   parrafo([
     N('Don/Dña '), B(nombreVend), N(' de estado civil '), B(estadoCivil),
