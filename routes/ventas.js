@@ -25,6 +25,15 @@ function formatearEuros(n) {
   return Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 0 }) + ' €';
 }
 
+// Fecha ISO -> "22 de junio de 2026"; si no es ISO, devuelve el valor tal cual.
+function fechaTextoEspanol(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+  if (!m) return String(v || '');
+  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  return `${parseInt(m[3], 10)} de ${MESES[parseInt(m[2], 10) - 1]} de ${m[1]}`;
+}
+
 // Convierte un entero a texto en español (hasta millones). 163000 -> "ciento sesenta y tres mil".
 function numeroATextoEspanol(n) {
   n = Math.floor(Number(n) || 0);
@@ -315,13 +324,17 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const precioNum = Number(b.precio_venta) || 0;
   const porcComision = s(b.porcentaje_comision) || '3';
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
-  const fechaDoc = fechaDDMM(b.fecha_documento);
+  const fechaDoc = fechaTextoEspanol(b.fecha_documento);
 
   // Logo de la razón social (si coincide por nombre y es PNG/JPG).
   const rs = db.prepare('SELECT logo_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
   const logoBuf = rs ? leerLogoVenta(rs.logo_url) : null;
 
-  const M = Math.round(25 * MM);
+  const BODY = 9.5;  // tamaño de fuente del cuerpo
+  const LG = 2.4;    // interlineado ~1.25 con BODY
+  const PARR = 0.35; // espacio entre párrafos
+
+  const M = Math.round(20 * MM); // márgenes 20mm
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -333,30 +346,33 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
 
   const contentW = doc.page.width - M * 2;
-  const LG = 6;
   const N = (t) => ({ t, b: false });
   const B = (t) => ({ t, b: true });
+  // Normaliza los espacios en ambos sentidos con un espacio al inicio del fragmento
+  // siguiente (pdfkit recorta el espacio final de los 'continued', no el inicial).
   function parrafo(segs) {
     const arr = segs.map((x) => ({ ...x }));
     for (let i = 0; i < arr.length - 1; i++) {
-      const m = arr[i].t.match(/\s+$/);
-      if (m) { arr[i].t = arr[i].t.replace(/\s+$/, ''); arr[i + 1].t = m[0] + arr[i + 1].t; }
+      const sep = /\s$/.test(arr[i].t) || /^\s/.test(arr[i + 1].t);
+      arr[i].t = arr[i].t.replace(/\s+$/, '');
+      arr[i + 1].t = arr[i + 1].t.replace(/^\s+/, '');
+      if (sep) arr[i + 1].t = ' ' + arr[i + 1].t;
     }
     arr.forEach((seg, i) => {
-      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
+      doc.font(seg.b ? 'Helvetica-Bold' : 'Helvetica').fontSize(BODY);
       doc.text(seg.t, { align: 'justify', lineGap: LG, continued: i < arr.length - 1 });
     });
-    doc.moveDown(0.7);
+    doc.moveDown(PARR);
   }
 
   // Cabecera: logo arriba a la izquierda (mismo estilo que el PDF de Arras).
   if (logoBuf) {
-    try { doc.image(logoBuf, M, doc.y, { fit: [100, 50] }); } catch (e) { /* logo inválido */ }
-    doc.y += 50 + 8;
+    try { doc.image(logoBuf, M, doc.y, { fit: [80, 40] }); } catch (e) { /* logo inválido */ }
+    doc.y += 40 + 6;
   }
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
+  doc.font('Helvetica-Bold').fontSize(13).fillColor('#000000')
     .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
-  doc.moveDown(0.8);
+  doc.moveDown(0.5);
 
   parrafo([
     N('Don/Dña '), B(nombreVend), N(' de estado civil '), B(estadoCivil),
@@ -395,10 +411,12 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
     B(fechaDoc), N('.'),
   ]);
 
-  // Dos columnas de firma con línea encima.
-  doc.moveDown(3.5);
+  // Dos columnas de firma con línea encima (en la misma página que el texto).
+  doc.moveDown(2);
   let yF = doc.y;
-  if (yF > doc.page.height - M - 90) { doc.addPage(); yF = doc.y; }
+  // Si no caben, se suben hasta el límite inferior en vez de pasar a otra página.
+  const yMax = doc.page.height - M - 40;
+  if (yF > yMax) yF = yMax;
   const colW = (contentW - 30) / 2;
   const xIzq = M;
   const xDer = M + colW + 30;
