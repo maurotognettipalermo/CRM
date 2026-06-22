@@ -31,6 +31,8 @@ const Planning = (() => {
   let apartamentosCache = [];  // apartamentos cargados (para filtrar sin re-fetch)
   let reservasCache = [];
   let desdeCache = '';
+  let menuCelda = null;            // menú contextual abierto sobre una celda vacía
+  let bloqueoColor = '#7f1d1d';    // color del estado "Bloqueado" (estados_reserva); rojo oscuro por defecto
 
   const MESES_ABREV = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const DOW_LETRA = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
@@ -212,6 +214,8 @@ const Planning = (() => {
           (col.dow === 0 || col.dow === 6 ? ' finde' : '') +
           (col.iso === hoyISO ? ' hoy-col' : '') +
           (col.cambioMes ? ' cambio-mes' : '');
+        c.dataset.iso = col.iso;
+        c.addEventListener('click', (e) => abrirMenuCelda(e, apto.id, col.iso));
         dias.appendChild(c);
       }
 
@@ -228,15 +232,22 @@ const Planning = (() => {
         const ancho = xDia[endIdx] - left;
 
         const portalInfo = r.portal ? portalesMap[r.portal] : null;
+        const esBloqueo = (r.tipo_reserva || '').toLowerCase() === 'bloqueado';
 
         const barra = document.createElement('div');
-        barra.className = 'barra-reserva tih-' + (r.tih || '1');
-        // Color del portal si lo tiene; si no, el color por TIH (clase tih-1/tih-2).
-        if (portalInfo && portalInfo.color) barra.style.background = portalInfo.color;
+        barra.className = 'barra-reserva tih-' + (r.tih || '1') + (esBloqueo ? ' barra-bloqueo' : '');
+        if (esBloqueo) {
+          // Rayas diagonales con el color del estado "Bloqueado" (rojo oscuro por defecto).
+          barra.style.setProperty('--bloq-color', bloqueoColor);
+          barra.style.setProperty('--bloq-dark', oscurecer(bloqueoColor));
+        } else if (portalInfo && portalInfo.color) {
+          // Color del portal si lo tiene; si no, el color por TIH (clase tih-1/tih-2).
+          barra.style.background = portalInfo.color;
+        }
         barra.style.left = left + 1 + 'px';
         barra.style.width = ancho - 2 + 'px';
-        const texto = esc(r.nombre_cliente || r.numero_reserva);
-        const logo = portalInfo && portalInfo.imagen_url
+        const texto = esBloqueo ? esc(r.observaciones || 'BLOQUEADO') : esc(r.nombre_cliente || r.numero_reserva);
+        const logo = !esBloqueo && portalInfo && portalInfo.imagen_url
           ? `<img class="barra-logo" src="${esc(portalInfo.imagen_url)}" alt="" onerror="this.style.display='none';this.onerror=null">`
           : '';
         barra.innerHTML = `${logo}<span class="barra-texto">${texto}</span>`;
@@ -507,6 +518,196 @@ const Planning = (() => {
     portalesFiltroListos = true;
   }
 
+  // ---- Menú contextual de celda vacía + creación de reserva/bloqueo ----
+  function isoMas(isoStr, n) {
+    const d = new Date(isoStr + 'T00:00:00');
+    return iso(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+  }
+
+  // Oscurece un color hex (#rrggbb) multiplicando sus canales (para la banda de las rayas).
+  function oscurecer(hex, f = 0.62) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return '#5a1414';
+    const n = parseInt(m[1], 16);
+    const r = Math.round(((n >> 16) & 255) * f);
+    const g = Math.round(((n >> 8) & 255) * f);
+    const b = Math.round((n & 255) * f);
+    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+
+  function cerrarMenuCelda() {
+    if (!menuCelda) return;
+    menuCelda.remove();
+    menuCelda = null;
+    document.removeEventListener('click', cerrarMenuCelda);
+    document.removeEventListener('keydown', escMenuCelda);
+  }
+  function escMenuCelda(e) { if (e.key === 'Escape') cerrarMenuCelda(); }
+
+  function abrirMenuCelda(ev, aptoId, fechaIso) {
+    ev.stopPropagation();
+    cerrarMenuCelda();
+    const m = document.createElement('div');
+    m.className = 'planning-ctx-menu';
+    m.innerHTML = `
+      <button type="button" class="pcm-op" data-acc="reserva">📋 Crear reserva</button>
+      <button type="button" class="pcm-op" data-acc="bloqueo">🔒 Crear bloqueo</button>`;
+    document.body.appendChild(m);
+    // Posición junto al cursor, ajustada si se sale de la pantalla.
+    let x = ev.clientX + 4;
+    let y = ev.clientY + 4;
+    if (x + m.offsetWidth > window.innerWidth) x = window.innerWidth - m.offsetWidth - 8;
+    if (y + m.offsetHeight > window.innerHeight) y = window.innerHeight - m.offsetHeight - 8;
+    m.style.left = Math.max(4, x) + 'px';
+    m.style.top = Math.max(4, y) + 'px';
+    m.querySelector('[data-acc="reserva"]').addEventListener('click', (e) => { e.stopPropagation(); cerrarMenuCelda(); crearReservaEn(aptoId, fechaIso); });
+    m.querySelector('[data-acc="bloqueo"]').addEventListener('click', (e) => { e.stopPropagation(); cerrarMenuCelda(); modalBloqueo(aptoId, fechaIso); });
+    menuCelda = m;
+    setTimeout(() => {
+      document.addEventListener('click', cerrarMenuCelda);
+      document.addEventListener('keydown', escMenuCelda);
+    }, 0);
+  }
+
+  // Espera (con reintentos) a que exista un elemento por id y ejecuta cb.
+  function esperarElemento(id, intentos, cb) {
+    const el = document.getElementById(id);
+    if (el) return cb(el);
+    if (intentos <= 0) return;
+    setTimeout(() => esperarElemento(id, intentos - 1, cb), 40);
+  }
+
+  // Abre el modal de Nueva reserva (módulo Reservas) y preselecciona apto + fechas.
+  function crearReservaEn(aptoId, fechaIso) {
+    const btn = document.getElementById('btn-nueva-reserva');
+    if (!btn) return toast('No se pudo abrir Nueva reserva', 'error');
+    btn.click(); // dispara formularioNuevo() del módulo Reservas
+    const salidaIso = isoMas(fechaIso, 7);
+    const apto = apartamentosCache.find((a) => a.id === aptoId);
+    esperarElemento('f-entrada', 40, () => {
+      const ent = document.getElementById('f-entrada');
+      const sal = document.getElementById('f-salida');
+      const aptoHidden = document.getElementById('f-apartamento-id');
+      const aptoInput = document.getElementById('rsv-apto-input');
+      if (ent) ent.value = fechaIso;
+      if (sal) sal.value = salidaIso;
+      if (aptoHidden) aptoHidden.value = aptoId;
+      if (aptoInput && apto) aptoInput.value = apto.nombre;
+      // Disparar el recálculo de noches/disponibilidad/tarifa del formulario.
+      if (ent) ent.dispatchEvent(new Event('change'));
+    });
+  }
+
+  // Modal "Crear bloqueo": fechas + selección múltiple de apartamentos + motivo.
+  function modalBloqueo(aptoPre, fechaIso) {
+    const aptos = apartamentosCache.slice();
+    const sel = new Set(aptoPre != null ? [aptoPre] : []);
+    const finIso = isoMas(fechaIso, 1);
+
+    abrirModal(`
+      <h3>Crear bloqueo</h3>
+      <div class="blq-sec-tit">Fechas</div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="blq-inicio" value="${fechaIso}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="blq-fin" value="${finIso}"></div>
+      </div>
+      <span id="blq-noches" class="blq-noches"></span>
+      <div class="blq-sec-tit">Apartamentos</div>
+      <input id="blq-buscar" class="input-buscar" autocomplete="off" placeholder="Buscar apartamento...">
+      <div class="blq-toolbar">
+        <button type="button" class="btn-sec" id="blq-sel-todos">Seleccionar todos</button>
+        <button type="button" class="btn-sec" id="blq-desel">Deseleccionar todos</button>
+        <span class="blq-conteo" id="blq-conteo"></span>
+      </div>
+      <div class="blq-lista" id="blq-lista"></div>
+      <div class="blq-sec-tit">Motivo (opcional)</div>
+      <textarea id="blq-motivo" placeholder="Uso propietario, Obras, Mantenimiento..."></textarea>
+      <div id="blq-progreso" class="blq-progreso oculto">
+        <div class="blq-prog-barra"><div class="blq-prog-fill" id="blq-prog-fill"></div></div>
+        <span class="blq-prog-txt" id="blq-prog-txt"></span>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="blq-cancelar">Cancelar</button>
+        <button class="btn-pri" id="blq-crear">🔒 Crear bloqueo</button>
+      </div>`);
+
+    const lista = document.getElementById('blq-lista');
+    const conteo = document.getElementById('blq-conteo');
+    const buscar = document.getElementById('blq-buscar');
+
+    const visibles = () => {
+      const q = buscar.value.trim().toLowerCase();
+      return aptos.filter((a) => (a.nombre || '').toLowerCase().includes(q));
+    };
+    const pintarLista = () => {
+      lista.innerHTML = visibles().map((a) => `
+        <label class="blq-op">
+          <input type="checkbox" value="${a.id}"${sel.has(a.id) ? ' checked' : ''}>
+          <span>${esc(a.nombre)}${a.edificio ? ` <span class="blq-meta">${esc(a.edificio)}</span>` : ''}</span>
+        </label>`).join('') || '<div class="blq-vacio">Sin resultados</div>';
+      lista.querySelectorAll('input[type="checkbox"]').forEach((cb) =>
+        cb.addEventListener('change', () => {
+          const id = Number(cb.value);
+          if (cb.checked) sel.add(id); else sel.delete(id);
+          actualizarConteo();
+        }));
+    };
+    const actualizarConteo = () => { conteo.textContent = `${sel.size} apartamento${sel.size === 1 ? '' : 's'} seleccionado${sel.size === 1 ? '' : 's'}`; };
+    const actualizarNoches = () => {
+      const ini = document.getElementById('blq-inicio').value;
+      const fin = document.getElementById('blq-fin').value;
+      const n = ini && fin ? diffDias(ini, fin) : 0;
+      const el = document.getElementById('blq-noches');
+      el.textContent = n > 0 ? `${n} noche${n === 1 ? '' : 's'}` : '';
+    };
+
+    buscar.addEventListener('input', pintarLista);
+    document.getElementById('blq-sel-todos').addEventListener('click', () => { visibles().forEach((a) => sel.add(a.id)); pintarLista(); actualizarConteo(); });
+    document.getElementById('blq-desel').addEventListener('click', () => { visibles().forEach((a) => sel.delete(a.id)); pintarLista(); actualizarConteo(); });
+    ['blq-inicio', 'blq-fin'].forEach((id) => document.getElementById(id).addEventListener('change', actualizarNoches));
+    document.getElementById('blq-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('blq-crear').addEventListener('click', () => crearBloqueo(sel));
+
+    pintarLista();
+    actualizarConteo();
+    actualizarNoches();
+  }
+
+  async function crearBloqueo(sel) {
+    const inicio = document.getElementById('blq-inicio').value;
+    const fin = document.getElementById('blq-fin').value;
+    if (!inicio || !fin) return toast('Indica fecha inicio y fin', 'error');
+    if (diffDias(inicio, fin) <= 0) return toast('La fecha fin debe ser posterior a la de inicio', 'error');
+    if (sel.size === 0) return toast('Selecciona al menos un apartamento', 'error');
+
+    const motivo = document.getElementById('blq-motivo').value.trim();
+    const ids = [...sel];
+    const btn = document.getElementById('blq-crear');
+    btn.disabled = true;
+    const prog = document.getElementById('blq-progreso');
+    const fill = document.getElementById('blq-prog-fill');
+    const txt = document.getElementById('blq-prog-txt');
+    prog.classList.remove('oculto');
+
+    let ok = 0;
+    for (let i = 0; i < ids.length; i++) {
+      txt.textContent = `Creando bloqueo ${i + 1} de ${ids.length}...`;
+      fill.style.width = Math.round((i / ids.length) * 100) + '%';
+      try {
+        await API.post('/api/reservas', {
+          numero_reserva: '', nombre_cliente: 'BLOQUEADO', portal: '',
+          apartamento_id: ids[i], entrada: inicio, salida: fin,
+          tipo_reserva: 'Bloqueado', observaciones: motivo,
+        });
+        ok++;
+      } catch (e) { /* continúa con el resto */ }
+    }
+    fill.style.width = '100%';
+    cerrarModal();
+    await cargar();
+    toast(`${ok} bloqueo${ok === 1 ? '' : 's'} creado${ok === 1 ? '' : 's'}`, ok ? 'ok' : 'error');
+  }
+
   // ---- Init ----
   function sincronizarInput() {
     const input = document.getElementById('fecha-inicio');
@@ -541,6 +742,12 @@ const Planning = (() => {
 
     construirFiltroClasificacion();
     construirFiltroPortal();
+
+    // Color del estado "Bloqueado" para las barras de bloqueo (no bloquea el render).
+    API.get('/api/ajustes/estados-reserva').then((ests) => {
+      const b = (ests || []).find((e) => (e.nombre || '').toLowerCase() === 'bloqueado');
+      if (b && b.color) bloqueoColor = b.color;
+    }).catch(() => { /* se mantiene el rojo oscuro por defecto */ });
 
     // Recalcular el nº de días visibles cuando cambia el ancho del contenedor.
     nDias = calcularDias();

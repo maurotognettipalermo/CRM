@@ -415,6 +415,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 }
 
 .fila-aptos .dias { min-height: 52px; }
+/* Celdas de día clicables (menú contextual de crear reserva/bloqueo). */
+.fila-aptos .dia { cursor: pointer; }
 
 /* Barras de reserva */
 .barra-reserva {
@@ -442,6 +444,60 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .barra-reserva:active { cursor: grabbing; transform: translateY(0); }
 .tih-1 { background: var(--green); }
 .tih-2 { background: var(--blue); }
+
+/* Bloqueos (tipo_reserva = 'Bloqueado'): rayas diagonales con el color del estado. */
+.barra-bloqueo {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--bloq-color, #7f1d1d),
+    var(--bloq-color, #7f1d1d) 4px,
+    var(--bloq-dark, #5a1414) 4px,
+    var(--bloq-dark, #5a1414) 8px
+  ) !important;
+  color: #fff;
+}
+
+/* Menú contextual al hacer clic en una celda vacía del planning. */
+.planning-ctx-menu {
+  position: fixed;
+  z-index: 6000;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+}
+.planning-ctx-menu .pcm-op {
+  background: none;
+  border: 0;
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #1f2937;
+  transition: background 120ms ease;
+}
+.planning-ctx-menu .pcm-op:hover { background: #f3f4f6; }
+
+/* Modal "Crear bloqueo". */
+.blq-sec-tit { font-weight: 700; font-size: 13px; color: #374151; margin: 14px 0 6px; }
+.blq-noches { display: inline-block; font-size: 13px; color: #6b7280; margin-top: 2px; }
+.blq-toolbar { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.blq-conteo { font-size: 13px; color: #6b7280; margin-left: auto; }
+.blq-lista { max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px; }
+.blq-op { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.blq-op:hover { background: #f9fafb; }
+.blq-op input { flex: none; }
+.blq-meta { color: #9ca3af; font-size: 12px; }
+.blq-vacio { padding: 12px; color: #9ca3af; text-align: center; font-size: 13px; }
+.blq-progreso { margin-top: 12px; }
+.blq-prog-barra { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+.blq-prog-fill { height: 100%; width: 0; background: var(--green); transition: width 150ms ease; }
+.blq-prog-txt { display: inline-block; margin-top: 6px; font-size: 13px; color: #6b7280; }
 .fila-aptos.drop-activo .dias { background: rgba(59,130,246,0.07); }
 
 /* ===== Sin asignar ===== */
