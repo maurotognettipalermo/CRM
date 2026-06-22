@@ -1210,9 +1210,10 @@ const Ajustes = (() => {
     abrirModal(`
       <h3>Asignar apartamentos a ${esc(portal.nombre)}</h3>
       ${disponibles.length
-        ? `<div class="plan-check-lista">
+        ? `<input type="text" id="plan-buscar" class="input-buscar" placeholder="Buscar apartamento..." style="margin-bottom:10px;width:100%;box-sizing:border-box">
+           <div class="plan-check-lista">
              ${disponibles.map((a) => `
-               <label class="plan-check"><input type="checkbox" value="${a.id}"> ${esc(a.nombre)}${a.edificio ? ` <span class="sub-vacio">(${esc(a.edificio)})</span>` : ''}</label>`).join('')}
+               <label class="plan-check" data-nombre="${esc(a.nombre.toLowerCase())}"><input type="checkbox" value="${a.id}"> ${esc(a.nombre)}${a.edificio ? ` <span class="sub-vacio">(${esc(a.edificio)})</span>` : ''}</label>`).join('')}
            </div>`
         : '<p class="sub-vacio">No hay apartamentos sin portal asignado.</p>'}
       <div class="modal-acciones">
@@ -1220,6 +1221,13 @@ const Ajustes = (() => {
         ${disponibles.length ? '<button class="btn-pri" id="plan-guardar">Asignar</button>' : ''}
       </div>`);
     document.getElementById('plan-cancelar').addEventListener('click', cerrarModal);
+    const buscar = document.getElementById('plan-buscar');
+    if (buscar) buscar.addEventListener('input', () => {
+      const q = buscar.value.trim().toLowerCase();
+      document.querySelectorAll('.plan-check-lista .plan-check').forEach((l) => {
+        l.style.display = l.dataset.nombre.includes(q) ? '' : 'none';
+      });
+    });
     const guardar = document.getElementById('plan-guardar');
     if (guardar) guardar.addEventListener('click', () => guardarAsignacion(portalId));
   }

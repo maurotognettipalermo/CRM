@@ -72,6 +72,11 @@ routes/                Un router Express por recurso:
     importación del export de Avantio; vinculados a reservas vía reservas.cliente_id)
 services/
   importService.js     Parseo Excel/CSV de reservas (SheetJS), upsert por nº reserva, autoasignación.
+  importReservasAvantio.js Parseo del "Listado de reservas" de Avantio (XLS real Composite Document;
+                       SheetJS raw, detecta fila de cabeceras, mapea 69 cols por nombre normalizado).
+                       Upsert por numero_reserva ("Localizador"); en UPDATE NO pisa apartamento_id ya
+                       asignado, notas_internas, ni observaciones (hace append de fragmentos nuevos).
+                       Nunca borra. Distinto del importador simplificado de importService.js.
   importPropietarios.js Parseo Excel/CSV propietarios (formato Avantio), upsert por email/documento/id_avantio.
   importAlojamientos.js Parseo del export de Avantio de alojamientos (HTML disfrazado de XLS; SheetJS raw,
                        detecta fila de cabeceras). Upsert por id_avantio: en UPDATE solo rellena campos
@@ -106,6 +111,8 @@ public/                Frontend vanilla. Sin build, servido estático.
                        desde GET /api/dashboard. Skeleton, error+reintentar, paginación 5/5, auto-refresco 5 min.
   js/planning.js       Vista continua de N días (estilo Avantio) con drag&drop e import.
                        Barras coloreadas por portal (con logo) o por TIH si no hay portal.
+                       Select de portal (filtra filas en cliente por apartamentos.portal_id,
+                       combinable con el filtro de clasificación).
                        Filtro por clasificación (dropdown multiselección sobre tipo_clasificacion,
                        en cliente; sin clasificar → '__sin__'). Sustituye a los botones TIH.
   js/alojamientos.js   Tabla (columnas Propietario = activos por coma + Limpieza = badge punto
@@ -175,7 +182,10 @@ public/                Frontend vanilla. Sin build, servido estático.
                        El select "Tipo de reserva" del modal de edición carga dinámicamente los
                        estados activos de /api/ajustes/estados-reserva. Expone abrirFicha(id).
   js/ajustes.js        Sub-pestañas: Razón Social / Usuarios / Actividad (admin) / Portales
-                       (reordenar, color, prefijo —para auto-numerar reservas—, logo) / Catálogo de gastos / Catálogo de extras (con
+                       (reordenar, color, prefijo —para auto-numerar reservas—, logo) / Planning
+                       (asignar/desasignar apartamentos por portal: secciones por portal + "Sin portal",
+                       modal de selección múltiple; PUT apartamentos.portal_id) /
+                       Catálogo de gastos / Catálogo de extras (con
                        toggle "Extra obligatorio" + badge rojo en la tabla) / Estados de reserva
                        (color clicable, badge "Sistema" si es_sistema, sin borrar los del sistema) /
                        Correo electrónico (SMTP, solo admin: formulario + guardar + email de prueba).
@@ -302,8 +312,8 @@ Patrones clave:
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | /api/apartamentos | Lista; `?todos=1` incluye `quitar_planning=1`; `?tih=` filtra. Cada apto lleva `propietarios[]` (activos) + campos planos compat del principal |
-| GET/PUT/DELETE | /api/apartamentos/:id | Ficha (campos ampliados + `propietarios[]` activos+históricos + historial) / Editar (merge; ignora propietario_id) / Borrar (reservas→Sin asignar) |
+| GET | /api/apartamentos | Lista; `?todos=1` incluye `quitar_planning=1`; `?tih=` filtra; `?portal_id=` filtra por portal. Cada apto lleva `propietarios[]` (activos) + `portal_id`/`portal_nombre` (LEFT JOIN portales) + campos planos compat del principal |
+| GET/PUT/DELETE | /api/apartamentos/:id | Ficha (campos ampliados + `propietarios[]` activos+históricos + historial) / Editar (merge; ignora propietario_id; acepta `portal_id`, null=desasignar) / Borrar (reservas→Sin asignar) |
 | GET/POST | /api/apartamentos/:id/propietarios | Relaciones N:M. POST `{propietario_id, porcentaje, fecha_inicio, notas}`: valida existencia, sin activa duplicada (409), suma % ≤ 100 (400); suma < 100 → `{ok, aviso}` |
 | PUT/DELETE | /api/apartamentos/:id/propietarios/:rel_id | Editar (porcentaje/fechas/notas/activo; valida suma ≤ 100) / Borrar (409 si el propietario tiene contratos o facturas en ese apto) |
 | POST | /api/apartamentos/:id/propietarios/:rel_id/cerrar | Cierra relación: activo=0 + fecha_fin (body o hoy). 409 si ya cerrada |
@@ -321,6 +331,7 @@ Patrones clave:
 | GET | /api/reservas/todas | Todas + apartamento_nombre; orden entrada DESC |
 | GET | /api/reservas/verificar-disponibilidad | `?apartamento_id=&entrada=&salida=[&excluir_reserva_id=]` → `{ disponible, conflicto }` |
 | GET | /api/reservas/entradas-pdf | `?desde=&hasta=` (solo admin/usuario; antes de /:id). PDF pdfkit A4 horizontal con las entradas (check-in) del rango: Fecha/Apartamento/Cliente/Personas/Portal/Teléfono/Observaciones. Teléfono = `extraerTelefono(observaciones)` o cliente vinculado. `Content-Disposition: attachment` |
+| POST | /api/reservas/importar-avantio | Multipart (campo `archivo`, antes de /:id). Importa el "Listado de reservas" de Avantio vía `importReservasAvantio`; upsert por numero_reserva sin pisar apartamento_id/notas_internas/observaciones → resumen |
 | GET/POST/PUT/DELETE | /api/reservas[/:id] | CRUD. POST→409 si numero_reserva duplicado. POST: si `numero_reserva` viene vacío lo autogenera con el prefijo del portal (`generarNumeroReserva`); acepta `cliente_id`; si `precio_total>0` crea el plan 20/80 en la misma transacción (`generarPlanPagos`); devuelve `{id, numero_reserva}`. PUT: `cliente_id` editable. GET/:id: LEFT JOIN clientes → `cliente_nombre_completo/cliente_telefono/cliente_email` |
 | PUT | /api/reservas/:id/mover | Drag&drop; body `{apartamento_id}`; 409 si solapa. `null` → Sin asignar |
 | GET/POST/PUT/DELETE | /api/reservas/:id/pagos[/:pago_id] | Plan de pagos. GET→`{pagos, total_pagado, total_pendiente, precio_total_reserva}`. POST pago manual (pagado sin fecha→hoy) |
@@ -424,7 +435,7 @@ Patrones clave:
 
 Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header `X-Auth-Token`) → `req.usuario = { id, nombre, username, rol }`.
 
-**Orden en `routes/reservas.js`**: `/sin-asignar`, `/todas`, `/verificar-disponibilidad`, `/entradas-pdf` deben declararse **antes** de `/:id`.
+**Orden en `routes/reservas.js`**: `/sin-asignar`, `/todas`, `/verificar-disponibilidad`, `/entradas-pdf`, `/importar-avantio` deben declararse **antes** de `/:id`.
 
 **Orden en `routes/ventas.js`**: `/visitas/hoy` debe declararse **antes** de `/visitas/:id` (igual que `/resumen` y `/propiedades/importar` van antes de sus `/:id`; y `/propietarios-venta/importar-alquiler` antes de `/propietarios-venta/:id`).
 
@@ -439,7 +450,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 ## Modelo de datos
 
 - **propietarios**: ~40 columnas (datos personales, contacto, domicilio, documentación, contables). `notas` = "Observaciones" en UI. `numero_documento` es el canónico (el campo `dni` es legado). `id_avantio` para upsert desde Avantio. `routes/propietarios.js` define `CAMPOS` como único punto de verdad para INSERT/UPDATE. Columnas nuevas: ALTER TABLE via `migrarPropietarios`.
-- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta, `estado_limpieza` ('limpio'|'sucio', CHECK, def. 'limpio'), `id_avantio` (clave de upsert al importar de Avantio), `direccion`/`numero` (importados de Avantio). Edificio/TIH/bloque ocultos en UI pero conservados en BD.
+- **apartamentos**: nombre, edificio, `tipo` ('1'|'2'), capacidad, notas. **Ya NO tiene `propietario_id`** (migrado a `apartamento_propietarios`). Ficha ampliada via `COLUMNAS_APARTAMENTOS`: clasificación (`tipo_clasificacion`: A/A+/A++/B/B+/C), orientación, situación, parking, wifi, `en_garantia`, `quitar_planning`, licencia_turistica, NRA, ref_catastral, escalera/piso/puerta, `estado_limpieza` ('limpio'|'sucio', CHECK, def. 'limpio'), `id_avantio` (clave de upsert al importar de Avantio), `direccion`/`numero` (importados de Avantio), `portal_id` (FK a `portales`, ON DELETE SET NULL, vía ALTER en `COLUMNAS_APARTAMENTOS` — asigna el apto a un portal; filtra el planning). Edificio/TIH/bloque ocultos en UI pero conservados en BD.
 - **apartamento_propietarios**: relación N:M apartamento ↔ propietarios con histórico. apartamento_id/propietario_id (FK, ON DELETE CASCADE), porcentaje (REAL, los activos deben sumar 100), fecha_inicio (NOT NULL), fecha_fin (null = actual), activo (1=actual, 0=histórico), notas, UNIQUE(apartamento_id, propietario_id, fecha_inicio). El "principal" para compat/facturas = mayor porcentaje (empate → fecha_inicio más antigua). Contratos: con 1 propietario activo se autorrellena `propietario_id`; con varios el POST/PUT exige especificarlo.
 - **reservas**: `numero_reserva` (TEXT UNIQUE), nombre_cliente, contrato, edificio, `tih` ('1'|'2'), personas, `entrada`/`salida` (ISO), observaciones, `apartamento_id` (NULL = "Sin asignar"). Campos de gestión: tipo_reserva, fecha_creacion, portal (TEXT por nombre), condicion_cancelacion, atendido_por, hora_entrada/salida, checkin/checkout_estado, precio_base/total/pagado/pendiente (pendiente = total−pagado, calculado en PUT), notas_internas, ocupante, `cliente_id` (FK a `clientes`, ON DELETE SET NULL — vía ALTER en `COLUMNAS_RESERVAS`; lo fija el wizard de Nueva reserva).
 - **portales**: nombre (UNIQUE), activo, orden, color (def. `#3b82f6`), imagen_url, `prefijo` (vía ALTER en `COLUMNAS_PORTALES` — prefijo de auto-numeración de reservas, ej. "CA"→CA-0001). Portal se guarda en reservas por **nombre**, no por id. Semilla: Booking.com, Airbnb, Apartplaya, Viajes Himalaya, Web propia, Directo, Otro. Imágenes en `public/uploads/portales/`; al re-subir se borra la anterior.
