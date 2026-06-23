@@ -379,12 +379,17 @@ router.get('/:id/pdf', (req, res) => {
   doc.moveDown(0.3);
   texto(`En Oropesa del Mar, a ${fechaTextoPDF(new Date().toISOString().slice(0, 10))}`, { align: 'center', gap: 0.8 });
 
+  // Cola de la dirección: " (Provincia)." solo si la razón social tiene provincia; si no, ".".
+  const provReunidos = (rs.estado_provincia && String(rs.estado_provincia).trim())
+    ? [{ t: ' (' }, { t: String(rs.estado_provincia).trim(), b: true }, { t: ').' }]
+    : [{ t: '.' }];
+
   tituloCentro('REUNIDOS');
   parrafo([
     { t: 'De una parte ' }, { t: rsContacto, b: true }, { t: ', DNI ' }, { t: rsCif, b: true },
     { t: ', como administrador, en nombre y representación de la entidad mercantil ' }, { t: rsNombre, b: true },
     { t: ', con CIF ' }, { t: rsCif, b: true }, { t: ' y con domicilio social en ' }, { t: rsDir, b: true },
-    { t: ', ' }, { t: rsCp, b: true }, { t: ', ' }, { t: rsCiudad, b: true }, { t: ' (' }, { t: rsProvincia, b: true }, { t: ').' },
+    { t: ', ' }, { t: rsCp, b: true }, { t: ', ' }, { t: rsCiudad, b: true }, ...provReunidos,
   ]);
   parrafo([
     { t: 'De otra parte ' }, { t: propNombre, b: true },
@@ -484,14 +489,19 @@ router.get('/:id/pdf', (req, res) => {
   bullet([{ t: 'Derecho a retirar el consentimiento en cualquier momento' }]);
   bullet([{ t: 'Derecho de acceso, rectificación, portabilidad y supresión de sus datos y de limitación u oposición a su tratamiento' }]);
   bullet([{ t: 'Derecho a presentar una reclamación ante la Autoridad de control (www.aepd.es) si considera que el tratamiento no se ajusta a la normativa vigente.' }]);
-  doc.moveDown(0.3);
   texto('Datos de contacto para ejercer sus derechos', { gap: 0.3 });
+  // Cola de la dirección en mayúsculas: " (PROVINCIA)." solo si hay provincia; si no, ".".
+  const provContacto = (rs.estado_provincia && String(rs.estado_provincia).trim())
+    ? [{ t: ' (' }, { t: String(rs.estado_provincia).trim().toUpperCase(), b: true }, { t: ').' }]
+    : [{ t: '.' }];
   parrafo([
     { t: rsNombreMay, b: true }, { t: ', ' }, { t: (rs.direccion || '___________').toUpperCase(), b: true },
     { t: ', ' }, { t: rsCp, b: true }, { t: ' ' }, { t: (rs.ciudad || '___________').toUpperCase(), b: true },
-    { t: ' (' }, { t: rsProvincia, b: true }, { t: ').' },
+    ...provContacto,
   ]);
-  parrafo([{ t: 'Email: ' }, { t: rsEmail, b: true }]);
+  // Email RGPD: el de contacto de la razón social o, si falta, el fallback de administración.
+  const emailContacto = (rs.email_contacto && String(rs.email_contacto).trim()) || 'administracion@hectorinmobiliaria.com';
+  parrafo([{ t: 'Email: ' }, { t: emailContacto, b: true }]);
 
   // ----- SÉPTIMA -----
   clausula('SÉPTIMA');
@@ -508,11 +518,16 @@ router.get('/:id/pdf', (req, res) => {
   doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000');
   doc.text(rsNombre, M, yF, { width: colW - 12, align: 'left' });
   doc.text(propNombre, rightX, yF, { width: colW - 12, align: 'left' });
-  // Izquierda: logo de la razón social (si es PNG/JPG).
-  const logo = leerLogoContrato(rs.logo_url);
-  if (logo) { try { doc.image(logo, M, yF + 20, { fit: [140, 70] }); } catch (e) { /* logo inválido */ } }
-  // Derecha: rectángulo vacío para la firma.
-  doc.rect(rightX, yF + 20, colW - 24, 70).strokeColor('#000000').lineWidth(1).stroke();
+  const boxW = colW - 24;
+  const boxH = 70;
+  const boxY = yF + 20;
+  // Izquierda: recuadro de firma/sello de la empresa. Si la razón social tiene firma_url
+  // (PNG/JPG) se inserta dentro; si no, queda el recuadro vacío para firmar a mano.
+  doc.rect(M, boxY, boxW, boxH).strokeColor('#000000').lineWidth(1).stroke();
+  const firma = leerLogoContrato(rs.firma_url);
+  if (firma) { try { doc.image(firma, M + 4, boxY + 4, { fit: [boxW - 8, boxH - 8] }); } catch (e) { /* firma inválida */ } }
+  // Derecha: recuadro vacío para la firma del propietario.
+  doc.rect(rightX, boxY, boxW, boxH).strokeColor('#000000').lineWidth(1).stroke();
 
   doc.end();
 });

@@ -133,6 +133,7 @@ const COLUMNAS_CATALOGO_GASTOS = {
 const COLUMNAS_RAZONES = {
   logo_url: 'TEXT',
   predeterminada: 'INTEGER DEFAULT 0',   // 1 = razón social predeterminada (solo una a la vez)
+  firma_url: 'TEXT',                     // imagen de firma/sello para el PDF del contrato
 };
 
 // Columnas extra de la tabla catalogo_extras.

@@ -888,7 +888,9 @@ const Ajustes = (() => {
     rs = rs || {};
     const esNueva = !rs.id;
     let archivoLogo = null;                  // File pendiente de subir (se sube al guardar)
+    let archivoFirma = null;                 // ídem para la firma/sello
     const logoUrlActual = rs.logo_url || null;
+    const firmaUrlActual = rs.firma_url || null;
     const campo = ([key, label, tipo]) => {
       let v = rs[key] != null ? rs[key] : '';
       if (esNueva && key === 'pais' && !v) v = 'España';
@@ -909,6 +911,12 @@ const Ajustes = (() => {
       <div class="campo">
         <div id="rs-logo-zona"></div>
         <input type="file" id="rs-logo-input" accept=".jpg,.jpeg,.png,.webp,.svg" hidden>
+      </div>
+      <div class="ajustes-seccion-titulo">Firma y sello</div>
+      <div class="campo">
+        <div id="rs-firma-zona"></div>
+        <input type="file" id="rs-firma-input" accept=".jpg,.jpeg,.png,.webp,.svg" hidden>
+        <div class="alo-em-aviso" style="max-width:640px">ℹ️ Se inserta en el recuadro de firma del PDF del contrato (PNG o JPG)</div>
       </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="rs-cancelar">Cancelar</button>
@@ -942,6 +950,32 @@ const Ajustes = (() => {
     input.addEventListener('change', () => { if (input.files[0]) seleccionarLogo(input.files[0]); });
     renderZonaLogo(null);
 
+    // Zona de firma/sello: misma mecánica que el logo.
+    const inputFirma = document.getElementById('rs-firma-input');
+    const renderZonaFirma = (previewSrc) => {
+      const zona = document.getElementById('rs-firma-zona');
+      const src = previewSrc || firmaUrlActual;
+      if (src) {
+        zona.innerHTML = `<img class="razon-logo-modal" src="${esc(src)}" alt=""><button type="button" class="btn-sec" id="rs-firma-cambiar" style="margin-left:10px">Cambiar</button>`;
+        zona.querySelector('#rs-firma-cambiar').addEventListener('click', () => inputFirma.click());
+      } else {
+        zona.innerHTML = '<div class="portal-dropzone" id="rs-firma-dropzone"><span class="dz-icono">⬆</span><span>Subir firma/sello</span></div>';
+        const dz = zona.querySelector('#rs-firma-dropzone');
+        dz.addEventListener('click', () => inputFirma.click());
+        ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dz-activo'); }));
+        ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dz-activo'); }));
+        dz.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) seleccionarFirma(f); });
+      }
+    };
+    const seleccionarFirma = (file) => {
+      archivoFirma = file;
+      const reader = new FileReader();
+      reader.onload = () => renderZonaFirma(reader.result);
+      reader.readAsDataURL(file);
+    };
+    inputFirma.addEventListener('change', () => { if (inputFirma.files[0]) seleccionarFirma(inputFirma.files[0]); });
+    renderZonaFirma(null);
+
     document.getElementById('rs-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('rs-guardar').addEventListener('click', async () => {
       const body = {};
@@ -951,11 +985,30 @@ const Ajustes = (() => {
         if (esNueva) { const res = await API.post('/api/ajustes/razones-sociales', body); id = res.id; }
         else await API.put('/api/ajustes/razones-sociales/' + id, body);
         if (archivoLogo) await subirLogoRazon(id, archivoLogo);
+        if (archivoFirma) await subirFirmaRazon(id, archivoFirma);
         cerrarModal();
         await cargarRazones();
         toast('Razón social guardada', 'ok');
       } catch (e) { toast(e.message, 'error'); }
     });
+  }
+
+  // Sube la firma/sello de una razón social (campo "firma", igual patrón que el logo).
+  async function subirFirmaRazon(id, file) {
+    const fd = new FormData();
+    fd.append('firma', file);
+    const s = Auth.sesion() || {};
+    const r = await fetch('/api/ajustes/razones-sociales/' + id + '/firma', {
+      method: 'POST',
+      headers: s.token ? { 'X-Auth-Token': s.token } : {},
+      body: fd,
+    });
+    if (!r.ok) {
+      let msg = 'Error ' + r.status;
+      try { const d = await r.json(); if (d && d.error) msg = d.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    return r.json();
   }
 
   // Sube el logo de una razón social (campo "logo", igual patrón que los portales).

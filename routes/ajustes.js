@@ -113,6 +113,35 @@ router.post('/razones-sociales/:id/logo', upload.single('logo'), (req, res) => {
   res.json({ ok: true, logo_url });
 });
 
+// Sube/actualiza la imagen de firma/sello de una razón social (multipart, campo "firma").
+// Misma mecánica que el logo; se inserta en el recuadro de firma del PDF del contrato.
+router.post('/razones-sociales/:id/firma', upload.single('firma'), (req, res) => {
+  const id = Number(req.params.id);
+  const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(id);
+  if (!rs) return res.status(404).json({ error: 'Razón social no encontrada' });
+  if (!req.file) return res.status(400).json({ error: 'No se ha recibido ninguna imagen' });
+
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!EXT_LOGO.includes(ext)) {
+    return res.status(400).json({ error: 'Formato no permitido (solo .jpg, .jpeg, .png, .webp, .svg)' });
+  }
+
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+  // Borra la firma anterior del disco, si la había.
+  if (rs.firma_url) {
+    try { fs.unlinkSync(path.join(PUBLIC_DIR, rs.firma_url)); } catch (e) { /* puede no existir */ }
+  }
+
+  const nombreArchivo = `firma-${id}-${Date.now()}${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, nombreArchivo), req.file.buffer);
+
+  const firma_url = `/uploads/razones-sociales/${nombreArchivo}`;
+  db.prepare('UPDATE razones_sociales SET firma_url = ? WHERE id = ?').run(firma_url, id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'razon_social', id, rs.razon_social);
+  res.json({ ok: true, firma_url });
+});
+
 // Marca una razón social como predeterminada y desmarca el resto (en una transacción).
 router.put('/razones-sociales/:id/predeterminada', (req, res) => {
   const id = Number(req.params.id);
