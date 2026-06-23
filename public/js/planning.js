@@ -37,6 +37,16 @@ const Planning = (() => {
   let pcModificadores = null;      // [{ tipo, porcentaje }]
   const pcTempPorAnio = {};        // { anio: [{ fecha_inicio, fecha_fin, precio_base_noche }] }
   let pcPanelCreado = false;
+  // Tipos de la calculadora (clase = color de badge, igual que en las fichas).
+  const PC_TIPOS = [
+    { tipo: 'A++', clase: 'c-app' },
+    { tipo: 'A+', clase: 'c-ap' },
+    { tipo: 'A', clase: 'c-a' },
+    { tipo: 'B+', clase: 'c-bp' },
+    { tipo: 'B', clase: 'c-b' },
+    { tipo: 'C', clase: 'c-c' },
+  ];
+  const pcTiposSel = new Set(['A']); // por defecto solo A
 
   const MESES_ABREV = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const MESES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -790,23 +800,19 @@ const Planning = (() => {
     const panel = document.createElement('aside');
     panel.id = 'pc-panel';
     panel.className = 'pc-panel';
+    const pills = PC_TIPOS.map((t) =>
+      `<button type="button" class="pc-pill ${t.clase}${pcTiposSel.has(t.tipo) ? ' sel' : ''}" data-tipo="${t.tipo}">${t.tipo}</button>`
+    ).join('');
     panel.innerHTML = `
       <div class="pc-head">
         <span class="pc-titulo">Calculadora de precios</span>
         <button class="pc-cerrar" id="pc-cerrar" title="Cerrar">&times;</button>
       </div>
       <div class="pc-cuerpo">
-        <label class="pc-campo">
+        <div class="pc-campo">
           <span>Tipo de apartamento</span>
-          <select id="pc-tipo">
-            <option value="A++">A++</option>
-            <option value="A+">A+</option>
-            <option value="A" selected>A</option>
-            <option value="B+">B+</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
-          </select>
-        </label>
+          <div class="pc-pills" id="pc-tipos">${pills}</div>
+        </div>
         <label class="pc-campo">
           <span>Fecha entrada</span>
           <input type="date" id="pc-entrada">
@@ -815,13 +821,20 @@ const Planning = (() => {
           <span>Fecha salida</span>
           <input type="date" id="pc-salida">
         </label>
+        <div class="pc-sep"></div>
         <div class="pc-resultado" id="pc-resultado"></div>
       </div>`;
     document.body.appendChild(panel);
 
     panel.querySelector('#pc-cerrar').addEventListener('click', cerrarPanelPrecios);
+    panel.querySelectorAll('#pc-tipos .pc-pill').forEach((p) =>
+      p.addEventListener('click', () => {
+        const t = p.dataset.tipo;
+        if (pcTiposSel.has(t)) pcTiposSel.delete(t); else pcTiposSel.add(t);
+        p.classList.toggle('sel');
+        calcularPrecioPanel();
+      }));
     ['change', 'input'].forEach((ev) => {
-      panel.querySelector('#pc-tipo').addEventListener(ev, calcularPrecioPanel);
       panel.querySelector('#pc-entrada').addEventListener(ev, calcularPrecioPanel);
       panel.querySelector('#pc-salida').addEventListener(ev, calcularPrecioPanel);
     });
@@ -854,16 +867,25 @@ const Planning = (() => {
     return pcTempPorAnio[anio];
   }
 
-  // Calcula el total en el frontend: por cada noche busca la temporada que la cubre y
-  // aplica el modificador del tipo (precio_base × (1 + porcentaje/100)).
+  // ISO (YYYY-MM-DD) -> "DD/MM" para la cabecera del resultado.
+  function pcCorta(d) {
+    const p = String(d).split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}` : d;
+  }
+
+  // Calcula el total en el frontend para cada tipo seleccionado: por cada noche busca la
+  // temporada que la cubre y aplica el modificador del tipo (base × (1 + porcentaje/100)).
   async function calcularPrecioPanel() {
     const cont = document.getElementById('pc-resultado');
     if (!cont) return;
-    const tipo = document.getElementById('pc-tipo').value;
     const entrada = document.getElementById('pc-entrada').value;
     const salida = document.getElementById('pc-salida').value;
 
     if (!entrada || !salida) { cont.innerHTML = ''; return; }
+    if (!pcTiposSel.size) {
+      cont.innerHTML = '<div class="pc-aviso">Selecciona al menos un tipo de apartamento</div>';
+      return;
+    }
     const noches = diffDias(entrada, salida);
     if (noches <= 0) {
       cont.innerHTML = '<div class="pc-aviso">⚠️ La fecha de salida debe ser posterior a la de entrada</div>';
@@ -871,8 +893,6 @@ const Planning = (() => {
     }
 
     if (!pcModificadores) pcModificadores = await API.get('/api/tarifas/modificadores').catch(() => []);
-    const mod = (pcModificadores || []).find((m) => m.tipo === tipo);
-    const pct = mod ? Number(mod.porcentaje) || 0 : 0;
 
     // Pre-carga las temporadas de todos los años que toca la estancia.
     const anios = new Set();
@@ -881,23 +901,39 @@ const Planning = (() => {
     }
     for (const a of anios) await temporadasDeAnio(a);
 
-    let total = 0;
+    // Precio base de cada noche (null si no hay temporada).
+    const bases = [];
     let sinTarifa = 0;
     for (let i = 0; i < noches; i++) {
       const dia = addDias(new Date(entrada + 'T00:00:00'), i);
       const diaISO = iso(dia);
       const temps = pcTempPorAnio[dia.getFullYear()] || [];
       const t = temps.find((x) => x.fecha_inicio <= diaISO && diaISO <= x.fecha_fin);
-      if (!t) { sinTarifa++; continue; }
-      total += (Number(t.precio_base_noche) || 0) * (1 + pct / 100);
+      if (!t) { sinTarifa++; bases.push(null); } else bases.push(Number(t.precio_base_noche) || 0);
     }
+
+    // Una card por tipo seleccionado, en el orden A++ … C.
+    const filas = PC_TIPOS.filter((t) => pcTiposSel.has(t.tipo)).map((t) => {
+      const mod = (pcModificadores || []).find((m) => m.tipo === t.tipo);
+      const pct = mod ? Number(mod.porcentaje) || 0 : 0;
+      let total = 0;
+      let conTarifa = 0;
+      bases.forEach((b) => { if (b != null) { total += b * (1 + pct / 100); conTarifa++; } });
+      const porNoche = conTarifa ? Math.round(total / conTarifa) : 0;
+      return `
+        <div class="pc-card">
+          <span class="badge-clasif ${t.clase} pc-card-badge">${t.tipo}</span>
+          <span class="pc-card-total">${eurosPC(total)}</span>
+          <span class="pc-card-noche">${porNoche} €/noche</span>
+        </div>`;
+    }).join('');
 
     const aviso = sinTarifa > 0
       ? `<div class="pc-aviso">⚠️ Hay días sin tarifa configurada (${sinTarifa} de ${noches})</div>`
       : '';
     cont.innerHTML = `
-      <div class="pc-res-noches">${noches} noche${noches === 1 ? '' : 's'}</div>
-      <div class="pc-res-total">Total: ${eurosPC(total)}</div>
+      <div class="pc-res-cab"><span class="pc-luna">🌙</span> ${noches} noche${noches === 1 ? '' : 's'} · ${pcCorta(entrada)} → ${pcCorta(salida)}</div>
+      <div class="pc-cards">${filas}</div>
       ${aviso}`;
   }
 
