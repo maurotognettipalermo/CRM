@@ -838,23 +838,28 @@ const Ajustes = (() => {
         ? `<img class="razon-logo" src="${esc(rs.logo_url)}" alt="" onerror="this.style.display='none'">`
         : `<span class="razon-logo-inicial" style="background:${colorAvatar(rs.razon_social)}">${esc(inicial(rs.razon_social))}</span>`;
       const esPred = !!rs.predeterminada;
-      const badgePred = esPred
-        ? '<span class="badge-predeterminada" style="background:#10b981;color:#fff;font-weight:600;padding:3px 10px;border-radius:12px;font-size:12px;white-space:nowrap">⭐ Predeterminada</span>'
+      // Banner de predeterminada en una fila propia arriba de la tarjeta (no rompe la
+      // alineación del título). Las no predeterminadas llevan el botón en acciones.
+      const bannerPred = esPred
+        ? '<div class="razon-card-pred" style="display:inline-block;background:#10b981;color:#fff;font-weight:600;padding:3px 10px;border-radius:12px;font-size:12px;white-space:nowrap;margin-bottom:10px">⭐ Predeterminada</div>'
+        : '';
+      const btnPred = esPred
+        ? ''
         : `<button class="btn-mini" data-pred-rs="${rs.id}" title="Marcar como predeterminada">Marcar como predeterminada</button>`;
       card.innerHTML = `
+        ${bannerPred}
         <div class="razon-card-head">
           <div class="razon-card-titulo">
             ${logo}
             <span class="razon-nombre">${esc(rs.razon_social) || '(sin nombre)'}</span>
           </div>
-          ${esPred ? badgePred : ''}
         </div>
         ${linea('CIF/NIF', rs.cif_nif)}
         ${linea('Email', rs.email_contacto)}
         ${linea('Teléfono', rs.telefono)}
         ${linea('Ciudad', rs.ciudad)}
         <div class="razon-card-acciones">
-          ${esPred ? '' : badgePred}
+          ${btnPred}
           <button class="btn-mini" data-editar-rs="${rs.id}" title="Editar">✏️</button>
           <button class="btn-mini" data-borrar-rs="${rs.id}" title="Eliminar">🗑️</button>
         </div>`;
