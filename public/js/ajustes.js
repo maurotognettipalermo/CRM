@@ -21,9 +21,7 @@ const Ajustes = (() => {
     ['tipo_documento_in', 'Tipo de documento IN'], ['numero_documento_in', 'Nº de documento IN'],
   ];
   const RS_BANCO = [
-    ['nombre_banco', 'Nombre del banco'], ['iban', 'IBAN'],
-    ['direccion_banco', 'Dirección del banco'], ['codigo_swift', 'Código SWIFT'],
-    ['numero_cuenta_ccc', 'Nº de cuenta CCC'],
+    ['iban', 'IBAN'],
   ];
   // Representante legal (firmante de los contratos). El DNI es distinto del CIF de la empresa.
   const RS_REPRESENTANTE = [
