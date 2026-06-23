@@ -777,8 +777,12 @@ const Planning = (() => {
 
   // ==================== Calculadora de precios (panel lateral) ====================
 
+  // Formato europeo garantizado: miles con punto, decimales con coma → "1.210,00 €".
   function eurosPC(n) {
-    return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    const num = Number(n) || 0;
+    const [ent, dec] = num.toFixed(2).split('.');
+    const miles = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return `${miles},${dec} €`;
   }
 
   // Inyecta el botón "💲 Precios" en la barra de controles (idempotente).
