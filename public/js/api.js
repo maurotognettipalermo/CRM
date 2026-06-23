@@ -116,3 +116,35 @@ function esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ===== flatpickr: sustituye los date inputs nativos por un calendario propio =====
+// Muestra DD/MM/YYYY al usuario (altInput) pero conserva YYYY-MM-DD en el input real,
+// así el resto del CRM sigue leyendo/enviando ISO sin cambios.
+API.initDatePickers = function (container) {
+  if (typeof flatpickr === 'undefined') return;
+  const inputs = (container || document).querySelectorAll('input[type="date"]:not(.flatpickr-input)');
+  inputs.forEach((input) => {
+    flatpickr(input, {
+      locale: 'es',
+      dateFormat: 'Y-m-d',
+      altInput: true,
+      altFormat: 'd/m/Y',
+      allowInput: true,
+      disableMobile: true,
+    });
+  });
+};
+
+// Auto-inicializa flatpickr en cualquier input[type=date] nuevo que aparezca en el DOM
+// (modales, paneles laterales, contenido renderizado) sin tocar cada módulo. Debounce
+// para no escanear el documento en cada mutación.
+let _fpTimer = null;
+const _fpObserver = new MutationObserver(() => {
+  clearTimeout(_fpTimer);
+  _fpTimer = setTimeout(() => {
+    if (document.querySelector('input[type="date"]:not(.flatpickr-input)')) API.initDatePickers();
+  }, 50);
+});
+function _fpStart() { _fpObserver.observe(document.body, { childList: true, subtree: true }); API.initDatePickers(); }
+if (document.body) _fpStart();
+else document.addEventListener('DOMContentLoaded', _fpStart);

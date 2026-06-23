@@ -3826,3 +3826,50 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
   font-size: 13px;
   color: #c2410c;
 }
+
+/* ===== flatpickr: estilo a juego con el CRM (sobreescribe el base) ===== */
+.flatpickr-calendar {
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  border: none;
+  padding: 8px;
+  font-family: inherit;
+}
+.flatpickr-months { padding: 8px 0; }
+.flatpickr-months .flatpickr-month { height: 36px; }
+.flatpickr-current-month { font-size: 15px; font-weight: 600; }
+.flatpickr-months .flatpickr-prev-month,
+.flatpickr-months .flatpickr-next-month {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flatpickr-months .flatpickr-prev-month:hover,
+.flatpickr-months .flatpickr-next-month:hover { background: #f0f0f0; }
+.flatpickr-weekdays { padding: 4px 0; }
+span.flatpickr-weekday { color: #9ca3af; font-size: 12px; font-weight: 500; }
+.flatpickr-day {
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  height: 36px;
+  line-height: 36px;
+  margin: 2px;
+}
+.flatpickr-day:hover { background: #eef2ff; border-color: transparent; }
+.flatpickr-day.selected,
+.flatpickr-day.selected:hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+  border-radius: 8px;
+}
+.flatpickr-day.today { border-color: #3b82f6; color: #3b82f6; font-weight: 700; }
+.flatpickr-day.today.selected { color: white; }
+.flatpickr-day.inRange { background: #dbeafe; border-color: transparent; border-radius: 0; }
+.flatpickr-day.startRange { border-radius: 8px 0 0 8px; }
+.flatpickr-day.endRange { border-radius: 0 8px 8px 0; }
+.flatpickr-day.flatpickr-disabled { color: #d1d5db; }
