@@ -821,6 +821,7 @@ const Planning = (() => {
           <span>Fecha salida</span>
           <input type="date" id="pc-salida">
         </label>
+        <button type="button" class="pc-limpiar" id="pc-limpiar">Limpiar selección</button>
         <div class="pc-sep"></div>
         <div class="pc-resultado" id="pc-resultado"></div>
       </div>`;
@@ -838,6 +839,7 @@ const Planning = (() => {
       panel.querySelector('#pc-entrada').addEventListener(ev, calcularPrecioPanel);
       panel.querySelector('#pc-salida').addEventListener(ev, calcularPrecioPanel);
     });
+    panel.querySelector('#pc-limpiar').addEventListener('click', limpiarCalculadora);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && panel.classList.contains('abierto')) cerrarPanelPrecios();
     });
@@ -857,6 +859,20 @@ const Planning = (() => {
   function cerrarPanelPrecios() {
     const p = document.getElementById('pc-panel');
     if (p) p.classList.remove('abierto');
+  }
+
+  // Restablece la calculadora a los valores por defecto (solo tipo A, sin fechas).
+  function limpiarCalculadora() {
+    pcTiposSel.clear();
+    pcTiposSel.add('A');
+    document.querySelectorAll('#pc-tipos .pc-pill').forEach((p) =>
+      p.classList.toggle('sel', p.dataset.tipo === 'A'));
+    const e = document.getElementById('pc-entrada');
+    const s = document.getElementById('pc-salida');
+    if (e) e.value = '';
+    if (s) s.value = '';
+    const r = document.getElementById('pc-resultado');
+    if (r) r.innerHTML = '';
   }
 
   // Asegura tener en caché las temporadas de un año (devuelve la lista).

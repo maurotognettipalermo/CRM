@@ -3778,6 +3778,18 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
 .pc-pill.sel.c-b   { background: #0ea5e9; }  /* B azul claro */
 .pc-pill.sel.c-c   { background: #6b7280; }  /* C gris */
 
+.pc-limpiar {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pc-limpiar:hover { background: #f3f4f6; color: var(--text); }
 .pc-sep { height: 1px; background: var(--border); margin: 2px 0; }
 
 /* Resultado */
