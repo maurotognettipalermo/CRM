@@ -132,6 +132,7 @@ const COLUMNAS_CATALOGO_GASTOS = {
 // Columnas extra de la tabla razones_sociales.
 const COLUMNAS_RAZONES = {
   logo_url: 'TEXT',
+  predeterminada: 'INTEGER DEFAULT 0',   // 1 = razón social predeterminada (solo una a la vez)
 };
 
 // Columnas extra de la tabla catalogo_extras.

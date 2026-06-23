@@ -2577,7 +2577,7 @@ const Ventas = (() => {
     } catch (e) { autPrv = []; autCli = []; autProps = []; autvRazones = []; }
 
     const docOpts = ['DNI', 'NIE', 'Pasaporte'].map((d) => `<option value="${d}">${d}</option>`).join('');
-    const rsPrincipal = autvRazones.find((r) => /costa azahar/i.test(r.razon_social || '')) || autvRazones[0];
+    const rsPrincipal = autvRazones.find((r) => r.predeterminada) || autvRazones[0];
     const rsOpts = autvRazones.map((r) =>
       `<option value="${r.id}"${rsPrincipal && r.id === rsPrincipal.id ? ' selected' : ''}>${esc(r.razon_social)}</option>`).join('');
 
@@ -2905,8 +2905,8 @@ const Ventas = (() => {
 
     const civilOpts = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a']
       .map((c) => `<option value="${c}">${c}</option>`).join('');
-    // Razón social por defecto: COSTA AZAHAR si existe, si no la primera.
-    const principal = autvRazones.find((r) => /costa azahar/i.test(r.razon_social || '')) || autvRazones[0];
+    // Razón social por defecto: la predeterminada si está marcada, si no la primera.
+    const principal = autvRazones.find((r) => r.predeterminada) || autvRazones[0];
     const rsOpts = autvRazones.map((r) =>
       `<option value="${esc(r.razon_social)}"${principal && r.id === principal.id ? ' selected' : ''}>${esc(r.razon_social)}</option>`).join('');
 

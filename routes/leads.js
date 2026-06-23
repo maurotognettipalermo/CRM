@@ -382,7 +382,7 @@ router.post('/:id/propuestas/:prop_id/enviar', async (req, res) => {
   }
 
   // Logo de la razón social principal (embebido inline si es archivo local).
-  const razon = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY id LIMIT 1').get();
+  const razon = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get();
   let logoHtml = '';
   if (razon && razon.logo_url) {
     const logoAbs = path.join(PUBLIC_DIR, razon.logo_url);

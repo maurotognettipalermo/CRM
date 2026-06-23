@@ -830,7 +830,6 @@ const Ajustes = (() => {
       cont.innerHTML = '<p class="sub-vacio">No hay razones sociales. Crea la primera con “＋ Nueva razón social”.</p>';
       return;
     }
-    const unica = lista.length === 1;
     for (const rs of lista) {
       const card = document.createElement('div');
       card.className = 'razon-card';
@@ -838,19 +837,24 @@ const Ajustes = (() => {
       const logo = rs.logo_url
         ? `<img class="razon-logo" src="${esc(rs.logo_url)}" alt="" onerror="this.style.display='none'">`
         : `<span class="razon-logo-inicial" style="background:${colorAvatar(rs.razon_social)}">${esc(inicial(rs.razon_social))}</span>`;
+      const esPred = !!rs.predeterminada;
+      const badgePred = esPred
+        ? '<span class="badge-predeterminada" style="background:#10b981;color:#fff;font-weight:600;padding:3px 10px;border-radius:12px;font-size:12px;white-space:nowrap">⭐ Predeterminada</span>'
+        : `<button class="btn-mini" data-pred-rs="${rs.id}" title="Marcar como predeterminada">Marcar como predeterminada</button>`;
       card.innerHTML = `
         <div class="razon-card-head">
           <div class="razon-card-titulo">
             ${logo}
             <span class="razon-nombre">${esc(rs.razon_social) || '(sin nombre)'}</span>
           </div>
-          ${unica ? '<span class="badge-principal">Principal</span>' : ''}
+          ${esPred ? badgePred : ''}
         </div>
         ${linea('CIF/NIF', rs.cif_nif)}
         ${linea('Email', rs.email_contacto)}
         ${linea('Teléfono', rs.telefono)}
         ${linea('Ciudad', rs.ciudad)}
         <div class="razon-card-acciones">
+          ${esPred ? '' : badgePred}
           <button class="btn-mini" data-editar-rs="${rs.id}" title="Editar">✏️</button>
           <button class="btn-mini" data-borrar-rs="${rs.id}" title="Eliminar">🗑️</button>
         </div>`;
@@ -860,6 +864,19 @@ const Ajustes = (() => {
       b.addEventListener('click', () => formularioRazon(lista.find((x) => x.id == b.dataset.editarRs))));
     cont.querySelectorAll('[data-borrar-rs]').forEach((b) =>
       b.addEventListener('click', () => borrarRazon(b.dataset.borrarRs)));
+    cont.querySelectorAll('[data-pred-rs]').forEach((b) =>
+      b.addEventListener('click', () => marcarPredeterminada(b.dataset.predRs)));
+  }
+
+  // Marca una razón social como predeterminada (desmarca el resto en el backend).
+  async function marcarPredeterminada(id) {
+    try {
+      await API.put('/api/ajustes/razones-sociales/' + id + '/predeterminada', {});
+      await cargarRazones();
+      toast('Razón social predeterminada actualizada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   }
 
   function formularioRazon(rs) {

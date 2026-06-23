@@ -289,8 +289,8 @@ router.get('/:id/pdf', (req, res) => {
   }
   prop = prop || {};
 
-  // Razón social principal = la de menor id.
-  const rs = db.prepare('SELECT * FROM razones_sociales ORDER BY id LIMIT 1').get() || {};
+  // Razón social predeterminada (la marcada; si ninguna lo está, la de menor id).
+  const rs = db.prepare('SELECT * FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get() || {};
   const cuotas = db.prepare(
     'SELECT * FROM contrato_cuotas WHERE contrato_id = ? ORDER BY numero_cuota'
   ).all(c.id);

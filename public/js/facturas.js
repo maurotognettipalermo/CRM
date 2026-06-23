@@ -444,14 +444,12 @@ const Facturas = (() => {
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
-    // Preselección de razón social: única -> esa; si hay varias -> "COSTA AZAHAR..." si existe;
-    // en su defecto, la primera de la lista.
+    // Preselección de razón social: la predeterminada si está marcada; en su defecto, la
+    // primera de la lista (el backend ya devuelve la predeterminada en cabeza).
     const lista = razonesCache || [];
-    if (lista.length === 1) {
-      wiz.razonId = lista[0].id;
-    } else if (lista.length > 1) {
-      const costa = lista.find((r) => r.razon_social === 'COSTA AZAHAR REAL ESTATE SOLUTIONS 2023 SLU');
-      wiz.razonId = (costa || lista[0]).id;
+    if (lista.length) {
+      const pred = lista.find((r) => r.predeterminada);
+      wiz.razonId = (pred || lista[0]).id;
     }
     renderWizard();
   }

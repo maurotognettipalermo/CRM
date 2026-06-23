@@ -177,7 +177,7 @@ router.get('/entradas-pdf', (req, res) => {
   `).all(desde, hasta);
 
   // Razón social principal (la primera) para el logo.
-  const rs = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY id LIMIT 1').get() || {};
+  const rs = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get() || {};
 
   const M = Math.round(15 * MM);
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: M });

@@ -54,8 +54,17 @@ function recoger(body) {
 }
 
 // ===== Razones sociales =====
+// Orden: la predeterminada primero (para que los selects la tomen como opción inicial).
 router.get('/razones-sociales', (req, res) => {
-  res.json(db.prepare('SELECT * FROM razones_sociales ORDER BY id').all());
+  res.json(db.prepare('SELECT * FROM razones_sociales ORDER BY predeterminada DESC, id').all());
+});
+
+// Razón social predeterminada (la marcada; si ninguna lo está, la de menor id).
+// Declarada antes de /razones-sociales/:id (ruta distinta, sin colisión de prefijo).
+router.get('/razon-social-predeterminada', (req, res) => {
+  const rs = db.prepare('SELECT * FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get();
+  if (!rs) return res.status(404).json({ error: 'No hay ninguna razón social' });
+  res.json(rs);
 });
 
 router.post('/razones-sociales', (req, res) => {
@@ -102,6 +111,19 @@ router.post('/razones-sociales/:id/logo', upload.single('logo'), (req, res) => {
   db.prepare('UPDATE razones_sociales SET logo_url = ? WHERE id = ?').run(logo_url, id);
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'razon_social', id, rs.razon_social);
   res.json({ ok: true, logo_url });
+});
+
+// Marca una razón social como predeterminada y desmarca el resto (en una transacción).
+router.put('/razones-sociales/:id/predeterminada', (req, res) => {
+  const id = Number(req.params.id);
+  const rs = db.prepare('SELECT id, razon_social FROM razones_sociales WHERE id = ?').get(id);
+  if (!rs) return res.status(404).json({ error: 'Razón social no encontrada' });
+  db.transaction(() => {
+    db.prepare('UPDATE razones_sociales SET predeterminada = 0').run();
+    db.prepare('UPDATE razones_sociales SET predeterminada = 1 WHERE id = ?').run(id);
+  })();
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'razon_social', id, `Predeterminada: ${rs.razon_social || id}`);
+  res.json({ ok: true });
 });
 
 router.delete('/razones-sociales/:id', (req, res) => {
