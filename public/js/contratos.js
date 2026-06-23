@@ -187,6 +187,7 @@ const Contratos = (() => {
           <span id="cnt-badge-estado"></span>
         </div>
         <div class="panel-cabecera-acciones">
+          <button id="cnt-imprimir" class="btn-sec">🖨️ Imprimir contrato</button>
           <button id="cnt-editar" class="btn-sec">Editar</button>
           <button id="cnt-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -198,6 +199,7 @@ const Contratos = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#cnt-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#cnt-editar').addEventListener('click', () => { if (fichaActual) formulario(fichaActual.id); });
+    panel.querySelector('#cnt-imprimir').addEventListener('click', () => { if (fichaActual) descargarContratoPDF(fichaActual.id); });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
@@ -1030,6 +1032,24 @@ const Contratos = (() => {
     } catch (e) {
       mostrarError(e.message);
     }
+  }
+
+  // ---- Imprimir contrato (descarga el PDF con auth token, patrón de facturas/entradas) ----
+  async function descargarContratoPDF(id) {
+    const sesion = Auth.sesion();
+    const response = await fetch(`/api/contratos/${id}/pdf`, {
+      headers: { 'X-Auth-Token': sesion.token }
+    });
+    if (!response.ok) { toast('Error al generar PDF', 'error'); return; }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contrato-${id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // ---- Borrar ----
