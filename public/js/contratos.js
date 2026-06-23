@@ -187,7 +187,13 @@ const Contratos = (() => {
           <span id="cnt-badge-estado"></span>
         </div>
         <div class="panel-cabecera-acciones">
-          <button id="cnt-imprimir" class="btn-sec">🖨️ Imprimir contrato</button>
+          <div id="cnt-dl-wrap" style="position:relative;display:inline-block">
+            <button id="cnt-descargar" class="btn-sec">📄 Descargar contrato ▾</button>
+            <div id="cnt-dl-menu" class="oculto" style="position:absolute;top:100%;right:0;z-index:60;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.14);min-width:190px;overflow:hidden;margin-top:4px">
+              <button class="cnt-dl-op" data-fmt="pdf" style="display:block;width:100%;text-align:left;padding:9px 14px;border:0;background:none;cursor:pointer;font-size:14px">📥 Descargar PDF</button>
+              <button class="cnt-dl-op" data-fmt="docx" style="display:block;width:100%;text-align:left;padding:9px 14px;border:0;background:none;cursor:pointer;font-size:14px">📥 Descargar Word</button>
+            </div>
+          </div>
           <button id="cnt-editar" class="btn-sec">Editar</button>
           <button id="cnt-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -199,7 +205,18 @@ const Contratos = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#cnt-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#cnt-editar').addEventListener('click', () => { if (fichaActual) formulario(fichaActual.id); });
-    panel.querySelector('#cnt-imprimir').addEventListener('click', () => { if (fichaActual) descargarContratoPDF(fichaActual.id); });
+    // Dropdown "Descargar contrato": PDF o Word.
+    const dlMenu = panel.querySelector('#cnt-dl-menu');
+    panel.querySelector('#cnt-descargar').addEventListener('click', (e) => {
+      e.stopPropagation();
+      dlMenu.classList.toggle('oculto');
+    });
+    panel.querySelectorAll('.cnt-dl-op').forEach((op) =>
+      op.addEventListener('click', () => {
+        dlMenu.classList.add('oculto');
+        if (fichaActual) descargarContrato(fichaActual.id, op.dataset.fmt);
+      }));
+    document.addEventListener('click', () => dlMenu.classList.add('oculto'));
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
@@ -1034,18 +1051,19 @@ const Contratos = (() => {
     }
   }
 
-  // ---- Imprimir contrato (descarga el PDF con auth token, patrón de facturas/entradas) ----
-  async function descargarContratoPDF(id) {
+  // ---- Descargar contrato (PDF o Word) con auth token (patrón de facturas/entradas) ----
+  async function descargarContrato(id, formato) {
+    const fmt = formato === 'docx' ? 'docx' : 'pdf';
     const sesion = Auth.sesion();
-    const response = await fetch(`/api/contratos/${id}/pdf`, {
+    const response = await fetch(`/api/contratos/${id}/${fmt}`, {
       headers: { 'X-Auth-Token': sesion.token }
     });
-    if (!response.ok) { toast('Error al generar PDF', 'error'); return; }
+    if (!response.ok) { toast('Error al generar el documento', 'error'); return; }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `contrato-${id}.pdf`;
+    a.download = `contrato-${id}.${fmt}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

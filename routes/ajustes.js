@@ -42,6 +42,7 @@ const RS_CAMPOS = [
   'iva', 'estado_provincia', 'codigo_cnae', 'pais', 'iva_intracomunitario',
   'tipo_direccion', 'tipo_documento_in', 'numero_documento_in',
   'nombre_banco', 'iban', 'direccion_banco', 'codigo_swift', 'numero_cuenta_ccc',
+  'representante_nombre', 'representante_dni',
 ];
 
 function recoger(body) {

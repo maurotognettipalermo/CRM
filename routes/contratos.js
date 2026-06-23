@@ -6,6 +6,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const {
+  Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType,
+} = require('docx');
 const db = require('../db/database');
 const { registrarActividad } = require('../services/actividadService');
 
@@ -314,7 +317,10 @@ router.get('/:id/pdf', (req, res) => {
   const rsCp = v(rs.codigo_postal);
   const rsCiudad = v(rs.ciudad);
   const rsProvincia = v(rs.estado_provincia);
-  const rsContacto = v(rs.persona_contacto);
+  // Representante legal: nombre = representante_nombre o, si no, persona_contacto.
+  // DNI = representante_dni (distinto del CIF de la empresa, que va aparte).
+  const repNombre = v(rs.representante_nombre || rs.persona_contacto);
+  const repDni = v(rs.representante_dni);
   const rsEmail = v(rs.email_contacto);
   const aptoNombre = v(c.apartamento_nombre);
   const refCat = v(c.apartamento_ref_catastral);
@@ -386,7 +392,7 @@ router.get('/:id/pdf', (req, res) => {
 
   tituloCentro('REUNIDOS');
   parrafo([
-    { t: 'De una parte ' }, { t: rsContacto, b: true }, { t: ', DNI ' }, { t: rsCif, b: true },
+    { t: 'De una parte ' }, { t: repNombre, b: true }, { t: ', DNI ' }, { t: repDni, b: true },
     { t: ', como administrador, en nombre y representación de la entidad mercantil ' }, { t: rsNombre, b: true },
     { t: ', con CIF ' }, { t: rsCif, b: true }, { t: ' y con domicilio social en ' }, { t: rsDir, b: true },
     { t: ', ' }, { t: rsCp, b: true }, { t: ', ' }, { t: rsCiudad, b: true }, ...provReunidos,
@@ -485,6 +491,9 @@ router.get('/:id/pdf', (req, res) => {
   texto('Fines y legitimación del tratamiento: prestación de los servicios solicitados (por ser necesario para la ejecución del contrato que supone dichos servicios, art. 6.1.b GDPR) y envío de comunicaciones de productos o servicios (con el consentimiento del interesado, art. 6.1.a GDPR)');
   texto('Criterios de conservación de los datos: se conservarán durante no más del tiempo necesario para mantener el fin del tratamiento o mientras existan prescripciones legales que dictaminen su custodia y cuando ya no sea necesario para ello, se suprimirán con medidas de seguridad adecuadas para garantizar la anonimización de los datos o la destrucción total de los mismos.');
   texto('Comunicación de los datos: no se comunicarán los datos a terceros, salvo obligación legal o que sea necesario para la prestación del servicio.');
+  // Si queda poco espacio, salta de página para no partir el bloque de "Derechos"
+  // (pdfkit deja el "•" en una página y el texto en la siguiente).
+  if (doc.y > 650) doc.addPage();
   texto('Derechos que asisten al interesado:', { gap: 0.3 });
   bullet([{ t: 'Derecho a retirar el consentimiento en cualquier momento' }]);
   bullet([{ t: 'Derecho de acceso, rectificación, portabilidad y supresión de sus datos y de limitación u oposición a su tratamiento' }]);
@@ -530,6 +539,198 @@ router.get('/:id/pdf', (req, res) => {
   doc.rect(rightX, boxY, boxW, boxH).strokeColor('#000000').lineWidth(1).stroke();
 
   doc.end();
+});
+
+// GET /api/contratos/:id/docx — mismo contrato en Word (.docx) con la librería docx.
+// Mismos datos, estructura y texto que el PDF (Word es más fácil de editar a mano).
+router.get('/:id/docx', async (req, res) => {
+  const c = db.prepare(`
+    SELECT c.*, a.nombre AS apartamento_nombre, a.ref_catastral AS apartamento_ref_catastral
+    FROM contratos c
+    JOIN apartamentos a ON a.id = c.apartamento_id
+    WHERE c.id = ?
+  `).get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Contrato no encontrado' });
+
+  let prop = c.propietario_id
+    ? db.prepare('SELECT * FROM propietarios WHERE id = ?').get(c.propietario_id)
+    : null;
+  if (!prop) {
+    prop = db.prepare(`
+      SELECT p.* FROM apartamento_propietarios ap
+      JOIN propietarios p ON p.id = ap.propietario_id
+      WHERE ap.apartamento_id = ? AND ap.activo = 1
+      ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC, ap.id ASC
+      LIMIT 1
+    `).get(c.apartamento_id);
+  }
+  prop = prop || {};
+
+  const rs = db.prepare('SELECT * FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get() || {};
+  const cuotas = db.prepare('SELECT * FROM contrato_cuotas WHERE contrato_id = ? ORDER BY numero_cuota').all(c.id);
+  const fechasProp = db.prepare('SELECT * FROM contrato_fechas_propietario WHERE contrato_id = ? ORDER BY fecha_inicio').all(c.id);
+
+  const v = (x) => {
+    const s = (x === undefined || x === null ? '' : String(x)).trim();
+    return s || '___________';
+  };
+  const repNombre = v(rs.representante_nombre || rs.persona_contacto);
+  const repDni = v(rs.representante_dni);
+  const rsNombre = v(rs.razon_social);
+  const rsNombreMay = (rs.razon_social || '___________').toUpperCase();
+  const rsCif = v(rs.cif_nif);
+  const rsDir = v(rs.direccion);
+  const rsCp = v(rs.codigo_postal);
+  const rsCiudad = v(rs.ciudad);
+  const propNombre = v(nombrePropContrato(prop));
+  const propNif = v(prop.numero_documento || prop.dni);
+  const propDir = v(prop.direccion);
+  const propCuenta = v(prop.numero_cuenta);
+  const aptoNombre = v(c.apartamento_nombre);
+  const refCat = v(c.apartamento_ref_catastral);
+  const tieneProv = !!(rs.estado_provincia && String(rs.estado_provincia).trim());
+  const provReunidos = tieneProv ? ` (${String(rs.estado_provincia).trim()}).` : '.';
+  const provContacto = tieneProv ? ` (${String(rs.estado_provincia).trim().toUpperCase()}).` : '.';
+  const emailContacto = (rs.email_contacto && String(rs.email_contacto).trim()) || 'administracion@hectorinmobiliaria.com';
+  const condicionesQuinta = (c.notas && String(c.notas).trim()) || '---';
+
+  // --- Primitivas docx (tamaños en medios puntos: 20 = 10pt, 28 = 14pt) ---
+  const R = (t, b) => new TextRun({ text: t, bold: !!b, size: 20, font: 'Helvetica' });
+  const P = (segs, align) => new Paragraph({
+    alignment: align || AlignmentType.JUSTIFIED,
+    spacing: { after: 140, line: 276 },
+    children: segs.map((s) => R(s.t, s.b)),
+  });
+  const Pt = (t, align) => P([{ t }], align);
+  const titulo = (t, size) => new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: { after: 200, before: 120 },
+    children: [new TextRun({ text: t, bold: true, size: size || 24, font: 'Helvetica' })],
+  });
+  const clausula = (t) => new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: { after: 120, before: 160 },
+    children: [new TextRun({ text: t, bold: true, size: 20, font: 'Helvetica', underline: { type: UnderlineType.SINGLE } })],
+  });
+  const bullet = (segs) => new Paragraph({
+    bullet: { level: 0 }, spacing: { after: 60 }, children: segs.map((s) => R(s.t, s.b)),
+  });
+
+  const k = [];
+  // Encabezamiento
+  k.push(titulo('CONTRATO DE ARRENDAMIENTO VACACIONAL', 28));
+  k.push(Pt(`En Oropesa del Mar, a ${fechaTextoPDF(new Date().toISOString().slice(0, 10))}`, AlignmentType.CENTER));
+  k.push(titulo('REUNIDOS'));
+  k.push(P([
+    { t: 'De una parte ' }, { t: repNombre, b: true }, { t: ', DNI ' }, { t: repDni, b: true },
+    { t: ', como administrador, en nombre y representación de la entidad mercantil ' }, { t: rsNombre, b: true },
+    { t: ', con CIF ' }, { t: rsCif, b: true }, { t: ' y con domicilio social en ' }, { t: rsDir, b: true },
+    { t: ', ' }, { t: rsCp, b: true }, { t: ', ' }, { t: rsCiudad, b: true }, { t: provReunidos },
+  ]));
+  k.push(P([
+    { t: 'De otra parte ' }, { t: propNombre, b: true },
+    { t: ', mayor de edad, actuando en nombre y derecho propio, con domicilio en ' }, { t: propDir, b: true },
+    { t: ', con NIF/CIF ' }, { t: propNif, b: true }, { t: ', como propietario/a del apartamento: ' },
+    { t: aptoNombre, b: true }, { t: ' - R. Cat.: ' }, { t: refCat, b: true },
+  ]));
+  k.push(Pt('Ambas partes se reconocen la capacidad necesaria para otorgar el presente contrato de arrendamiento y pactan libremente con arreglo a las siguientes:'));
+  k.push(titulo('CLAUSULAS'));
+
+  // PRIMERA
+  k.push(clausula('PRIMERA'));
+  k.push(P([{ t: propNombre, b: true }, { t: ' cede en arrendamiento a la Mercantil ' }, { t: rsNombre, b: true }, { t: ', el inmueble antes referido y que el inmueble está libre de cargas y ocupantes.' }]));
+  k.push(P([{ t: propNombre, b: true }, { t: ', autoriza expresamente a ' }, { t: rsNombre, b: true }, { t: ', a subarrendar en forma total o parcial a terceras personas, físicas o jurídicas dentro de los periodos que aquí se establecen.' }]));
+  k.push(Pt('Períodos con garantía:'));
+  k.push(P([{ t: v(fechaPDF(c.temporada_inicio)), b: true }]));
+  k.push(P([{ t: v(fechaPDF(c.temporada_fin)), b: true }]));
+  k.push(Pt('Fechas reservadas al propietario:'));
+  if (fechasProp.length) {
+    fechasProp.forEach((f) => k.push(P([{ t: `${fechaPDF(f.fecha_inicio)} — ${fechaPDF(f.fecha_fin)}`, b: true }])));
+  } else {
+    k.push(Pt('Sin fechas reservadas'));
+  }
+
+  // SEGUNDA
+  k.push(clausula('SEGUNDA'));
+  k.push(Pt('Finalizada la duración pactada, la parte arrendadora deberá dejar el inmueble (y en su caso los muebles que comprende) en el mismo estado que tenía cuando lo ocupó, salvo el desgaste de uso habitual.'));
+
+  // TERCERA
+  k.push(clausula('TERCERA'));
+  k.push(P([{ t: 'El precio total del presente contrato será de ' }, { t: euroContrato(c.precio_total), b: true }, { t: '. Este importe lleva incluido el IVA y se le aplicarán las retenciones correspondientes en cada caso.' }]));
+  k.push(P([
+    { t: 'El pago se realizara mediante transferencia bancaria a la cuenta ' }, { t: propCuenta, b: true },
+    { t: ', siendo imprescindible el envío anticipado de la factura correspondiente a cada pago. La empresa ' }, { t: rsNombre, b: true },
+    { t: ' enviará el desglose con el importe del pago y los gastos correspondientes a reparaciones y mantenimiento del inmueble, si las hubiere, y el propietario emitirá la factura correspondiente.' },
+  ]));
+  k.push(Pt('La forma de pago del presente contrato será:'));
+  if (cuotas.length) {
+    cuotas.forEach((q) => k.push(P([{ t: `Cuota ${q.numero_cuota}: ${euroContrato(q.importe)} — ${fechaPDF(q.fecha_prevista)}`, b: true }])));
+  } else {
+    k.push(Pt('___________'));
+  }
+
+  // CUARTA
+  k.push(clausula('CUARTA'));
+  k.push(Pt('Dentro de los periodos estipulados en el contrato, el propietario estará obligado a:'));
+  k.push(bullet([{ t: 'Entregar la finca en perfectas condiciones de uso y habitabilidad, siendo de su cuenta cualquier responsabilidad que al respecto hubiere.' }]));
+  k.push(bullet([{ t: 'El apartamento debe disponer de una conexión Wi-Fi privada.' }]));
+  k.push(bullet([{ t: 'Pagar los impuestos, tasas y arbitrios correspondientes a la finca antes referida.' }]));
+  k.push(bullet([{ t: 'Abonar los gastos de comunidad de propietarios del inmueble.' }]));
+  k.push(bullet([{ t: 'Contratar un Seguro de Hogar con cobertura de robo, incendios y responsabilidad civil, etc.' }]));
+  k.push(bullet([{ t: 'Realizar las reparaciones de mantenimiento del inmueble y de los muebles y en general los no imputables a la ocupación normal del alojamiento de los usuarios.' }]));
+  k.push(bullet([{ t: 'Autoriza a la mercantil ' }, { t: rsNombre, b: true }, { t: ', a reparar o reponer cualquier elemento (lavadora, termo etc.) que se estropeara durante la vigencia de este contrato, y será a cargo del propietario.' }]));
+  k.push(bullet([{ t: 'Durante el plazo pactado para el subarriendo, el propietario no podrá entrar en el inmueble sin autorización expresa del arrendador (' }, { t: rsNombre, b: true }, { t: ').' }]));
+
+  // QUINTA
+  k.push(clausula('QUINTA'));
+  k.push(P([{ t: 'Por cuenta de la mercantil ' }, { t: rsNombre, b: true }]));
+  k.push(P([{ t: condicionesQuinta, b: true }]));
+  k.push(bullet([{ t: 'La captación y recepción de clientes.' }]));
+  k.push(bullet([{ t: 'Los gastos de lavandería.' }]));
+  k.push(bullet([{ t: 'La limpieza del inmueble.' }]));
+
+  // SEXTA
+  k.push(clausula('SEXTA'));
+  k.push(P([{ t: rsNombreMay, b: true }, { t: ' es el Responsable del tratamiento de los datos personales del Interesado y le informa de que esos datos se tratarán de conformidad con lo dispuesto en el Reglamento (UE) 2016/679, de 27 de abril (GDPR), y la ley Orgánica 3/2018, de 5 de diciembre (LOPDGDD), por lo que se le facilita la siguiente información del tratamiento:' }]));
+  k.push(Pt('Fines y legitimación del tratamiento: prestación de los servicios solicitados (por ser necesario para la ejecución del contrato que supone dichos servicios, art. 6.1.b GDPR) y envío de comunicaciones de productos o servicios (con el consentimiento del interesado, art. 6.1.a GDPR)'));
+  k.push(Pt('Criterios de conservación de los datos: se conservarán durante no más del tiempo necesario para mantener el fin del tratamiento o mientras existan prescripciones legales que dictaminen su custodia y cuando ya no sea necesario para ello, se suprimirán con medidas de seguridad adecuadas para garantizar la anonimización de los datos o la destrucción total de los mismos.'));
+  k.push(Pt('Comunicación de los datos: no se comunicarán los datos a terceros, salvo obligación legal o que sea necesario para la prestación del servicio.'));
+  k.push(Pt('Derechos que asisten al interesado:'));
+  k.push(bullet([{ t: 'Derecho a retirar el consentimiento en cualquier momento' }]));
+  k.push(bullet([{ t: 'Derecho de acceso, rectificación, portabilidad y supresión de sus datos y de limitación u oposición a su tratamiento' }]));
+  k.push(bullet([{ t: 'Derecho a presentar una reclamación ante la Autoridad de control (www.aepd.es) si considera que el tratamiento no se ajusta a la normativa vigente.' }]));
+  k.push(Pt('Datos de contacto para ejercer sus derechos'));
+  k.push(P([
+    { t: rsNombreMay, b: true }, { t: ', ' }, { t: (rs.direccion || '___________').toUpperCase(), b: true },
+    { t: ', ' }, { t: rsCp, b: true }, { t: ' ' }, { t: (rs.ciudad || '___________').toUpperCase(), b: true },
+    { t: provContacto },
+  ]));
+  k.push(P([{ t: 'Email: ' }, { t: emailContacto, b: true }]));
+
+  // SÉPTIMA
+  k.push(clausula('SÉPTIMA'));
+  k.push(Pt('Para todos los conflictos que puedan surgir de la interpretación, aplicación, efectos incumplimiento de este contrato por las partes se someten a la Jurisdicción de los Tribunales de Castellón'));
+  k.push(Pt('Y para que así conste y surta los efectos oportunos, firman arrendadora y propietario el presente contrato por duplicado y que se suscribe en cada hoja de los dos ejemplares idénticos que se otorgan mutuamente en el lugar y fecha de encabezamiento'));
+
+  // Firmas
+  k.push(new Paragraph({ spacing: { before: 600 }, children: [R('Por la empresa: ', true), R(rsNombre)] }));
+  k.push(Pt('(Firma y sello)'));
+  k.push(new Paragraph({ spacing: { before: 300 }, children: [R('El propietario: ', true), R(propNombre)] }));
+  k.push(Pt('(Firma)'));
+
+  const docx = new Document({
+    sections: [{
+      properties: { page: { margin: { top: 1247, bottom: 1247, left: 1247, right: 1247 } } }, // 22mm
+      children: k,
+    }],
+  });
+
+  try {
+    const buf = await Packer.toBuffer(docx);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="contrato-${c.id}.docx"`);
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/contratos/:id — ficha completa + cuotas.

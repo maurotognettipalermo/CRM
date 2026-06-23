@@ -25,6 +25,11 @@ const Ajustes = (() => {
     ['direccion_banco', 'Dirección del banco'], ['codigo_swift', 'Código SWIFT'],
     ['numero_cuenta_ccc', 'Nº de cuenta CCC'],
   ];
+  // Representante legal (firmante de los contratos). El DNI es distinto del CIF de la empresa.
+  const RS_REPRESENTANTE = [
+    ['representante_nombre', 'Nombre del representante legal'],
+    ['representante_dni', 'DNI del representante'],
+  ];
   const IVA_OPTS = ['General 21%', 'Reducido 10%', 'Superreducido 4%', 'Exento 0%'];
   const ACCIONES = ['crear', 'editar', 'eliminar', 'importar', 'mover', 'login', 'logout'];
 
@@ -907,6 +912,8 @@ const Ajustes = (() => {
       <div class="ajustes-grid">${RS_GENERAL.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Datos bancarios</div>
       <div class="ajustes-grid">${RS_BANCO.map(campo).join('')}</div>
+      <div class="ajustes-seccion-titulo">Representante legal</div>
+      <div class="ajustes-grid">${RS_REPRESENTANTE.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Logo</div>
       <div class="campo">
         <div id="rs-logo-zona"></div>

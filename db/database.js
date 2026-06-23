@@ -134,6 +134,8 @@ const COLUMNAS_RAZONES = {
   logo_url: 'TEXT',
   predeterminada: 'INTEGER DEFAULT 0',   // 1 = razón social predeterminada (solo una a la vez)
   firma_url: 'TEXT',                     // imagen de firma/sello para el PDF del contrato
+  representante_nombre: 'TEXT',          // nombre del representante legal (firmante de los contratos)
+  representante_dni: 'TEXT',             // DNI del representante (distinto del CIF de la empresa)
 };
 
 // Columnas extra de la tabla catalogo_extras.
