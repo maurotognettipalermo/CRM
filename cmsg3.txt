@@ -1,0 +1,21 @@
+feat: variables de plantillas de documentos configurables en Ajustes
+
+Nueva sub-pestaña "Plantillas 📝" en Ajustes (solo admin) para editar las
+variables que usan los PDFs de arras, autorización y contrato: representante
+legal (nombre/DNI), cuenta de custodia, señal y comisión por defecto,
+duración del mandato, condiciones de la cláusula QUINTA y email RGPD.
+
+Backend:
+- Variables guardadas en la tabla clave-valor `ajustes` con prefijo
+  plantilla_ (seed con INSERT OR IGNORE en database.js).
+- GET /api/ajustes/plantillas y PUT /api/ajustes/plantillas (solo admin).
+- Los PDFs leen estas variables en vez de los valores hardcodeados:
+  arras (representante, cuenta custodia, firma), autorización (comisión y
+  duración del mandato) y contrato (representante, QUINTA, email RGPD).
+
+Frontend:
+- Sub-pestaña Plantillas con cards por documento + Guardar.
+- Los formularios de Arras y Autorización prerellenan señal/comisión/
+  duración desde las variables de plantilla.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>

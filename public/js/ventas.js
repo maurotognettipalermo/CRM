@@ -2558,6 +2558,16 @@ const Ventas = (() => {
   }
 
   // ==================== Init ====================
+  // Variables de plantillas (defaults de señal/comisión/duración). Cache de módulo.
+  let plantillasVentas = null;
+  async function cargarPlantillasVentas() {
+    if (!plantillasVentas) {
+      try { plantillasVentas = await API.get('/api/ajustes/plantillas'); }
+      catch (e) { plantillasVentas = {}; }
+    }
+    return plantillasVentas;
+  }
+
   // ==================== Sub-pestaña Arras ====================
   async function construirAutorizacion() {
     if (autConstruido) return;
@@ -2668,6 +2678,12 @@ const Ventas = (() => {
           <button class="btn-sec" id="aut-limpiar">Limpiar formulario</button>
         </div>
       </div>`;
+
+    // Prerelleno de señal/comisión desde las variables de plantilla.
+    cargarPlantillasVentas().then((pl) => {
+      if (pl.plantilla_arras_senal_defecto) setVal('aut-e-senal', pl.plantilla_arras_senal_defecto);
+      if (pl.plantilla_arras_comision_defecto) setVal('aut-e-comision-pct', pl.plantilla_arras_comision_defecto);
+    });
 
     // --- Typeahead vendedor (propietarios de venta) ---
     const vIn = document.getElementById('aut-v-nombre');
@@ -2820,8 +2836,8 @@ const Ventas = (() => {
       'aut-c-nombre', 'aut-c-numdoc', 'aut-c-dir', 'aut-c-ciudad', 'aut-c-prov',
       'aut-i-edificio', 'aut-i-planta', 'aut-i-puerta', 'aut-i-parking', 'aut-i-trastero',
       'aut-e-precio', 'aut-e-comision', 'aut-e-fecha'].forEach((id) => setVal(id, ''));
-    setVal('aut-e-senal', '3000');
-    setVal('aut-e-comision-pct', '3');
+    setVal('aut-e-senal', (plantillasVentas && plantillasVentas.plantilla_arras_senal_defecto) || '3000');
+    setVal('aut-e-comision-pct', (plantillasVentas && plantillasVentas.plantilla_arras_comision_defecto) || '3');
     document.getElementById('aut-v-tipodoc').value = 'DNI';
     document.getElementById('aut-c-tipodoc').value = 'DNI';
     pintarIvaPills(false);
@@ -2956,6 +2972,11 @@ const Ventas = (() => {
         </div>
       </div>`;
 
+    // Prerelleno de comisión desde la variable de plantilla.
+    cargarPlantillasVentas().then((pl) => {
+      if (pl.plantilla_autorizacion_comision_defecto) setVal('autv-comision', pl.plantilla_autorizacion_comision_defecto);
+    });
+
     // Typeahead vendedor.
     const vIn = document.getElementById('autv-nombre');
     const vRes = document.getElementById('autv-res');
@@ -3008,7 +3029,7 @@ const Ventas = (() => {
   function limpiarAutVenta() {
     ['autv-nombre', 'autv-dni', 'autv-dir', 'autv-ciudad', 'autv-prov', 'autv-tel',
       'autv-ref', 'autv-edificio', 'autv-planta', 'autv-puerta', 'autv-precio'].forEach((id) => setVal(id, ''));
-    setVal('autv-comision', '3');
+    setVal('autv-comision', (plantillasVentas && plantillasVentas.plantilla_autorizacion_comision_defecto) || '3');
     setVal('autv-fecha', hoyStr());
     const civil = document.getElementById('autv-civil');
     if (civil) civil.selectedIndex = 0;

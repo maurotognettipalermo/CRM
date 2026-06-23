@@ -12,6 +12,21 @@ const router = express.Router();
 const SMTP_MASK = '••••••••'; // se devuelve en vez de la contraseña real
 const SMTP_CLAVES = ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_from_name', 'smtp_from_email'];
 
+// Variables de plantillas de documentos (arras, autorización, contrato). Claves de la tabla
+// clave-valor `ajustes` con sus valores por defecto (los seedea database.js; aquí sirven de
+// fallback en GET por si faltara alguna).
+const PLANTILLA_DEFAULTS = {
+  plantilla_representante_nombre: 'Analia Palermo Cornet',
+  plantilla_representante_dni: '20473042Y',
+  plantilla_cuenta_custodia: 'ES74 0081 1276 2900 0108 0515',
+  plantilla_arras_senal_defecto: '3000',
+  plantilla_arras_comision_defecto: '3',
+  plantilla_autorizacion_comision_defecto: '3',
+  plantilla_autorizacion_duracion_mandato: '365',
+  plantilla_contrato_condiciones_quinta: '---',
+  plantilla_contrato_email_rgpd: '',
+};
+
 // Solo administradores. Devuelve true si responde 403 (corta el handler).
 function bloqueaNoAdmin(req, res) {
   if (!req.usuario || req.usuario.rol !== 'administrador') {
@@ -255,6 +270,28 @@ router.post('/smtp/test', async (req, res) => {
   } catch (e) {
     res.json({ ok: false, error: e.message || 'No se pudo enviar el email de prueba' });
   }
+});
+
+// ===== Variables de plantillas de documentos =====
+// GET: todas las claves plantilla_ como objeto (valor guardado o, si falta, el por defecto).
+router.get('/plantillas', (req, res) => {
+  const out = {};
+  for (const clave of Object.keys(PLANTILLA_DEFAULTS)) {
+    const row = db.prepare('SELECT valor FROM ajustes WHERE clave = ?').get(clave);
+    out[clave] = (row && row.valor != null) ? row.valor : PLANTILLA_DEFAULTS[clave];
+  }
+  res.json(out);
+});
+
+// PUT (solo admin): guarda cada clave conocida que venga en el body.
+router.put('/plantillas', (req, res) => {
+  if (bloqueaNoAdmin(req, res)) return;
+  const b = req.body || {};
+  for (const clave of Object.keys(PLANTILLA_DEFAULTS)) {
+    if (clave in b) guardarAjuste(clave, b[clave]);
+  }
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'plantillas', null, 'Variables de plantillas actualizadas');
+  res.json({ ok: true });
 });
 
 module.exports = router;
