@@ -73,7 +73,6 @@ const Ajustes = (() => {
     // Las sub-pestañas Actividad y Correo electrónico solo existen para administradores.
     document.getElementById('subtab-actividad').classList.toggle('oculto', !Auth.esAdmin());
     document.getElementById('subtab-smtp')?.classList.toggle('oculto', !Auth.esAdmin());
-    document.getElementById('subtab-plantillas')?.classList.toggle('oculto', !Auth.esAdmin());
     await cargarRazones();
     await cargarUsuarios();
     await cargarPortales();
@@ -83,7 +82,6 @@ const Ajustes = (() => {
     await cargarPlanning();
     if (Auth.esAdmin()) await cargarActividad();
     if (Auth.esAdmin()) await cargarSmtp();
-    if (Auth.esAdmin()) await cargarPlantillas();
   }
 
   // ==================== Catálogo de gastos ====================
@@ -600,103 +598,6 @@ const Ajustes = (() => {
       btn.disabled = false;
       btn.textContent = original;
     }
-  }
-
-  // ==================== Plantillas de documentos (solo admin) ====================
-  // Sub-pestaña + panel inyectados por JS (no se toca index.html). Variables que usan los
-  // PDFs de arras, autorización y contrato (representante, cuentas, defaults).
-  function inyectarPlantillas() {
-    if (document.querySelector('#ajustes-subtabs [data-sub="plantillas"]')) return;
-    const subtabs = document.getElementById('ajustes-subtabs');
-    const btn = document.createElement('button');
-    btn.className = 'subtab';
-    btn.id = 'subtab-plantillas';
-    btn.dataset.sub = 'plantillas';
-    btn.textContent = 'Plantillas 📝';
-    subtabs.appendChild(btn);
-
-    const panel = document.createElement('div');
-    panel.className = 'sub-panel';
-    panel.dataset.panelSub = 'plantillas';
-    panel.innerHTML = `
-      <div class="sub-panel-head">
-        <span class="sub-panel-titulo">Variables de plantillas de documentos</span>
-      </div>
-
-      <div class="razon-card" style="margin-bottom:14px;max-width:680px">
-        <div class="sub-panel-titulo" style="margin-bottom:10px">Datos del representante legal</div>
-        <div class="ajustes-grid">
-          <div class="ajuste-campo"><label>Nombre completo</label><input type="text" id="pl-rep-nombre"></div>
-          <div class="ajuste-campo"><label>DNI/NIF</label><input type="text" id="pl-rep-dni"></div>
-          <div class="ajuste-campo"><label>Cuenta bancaria de custodia</label><input type="text" id="pl-cuenta-custodia"></div>
-        </div>
-        <div class="alo-em-aviso" style="max-width:640px">ℹ️ Estos datos se usan en todos los documentos generados (arras, autorización, contratos)</div>
-      </div>
-
-      <div class="razon-card" style="margin-bottom:14px;max-width:680px">
-        <div class="sub-panel-titulo" style="margin-bottom:10px">Contrato de Arras</div>
-        <div class="ajustes-grid">
-          <div class="ajuste-campo"><label>Señal por defecto (€)</label><input type="number" step="0.01" id="pl-arras-senal"></div>
-          <div class="ajuste-campo"><label>Comisión por defecto (%)</label><input type="number" step="0.01" id="pl-arras-comision"></div>
-        </div>
-      </div>
-
-      <div class="razon-card" style="margin-bottom:14px;max-width:680px">
-        <div class="sub-panel-titulo" style="margin-bottom:10px">Autorización de venta</div>
-        <div class="ajustes-grid">
-          <div class="ajuste-campo"><label>Comisión por defecto (%)</label><input type="number" step="0.01" id="pl-aut-comision"></div>
-          <div class="ajuste-campo"><label>Duración del mandato (días)</label><input type="number" id="pl-aut-duracion"></div>
-        </div>
-      </div>
-
-      <div class="razon-card" style="margin-bottom:14px;max-width:680px">
-        <div class="sub-panel-titulo" style="margin-bottom:10px">Contrato de alquiler</div>
-        <div class="ajuste-campo"><label>Condiciones particulares cláusula QUINTA</label>
-          <textarea id="pl-quinta" rows="5" style="width:100%"></textarea></div>
-        <div class="ajuste-campo" style="margin-top:10px"><label>Email contacto RGPD</label><input type="email" id="pl-rgpd-email"></div>
-      </div>
-
-      <div class="modal-acciones" style="justify-content:flex-start">
-        <button class="btn-pri" id="pl-guardar">Guardar cambios</button>
-      </div>`;
-    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
-
-    document.getElementById('pl-guardar').addEventListener('click', guardarPlantillas);
-  }
-
-  async function cargarPlantillas() {
-    let pl;
-    try { pl = await API.get('/api/ajustes/plantillas'); }
-    catch (e) { return toast(e.message, 'error'); }
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v != null ? v : ''; };
-    set('pl-rep-nombre', pl.plantilla_representante_nombre);
-    set('pl-rep-dni', pl.plantilla_representante_dni);
-    set('pl-cuenta-custodia', pl.plantilla_cuenta_custodia);
-    set('pl-arras-senal', pl.plantilla_arras_senal_defecto);
-    set('pl-arras-comision', pl.plantilla_arras_comision_defecto);
-    set('pl-aut-comision', pl.plantilla_autorizacion_comision_defecto);
-    set('pl-aut-duracion', pl.plantilla_autorizacion_duracion_mandato);
-    set('pl-quinta', pl.plantilla_contrato_condiciones_quinta);
-    set('pl-rgpd-email', pl.plantilla_contrato_email_rgpd);
-  }
-
-  async function guardarPlantillas() {
-    const v = (id) => (document.getElementById(id) || {}).value || '';
-    const body = {
-      plantilla_representante_nombre: v('pl-rep-nombre'),
-      plantilla_representante_dni: v('pl-rep-dni'),
-      plantilla_cuenta_custodia: v('pl-cuenta-custodia'),
-      plantilla_arras_senal_defecto: v('pl-arras-senal'),
-      plantilla_arras_comision_defecto: v('pl-arras-comision'),
-      plantilla_autorizacion_comision_defecto: v('pl-aut-comision'),
-      plantilla_autorizacion_duracion_mandato: v('pl-aut-duracion'),
-      plantilla_contrato_condiciones_quinta: v('pl-quinta'),
-      plantilla_contrato_email_rgpd: v('pl-rgpd-email'),
-    };
-    try {
-      await API.put('/api/ajustes/plantillas', body);
-      toast('Plantillas guardadas', 'ok');
-    } catch (e) { toast(e.message, 'error'); }
   }
 
   // ==================== Portales ====================
@@ -1380,7 +1281,6 @@ const Ajustes = (() => {
     inyectarCatalogoExtras();  // 6ª sub-pestaña
     inyectarEstadosReserva();  // 7ª sub-pestaña
     inyectarSmtp();            // 8ª sub-pestaña (solo admin)
-    inyectarPlantillas();      // sub-pestaña Plantillas (solo admin)
     inyectarPlanning();        // 9ª sub-pestaña
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));

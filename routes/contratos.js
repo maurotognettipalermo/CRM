@@ -16,12 +16,6 @@ const MM = 2.83465; // 1 mm en puntos PDF
 const MESES_PDF = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-// Lee una variable de plantilla (tabla clave-valor `ajustes`); si falta o está vacía, el default.
-function plantilla(clave, def) {
-  const r = db.prepare('SELECT valor FROM ajustes WHERE clave = ?').get(clave);
-  return (r && r.valor != null && r.valor !== '') ? r.valor : (def || '');
-}
-
 const TIPOS = ['precio_cerrado', 'comision'];
 const ESTADOS = ['activo', 'finalizado', 'cancelado'];
 
@@ -320,14 +314,10 @@ router.get('/:id/pdf', (req, res) => {
   const rsCp = v(rs.codigo_postal);
   const rsCiudad = v(rs.ciudad);
   const rsProvincia = v(rs.estado_provincia);
+  const rsContacto = v(rs.persona_contacto);
   const rsEmail = v(rs.email_contacto);
   const aptoNombre = v(c.apartamento_nombre);
   const refCat = v(c.apartamento_ref_catastral);
-  // Variables de plantilla configurables en Ajustes → Plantillas.
-  const repNombre = v(plantilla('plantilla_representante_nombre', rs.persona_contacto));
-  const repDni = v(plantilla('plantilla_representante_dni', ''));
-  const condicionesQuinta = (c.notas && String(c.notas).trim()) || plantilla('plantilla_contrato_condiciones_quinta', '---');
-  const emailRgpd = v(plantilla('plantilla_contrato_email_rgpd', rs.email_contacto || ''));
 
   const M = Math.round(22 * MM); // margen 22mm
   const doc = new PDFDocument({ size: 'A4', margin: M });
@@ -391,7 +381,7 @@ router.get('/:id/pdf', (req, res) => {
 
   tituloCentro('REUNIDOS');
   parrafo([
-    { t: 'De una parte ' }, { t: repNombre, b: true }, { t: ', DNI ' }, { t: repDni, b: true },
+    { t: 'De una parte ' }, { t: rsContacto, b: true }, { t: ', DNI ' }, { t: rsCif, b: true },
     { t: ', como administrador, en nombre y representación de la entidad mercantil ' }, { t: rsNombre, b: true },
     { t: ', con CIF ' }, { t: rsCif, b: true }, { t: ' y con domicilio social en ' }, { t: rsDir, b: true },
     { t: ', ' }, { t: rsCp, b: true }, { t: ', ' }, { t: rsCiudad, b: true }, { t: ' (' }, { t: rsProvincia, b: true }, { t: ').' },
@@ -475,7 +465,7 @@ router.get('/:id/pdf', (req, res) => {
   // ----- QUINTA -----
   clausula('QUINTA');
   parrafo([{ t: 'Por cuenta de la mercantil ' }, { t: rsNombre, b: true }]);
-  parrafo([{ t: condicionesQuinta, b: true }]);
+  parrafo([{ t: (c.notas && String(c.notas).trim()) || '---', b: true }]);
   bullet([{ t: 'La captación y recepción de clientes.' }]);
   bullet([{ t: 'Los gastos de lavandería.' }]);
   bullet([{ t: 'La limpieza del inmueble.' }]);
@@ -501,7 +491,7 @@ router.get('/:id/pdf', (req, res) => {
     { t: ', ' }, { t: rsCp, b: true }, { t: ' ' }, { t: (rs.ciudad || '___________').toUpperCase(), b: true },
     { t: ' (' }, { t: rsProvincia, b: true }, { t: ').' },
   ]);
-  parrafo([{ t: 'Email: ' }, { t: emailRgpd, b: true }]);
+  parrafo([{ t: 'Email: ' }, { t: rsEmail, b: true }]);
 
   // ----- SÉPTIMA -----
   clausula('SÉPTIMA');

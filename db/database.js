@@ -206,7 +206,6 @@ function init() {
   seedEstadosReserva();
   seedMayoristas();
   seedLeadPlantillas();
-  seedPlantillasDocumentos();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -481,25 +480,6 @@ function seedLeadPlantillas() {
     );
     console.log('Plantillas de Leads por defecto creadas (Propuesta estándar, Seguimiento).');
   }
-}
-
-// Variables de plantillas de documentos (arras, autorización, contrato). Se guardan en la
-// tabla clave-valor `ajustes` con prefijo plantilla_. INSERT OR IGNORE: solo crea la clave si
-// falta, sin pisar lo que el usuario haya editado en Ajustes → Plantillas.
-const PLANTILLAS_DOC_DEFECTO = {
-  plantilla_representante_nombre: 'Analia Palermo Cornet',
-  plantilla_representante_dni: '20473042Y',
-  plantilla_cuenta_custodia: 'ES74 0081 1276 2900 0108 0515',
-  plantilla_arras_senal_defecto: '3000',
-  plantilla_arras_comision_defecto: '3',
-  plantilla_autorizacion_comision_defecto: '3',
-  plantilla_autorizacion_duracion_mandato: '365',
-  plantilla_contrato_condiciones_quinta: '---',
-  plantilla_contrato_email_rgpd: '',
-};
-function seedPlantillasDocumentos() {
-  const ins = db.prepare('INSERT OR IGNORE INTO ajustes (clave, valor) VALUES (?, ?)');
-  for (const [clave, valor] of Object.entries(PLANTILLAS_DOC_DEFECTO)) ins.run(clave, valor);
 }
 
 // Inserta los portales por defecto si la tabla está vacía.

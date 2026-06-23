@@ -14,12 +14,6 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const MM = 2.83465; // 1 mm en puntos PDF
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-// Lee una variable de plantilla (tabla clave-valor `ajustes`); si falta o está vacía, el default.
-function plantilla(clave, def) {
-  const r = db.prepare('SELECT valor FROM ajustes WHERE clave = ?').get(clave);
-  return (r && r.valor != null && r.valor !== '') ? r.valor : (def || '');
-}
-
 // Fecha ISO (YYYY-MM-DD) -> DD/MM/YYYY; si no es ISO, devuelve el valor tal cual.
 function fechaDDMM(v) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
@@ -187,11 +181,6 @@ router.post('/autorizacion-pdf', (req, res) => {
   const rsLogo = rsId != null ? db.prepare('SELECT logo_url FROM razones_sociales WHERE id = ?').get(rsId) : null;
   const logoBuf = rsLogo ? leerLogoVenta(rsLogo.logo_url) : null;
 
-  // Representante legal y cuenta de custodia (variables de plantilla configurables en Ajustes).
-  const repNombre = plantilla('plantilla_representante_nombre', 'Analia Palermo Cornet');
-  const repDni = plantilla('plantilla_representante_dni', '20473042Y');
-  const cuentaCustodia = plantilla('plantilla_cuenta_custodia', 'ES74 0081 1276 2900 0108 0515');
-
   const BODY = 10;   // tamaño de fuente del cuerpo
   const LG = 4;      // interlineado ~1.4 con BODY
   const PARR = 0.5;  // espacio entre párrafos
@@ -249,7 +238,7 @@ router.post('/autorizacion-pdf', (req, res) => {
     N('; en adelante parte compradora.'),
   ]);
 
-  parrafo([N(`Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por ${repNombre}, DNI ${repDni}, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.`)]);
+  parrafo([N('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.')]);
 
   // Parking y trastero solo se mencionan si tienen valor.
   const segInmueble = [
@@ -268,7 +257,7 @@ router.post('/autorizacion-pdf', (req, res) => {
 
   parrafo([
     B(senal),
-    N(` que serán custodiadas en la cta. de la sra. ${repNombre} con n.° de cuenta ${cuentaCustodia}, sirviendo este contrato de eficaz recibo.`),
+    N(' que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.'),
   ]);
 
   parrafo([
@@ -283,7 +272,7 @@ router.post('/autorizacion-pdf', (req, res) => {
   parrafo([N('Los gastos que origine dicha compraventa correrán a cargo del comprador excepto la plusvalía que la abonará el vendedor.')]);
 
   parrafo([
-    N(`La empresa ${repNombre} recibirá de la parte vendedora la cantidad de `),
+    N('La empresa Analia Palermo Cornet recibirá de la parte vendedora la cantidad de '),
     B(`${importeComision} ${textoIva}`),
     N(', en concepto de honorarios por la mediación en esta compraventa, conforme el pacto establecido.'),
   ]);
@@ -302,7 +291,7 @@ router.post('/autorizacion-pdf', (req, res) => {
   if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
   const colW = (contentW - 40) / 3;
   const firmas = [
-    [repNombre, repDni],
+    ['Analia Palermo Cornet', '20473042Y'],
     [nombreVend || '—', dniVend || ''],
     [nombreComp || '—', dniComp || ''],
   ];
@@ -333,8 +322,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const planta = s(b.planta);
   const puerta = s(b.puerta);
   const precioNum = Number(b.precio_venta) || 0;
-  const porcComision = s(b.porcentaje_comision) || plantilla('plantilla_autorizacion_comision_defecto', '3');
-  const duracionMandato = plantilla('plantilla_autorizacion_duracion_mandato', '365');
+  const porcComision = s(b.porcentaje_comision) || '3';
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
   const fechaDoc = fechaTextoEspanol(b.fecha_documento);
 
@@ -415,7 +403,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
     N(' para percibir cantidades en concepto de señal de arras, o a cuenta del precio pactado como paso previo para la formalización del contrato privado de compraventa.'),
   ]);
 
-  parrafo([N(`La duración del presente mandato se pacta en ${duracionMandato} días, a contar desde el día de la fecha prorrogándose por periodos iguales, si no media denuncia expresa por cualquiera de las partes en el plazo de quince días antes de su vencimiento.`)]);
+  parrafo([N('La duración del presente mandato se pacta en 365 días, a contar desde el día de la fecha prorrogándose por periodos iguales, si no media denuncia expresa por cualquiera de las partes en el plazo de quince días antes de su vencimiento.')]);
 
   parrafo([N('En el caso de desistimiento o incumplimiento por parte de los compradores de la compra en las condiciones pactadas en el presente documento, estos perderán la cantidad entregada como reserva en concepto de indemnización por daños y perjuicios. Si el desistimiento o incumplimiento fuese por los vendedores, estos deberán devolver a los compradores la cantidad recibida como reserva doblada.')]);
 
