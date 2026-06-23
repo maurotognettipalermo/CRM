@@ -909,7 +909,10 @@ const Ajustes = (() => {
       <div class="ajustes-seccion-titulo">Información general</div>
       <div class="ajustes-grid">${RS_GENERAL.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Datos bancarios</div>
-      <div class="ajustes-grid">${RS_BANCO.map(campo).join('')}</div>
+      <div class="ajuste-campo" style="grid-column:1/-1">
+        <label>IBAN</label>
+        <input type="text" data-rs="iban" value="${esc(rs.iban != null ? rs.iban : '')}" style="width:100%;font-family:monospace;letter-spacing:1px">
+      </div>
       <div class="ajustes-seccion-titulo">Representante legal</div>
       <div class="ajustes-grid">${RS_REPRESENTANTE.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Logo</div>
