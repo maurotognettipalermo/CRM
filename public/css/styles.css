@@ -3834,6 +3834,8 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
   border: none;
   padding: 8px;
   font-family: inherit;
+  min-width: 320px;
+  z-index: 99999; /* por encima de modales estrechos para que no se corte */
 }
 .flatpickr-months { padding: 8px 0; }
 .flatpickr-months .flatpickr-month { height: 36px; }
@@ -3857,7 +3859,8 @@ span.flatpickr-weekday { color: #9ca3af; font-size: 12px; font-weight: 500; }
   font-weight: 500;
   height: 36px;
   line-height: 36px;
-  margin: 2px;
+  max-width: 40px;
+  margin: 1px;
 }
 .flatpickr-day:hover { background: #eef2ff; border-color: transparent; }
 .flatpickr-day.selected,

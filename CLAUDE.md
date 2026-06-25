@@ -99,7 +99,13 @@ public/                Frontend vanilla. Sin build, servido estático.
   css/styles.css       Tema claro (blanco / sidebar #1a1a2e). Variables CSS en :root.
   js/api.js            API.get/post/put/del/subirArchivo (header X-Auth-Token; 401→onNoAutorizado) +
                        API.getPortales() (caché en memoria, compartida por planning/reservas) +
-                       toast() + abrirModal/cerrarModal + helpers (fechaES, tihTexto).
+                       toast() + abrirModal/cerrarModal + helpers (fechaES, tihTexto) +
+                       API.initDatePickers() (flatpickr): sustituye TODOS los input[type=date]
+                       por un calendario propio (locale es, muestra DD/MM/YYYY vía altInput pero
+                       conserva YYYY-MM-DD en el input real → resto del CRM sigue leyendo/enviando
+                       ISO sin cambios). Un MutationObserver con debounce auto-inicializa los date
+                       inputs nuevos (modales, paneles, contenido renderizado) sin tocar cada módulo.
+                       Lib local en public/lib/flatpickr.* (sin CDN, red local).
   js/auth.js           Auth (window.Auth). Sesión en localStorage('crm-sesion'). Login/logout.
   js/app.js            Gate de login + menú lateral (navegación, plegado, logout) + init de módulos.
                        Vista por defecto: Dashboard. activarTab('estadisticas') exige rol admin.
@@ -115,6 +121,12 @@ public/                Frontend vanilla. Sin build, servido estático.
                        combinable con el filtro de clasificación).
                        Filtro por clasificación (dropdown multiselección sobre tipo_clasificacion,
                        en cliente; sin clasificar → '__sin__'). Sustituye a los botones TIH.
+                       Calculadora de precios (panel lateral izquierdo): multiselección de tipos
+                       (A++…C, color = badge de las fichas) + fechas → calcula el total POR TIPO en
+                       el frontend (por cada noche busca la temporada que la cubre y aplica
+                       base × (1 + modificador%/100); separador de miles, precio en negro). Cachea
+                       modificadores (1 vez) y temporadas por año. Botón limpiar (reset a solo tipo A,
+                       sin fechas). No llama a /api/tarifas/calcular (replica el cálculo en cliente).
   js/alojamientos.js   Tabla (columnas Propietario = activos por coma + Limpieza = badge punto
                        verde/rojo clicable que alterna estado, columna inyectada por JS) + barra de
                        filtros inyectada por JS (buscador por nombre + panel "🔽 Filtros":
