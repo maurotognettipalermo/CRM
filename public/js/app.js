@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
     item.addEventListener('click', () => activarTab(item.dataset.tab));
   });
 
+  // Grupos colapsables del sidebar (estado recordado en localStorage).
+  inicializarGruposSidebar();
+
   // Sidebar plegable (recuerda el estado en localStorage).
   const sidebar = document.getElementById('sidebar');
   if (localStorage.getItem('sidebar-colapsado') === '1') sidebar.classList.add('colapsado');
@@ -71,6 +74,8 @@ function arrancarApp() {
     document.querySelectorAll('.nav-item').forEach((it) =>
       it.classList.toggle('oculto', !restr.permitidas.includes(it.dataset.tab)));
   }
+  // Oculta los grupos que se quedan sin ítems visibles (p. ej. roles restringidos).
+  ocultarGruposVacios();
 
   Dashboard.init();
   Planning.init();
@@ -100,6 +105,59 @@ const ROL_RESTRINGIDO = {
   limpieza: { principal: 'limpieza', permitidas: ['limpieza', 'personal'] },
   mantenimiento: { principal: 'mantenimiento', permitidas: ['mantenimiento', 'personal'] },
 };
+
+// Estado por defecto de los grupos del sidebar (true = abierto).
+const GRUPOS_DEFAULT = { alquiler: true, administracion: false, ventas: false, equipo: false };
+
+// Aplica el estado guardado a los grupos y cablea el clic en sus cabeceras.
+function inicializarGruposSidebar() {
+  let estado = {};
+  try { estado = JSON.parse(localStorage.getItem('sidebar-grupos')) || {}; } catch (e) { estado = {}; }
+  document.querySelectorAll('.nav-group').forEach((g) => {
+    const key = g.dataset.group;
+    const abierto = key in estado ? !!estado[key] : (GRUPOS_DEFAULT[key] !== false);
+    g.classList.toggle('open', abierto);
+    g.classList.toggle('closed', !abierto);
+    const header = g.querySelector('.nav-group-header');
+    if (!header) return;
+    header.addEventListener('click', () => toggleGrupoSidebar(g));
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGrupoSidebar(g); }
+    });
+  });
+}
+
+function toggleGrupoSidebar(g) {
+  const abrir = !g.classList.contains('open');
+  g.classList.toggle('open', abrir);
+  g.classList.toggle('closed', !abrir);
+  guardarEstadoGrupos();
+}
+
+function guardarEstadoGrupos() {
+  const estado = {};
+  document.querySelectorAll('.nav-group').forEach((g) => { estado[g.dataset.group] = g.classList.contains('open'); });
+  localStorage.setItem('sidebar-grupos', JSON.stringify(estado));
+}
+
+// Expande el grupo que contiene la pestaña indicada (si está cerrado).
+function expandirGrupoDe(nombreTab) {
+  const item = document.querySelector(`.nav-item[data-tab="${nombreTab}"]`);
+  const g = item && item.closest('.nav-group');
+  if (g && !g.classList.contains('open')) {
+    g.classList.add('open');
+    g.classList.remove('closed');
+    guardarEstadoGrupos();
+  }
+}
+
+// Oculta los grupos sin ningún ítem visible (todos sus nav-item con .oculto).
+function ocultarGruposVacios() {
+  document.querySelectorAll('.nav-group').forEach((g) => {
+    const visibles = g.querySelectorAll('.nav-item:not(.oculto)').length;
+    g.classList.toggle('oculto', visibles === 0);
+  });
+}
 
 // En móvil cierra el sidebar (en móvil la clase .colapsado = abierto, así que cerrar
 // = quitarla). No-op en escritorio, donde .colapsado es el modo "icono".
@@ -154,6 +212,8 @@ function activarTab(nombre) {
   document.querySelectorAll('.nav-item').forEach((t) =>
     t.classList.toggle('activo', t.dataset.tab === nombre)
   );
+  // Expande automáticamente el grupo que contiene la pestaña activa.
+  expandirGrupoDe(nombre);
   document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
   document.getElementById('vista-' + nombre).classList.add('activa');
 

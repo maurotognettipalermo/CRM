@@ -39,47 +39,84 @@
       <button class="nav-item activo" data-tab="dashboard" title="Dashboard">
         <span class="nav-icono">📊</span><span class="nav-texto">Dashboard</span>
       </button>
-      <button class="nav-item" data-tab="planning" title="Planning">
-        <span class="nav-icono">📅</span><span class="nav-texto">Planning</span>
-      </button>
-      <button class="nav-item" data-tab="alojamientos" title="Alojamientos">
-        <span class="nav-icono">🏠</span><span class="nav-texto">Alojamientos</span>
-      </button>
-      <button class="nav-item" data-tab="contratos" title="Contratos">
-        <span class="nav-icono">📄</span><span class="nav-texto">Contratos</span>
-      </button>
-      <button class="nav-item" data-tab="facturacion" title="Facturación">
-        <span class="nav-icono">🧾</span><span class="nav-texto">Facturación</span>
-      </button>
-      <button class="nav-item" data-tab="tarifas" title="Tarifas">
-        <span class="nav-icono">💲</span><span class="nav-texto">Tarifas</span>
-      </button>
-      <button class="nav-item" data-tab="ventas" title="Ventas">
-        <span class="nav-icono">🏷️</span><span class="nav-texto">Ventas</span>
-      </button>
-      <button class="nav-item" data-tab="propietarios" title="Propietarios">
-        <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
-      </button>
-      <button class="nav-item" data-tab="reservas" title="Reservas">
-        <span class="nav-icono">📋</span><span class="nav-texto">Reservas</span>
-      </button>
-      <button class="nav-item" id="nav-clientes" data-tab="clientes" title="Clientes">
-        <span class="nav-icono">🧑‍🤝‍🧑</span><span class="nav-texto">Clientes</span>
-      </button>
-      <button class="nav-item" id="nav-comercial" data-tab="comercial" title="Comercial">
-        <span class="nav-icono">📞</span><span class="nav-texto">Comercial</span>
-      </button>
+
+      <div class="nav-group open" data-group="alquiler">
+        <div class="nav-group-header" role="button" tabindex="0" title="Alquiler vacacional">
+          <span class="nav-group-titulo nav-texto">🏠 Alquiler vacacional</span>
+          <span class="nav-group-arrow nav-texto">▶</span>
+        </div>
+        <div class="nav-group-items">
+          <button class="nav-item" data-tab="planning" title="Planning">
+            <span class="nav-icono">📅</span><span class="nav-texto">Planning</span>
+          </button>
+          <button class="nav-item" data-tab="alojamientos" title="Alojamientos">
+            <span class="nav-icono">🏠</span><span class="nav-texto">Alojamientos</span>
+          </button>
+          <button class="nav-item" data-tab="reservas" title="Reservas">
+            <span class="nav-icono">📋</span><span class="nav-texto">Reservas</span>
+          </button>
+          <button class="nav-item" id="nav-clientes" data-tab="clientes" title="Clientes">
+            <span class="nav-icono">🧑‍🤝‍🧑</span><span class="nav-texto">Clientes</span>
+          </button>
+          <button class="nav-item" id="nav-comercial" data-tab="comercial" title="Comercial">
+            <span class="nav-icono">📞</span><span class="nav-texto">Comercial</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-group closed" data-group="administracion">
+        <div class="nav-group-header" role="button" tabindex="0" title="Administración">
+          <span class="nav-group-titulo nav-texto">📑 Administración</span>
+          <span class="nav-group-arrow nav-texto">▶</span>
+        </div>
+        <div class="nav-group-items">
+          <button class="nav-item" data-tab="contratos" title="Contratos">
+            <span class="nav-icono">📄</span><span class="nav-texto">Contratos</span>
+          </button>
+          <button class="nav-item" data-tab="facturacion" title="Facturación">
+            <span class="nav-icono">🧾</span><span class="nav-texto">Facturación</span>
+          </button>
+          <button class="nav-item" data-tab="tarifas" title="Tarifas">
+            <span class="nav-icono">💲</span><span class="nav-texto">Tarifas</span>
+          </button>
+          <button class="nav-item" data-tab="propietarios" title="Propietarios">
+            <span class="nav-icono">👥</span><span class="nav-texto">Propietarios</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-group closed" data-group="ventas">
+        <div class="nav-group-header" role="button" tabindex="0" title="Ventas">
+          <span class="nav-group-titulo nav-texto">🏷️ Ventas</span>
+          <span class="nav-group-arrow nav-texto">▶</span>
+        </div>
+        <div class="nav-group-items">
+          <button class="nav-item" data-tab="ventas" title="Ventas">
+            <span class="nav-icono">🏷️</span><span class="nav-texto">Ventas</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-group closed" data-group="equipo">
+        <div class="nav-group-header" role="button" tabindex="0" title="Equipo">
+          <span class="nav-group-titulo nav-texto">👥 Equipo</span>
+          <span class="nav-group-arrow nav-texto">▶</span>
+        </div>
+        <div class="nav-group-items">
+          <button class="nav-item" data-tab="limpieza" title="Limpieza">
+            <span class="nav-icono">🧹</span><span class="nav-texto">Limpieza</span>
+          </button>
+          <button class="nav-item" data-tab="mantenimiento" title="Mantenimiento">
+            <span class="nav-icono">🔧</span><span class="nav-texto">Mantenimiento</span>
+          </button>
+          <button class="nav-item" data-tab="personal" title="Personal">
+            <span class="nav-icono">👥</span><span class="nav-texto">Personal</span>
+          </button>
+        </div>
+      </div>
+
       <button class="nav-item oculto" id="nav-estadisticas" data-tab="estadisticas" title="Estadísticas">
         <span class="nav-icono">📈</span><span class="nav-texto">Estadísticas</span>
-      </button>
-      <button class="nav-item" data-tab="limpieza" title="Limpieza">
-        <span class="nav-icono">🧹</span><span class="nav-texto">Limpieza</span>
-      </button>
-      <button class="nav-item" data-tab="mantenimiento" title="Mantenimiento">
-        <span class="nav-icono">🔧</span><span class="nav-texto">Mantenimiento</span>
-      </button>
-      <button class="nav-item" data-tab="personal" title="Personal">
-        <span class="nav-icono">👥</span><span class="nav-texto">Personal</span>
       </button>
       <button class="nav-item" data-tab="ajustes" title="Ajustes">
         <span class="nav-icono">⚙️</span><span class="nav-texto">Ajustes</span>
