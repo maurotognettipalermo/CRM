@@ -1043,7 +1043,7 @@ const Ventas = (() => {
           <span class="vta-visita-fecha">${fechaES(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</span>
           <span class="vta-bdg ${visitaBadgeClase(v.estado)}">${esc(v.estado)}</span>
         </div>
-        <div class="vta-visita-cli">🏠 ${esc(v.propiedad_referencia)}${v.propiedad_calle ? ' · ' + esc(v.propiedad_calle) : ''}</div>
+        <div class="vta-visita-cli">🏠 ${propsResumen(v)}</div>
         ${v.valoracion ? `<div class="vta-visita-val"><em>⭐ ${esc(v.valoracion)}</em></div>` : ''}
       </div>`).join('') || '<div class="vta-muted">Sin visitas registradas</div>';
     const histVisitas = `
@@ -1313,6 +1313,20 @@ const Ventas = (() => {
 
   function clienteNomVis(v) { return [v.cliente_nombre, v.cliente_apellidos].filter(Boolean).join(' '); }
 
+  // Propiedades de una visita (N:M). Cae al campo compat si el array no viene.
+  function propsDeV(v) {
+    if (Array.isArray(v.propiedades) && v.propiedades.length) return v.propiedades;
+    if (v.propiedad_id) return [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }];
+    return [];
+  }
+  // Resumen de refs: "A417, A381 +1 más" si hay más de 2.
+  function propsResumen(v) {
+    const refs = propsDeV(v).map((p) => p.referencia).filter(Boolean);
+    if (!refs.length) return '—';
+    if (refs.length <= 2) return refs.map(esc).join(', ');
+    return `${esc(refs[0])}, ${esc(refs[1])} <span class="vta-muted">+${refs.length - 2} más</span>`;
+  }
+
   function renderVisitas() {
     const tbody = document.querySelector('#tabla-visitas tbody');
     if (!tbody) return;
@@ -1322,7 +1336,7 @@ const Ventas = (() => {
       if (v.fecha < desde || v.fecha > hasta) return false;
       if (visEstado && v.estado !== visEstado) return false;
       if (q) {
-        const txt = `${clienteNomVis(v)} ${v.propiedad_referencia || ''} ${v.propiedad_calle || ''}`.toLowerCase();
+        const txt = `${clienteNomVis(v)} ${propsDeV(v).map((p) => `${p.referencia || ''} ${p.calle || ''}`).join(' ')}`.toLowerCase();
         if (!txt.includes(q)) return false;
       }
       return true;
@@ -1337,7 +1351,7 @@ const Ventas = (() => {
         <td>${fechaES(v.fecha)}</td>
         <td>${esc(v.hora) || '—'}</td>
         <td><a class="vta-ref" data-cli="${v.cliente_id}">${esc(clienteNomVis(v))}</a></td>
-        <td><a class="vta-ref" data-prop="${v.propiedad_id}">${esc(v.propiedad_referencia)}${v.propiedad_calle ? ' · ' + esc(v.propiedad_calle) : ''}</a></td>
+        <td>${propsResumen(v)}</td>
         <td>${v.estado === 'Realizada' ? valoracionBadge(v.valoracion) : '—'}</td>
         <td>${visitaBadge(v.estado)}</td>
         <td class="vta-acciones">
@@ -1474,15 +1488,15 @@ const Ventas = (() => {
   // ---- Editar visita (estado / valoración / fecha / hora / propiedades) ----
   async function modalEditarVisita(v) {
     if (!v) return;
-    // Catálogo de propiedades buscables; añade la actual si no está (puede no estar Disponible).
+    // Propiedades actuales de la visita (N:M); cae al campo compat si no vienen.
+    let veProps = propsDeV(v).map((p) => ({ id: p.id, referencia: p.referencia, calle: p.calle, precio: p.precio }));
+    // Catálogo de propiedades buscables; añade las actuales si no están (pueden no estar Disponibles).
     let cache = [];
     try { cache = await API.get('/api/ventas/propiedades?estado=Disponible'); }
     catch (e) { return toast(e.message, 'error'); }
-    if (!cache.some((p) => p.id === v.propiedad_id)) {
-      cache = [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }, ...cache];
+    for (const p of veProps) {
+      if (!cache.some((c) => c.id === p.id)) cache = [p, ...cache];
     }
-    // Propiedad actual preseleccionada (1ª propiedad = esta visita en el backend).
-    let veProps = [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }];
 
     const selEstado = ['Programada', 'Realizada', 'Cancelada']
       .map((e) => `<option value="${e}"${v.estado === e ? ' selected' : ''}>${e}</option>`).join('');
@@ -1523,15 +1537,14 @@ const Ventas = (() => {
       const btn = document.getElementById('ve-guardar');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        const r = await API.put('/api/ventas/visitas/' + v.id, {
+        await API.put('/api/ventas/visitas/' + v.id, {
           propiedad_ids: veProps.map((p) => p.id),
           fecha: val('ve-fecha'), hora: val('ve-hora'), estado: val('ve-estado'),
           valoracion: val('ve-valoracion'), atendido_por: val('ve-atendido'), notas: val('ve-notas'),
         });
-        const n = (r && r.visitas_ids) ? r.visitas_ids.length : 1;
         cerrarModal();
         await cargarVisitas();
-        toast(n > 1 ? `${n} visitas guardadas` : 'Visita actualizada', 'ok');
+        toast('Visita actualizada', 'ok');
       } catch (e) {
         toast(e.message, 'error');
         btn.disabled = false; btn.textContent = 'Guardar';
@@ -1541,13 +1554,10 @@ const Ventas = (() => {
 
   // ---- Modal detalle de visita (con notas tipo chat) ----
   async function modalDetalleVisita(id) {
-    let v, cli, prop;
+    let v, cli;
     try {
       v = await API.get('/api/ventas/visitas/' + id);
-      [cli, prop] = await Promise.all([
-        API.get('/api/ventas/clientes/' + v.cliente_id).catch(() => null),
-        API.get('/api/ventas/propiedades/' + v.propiedad_id).catch(() => null),
-      ]);
+      cli = await API.get('/api/ventas/clientes/' + v.cliente_id).catch(() => null);
     } catch (e) { return toast(e.message, 'error'); }
 
     const buscaTxt = cli ? resumenBusca(cli) : '—';
@@ -1576,10 +1586,13 @@ const Ventas = (() => {
           <div class="vta-det-linea vta-muted">Busca: ${esc(buscaTxt)}</div>
         </div>
         <div class="vta-det-col">
-          <div class="vta-d-titulo-sec">Propiedad</div>
-          <div class="vta-det-linea"><strong>${esc(v.propiedad_referencia)}</strong></div>
-          <div class="vta-det-linea">${esc(v.propiedad_calle) || '—'}</div>
-          <div class="vta-det-linea">${euro(v.propiedad_precio)}${prop ? ` · ${esc(prop.tipo) || '—'} · ${prop.dormitorios ?? '—'} dorm` : ''}</div>
+          <div class="vta-d-titulo-sec">Propiedades</div>
+          ${propsDeV(v).map((p) => `
+            <div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px">
+              <div style="font-weight:600;color:#1e293b">${esc(p.referencia)}</div>
+              <div style="font-size:12px;color:#64748b">${esc(p.calle) || '—'}</div>
+              <div style="font-size:13px;color:#2563eb;font-weight:600">${euro(p.precio)}</div>
+            </div>`).join('') || '<div class="vta-det-linea">—</div>'}
         </div>
       </div>
       <div class="vta-d-titulo-sec" style="margin-top:14px">📝 Notas</div>
@@ -1757,16 +1770,16 @@ const Ventas = (() => {
     const btn = document.getElementById('nv-guardar');
     btn.disabled = true; btn.textContent = 'Programando…';
     try {
-      const r = await API.post('/api/ventas/visitas', {
+      await API.post('/api/ventas/visitas', {
         cliente_id: nvCliente.id, propiedad_ids: nvProps.map((p) => p.id), fecha,
         hora: val('nv-hora'), atendido_por: val('nv-atendido'), notas: val('nv-notas'),
       });
-      const n = (r && r.visitas) ? r.visitas.length : nvProps.length;
+      const n = nvProps.length;
       nvCliente = null; nvProps = [];
       cerrarModal();
       await cargarVisitas();
       cargarResumen();
-      toast(n === 1 ? 'Visita programada' : `${n} visitas programadas`, 'ok');
+      toast(n > 1 ? `Visita programada (${n} propiedades)` : 'Visita programada', 'ok');
     } catch (e) {
       toast(e.message, 'error'); // 409 si ya existe
       btn.disabled = false; btn.textContent = 'Programar';

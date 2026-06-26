@@ -618,6 +618,16 @@ CREATE TABLE IF NOT EXISTS visitas_notas (
 );
 CREATE INDEX IF NOT EXISTS idx_visitas_notas_visita ON visitas_notas(visita_id);
 
+-- Propiedades de una visita (N:M). visitas_venta.propiedad_id queda como compat (1ª propiedad).
+CREATE TABLE IF NOT EXISTS visitas_propiedades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  visita_id INTEGER NOT NULL REFERENCES visitas_venta(id) ON DELETE CASCADE,
+  propiedad_id INTEGER NOT NULL REFERENCES propiedades_venta(id) ON DELETE CASCADE,
+  UNIQUE(visita_id, propiedad_id)
+);
+CREATE INDEX IF NOT EXISTS idx_visitas_propiedades_visita ON visitas_propiedades(visita_id);
+CREATE INDEX IF NOT EXISTS idx_visitas_propiedades_propiedad ON visitas_propiedades(propiedad_id);
+
 -- Propietarios del módulo de ventas (inmobiliaria). Pueden importarse desde los
 -- propietarios de alquiler (propietario_alquiler_id apunta al original para no duplicar)
 -- o crearse como propietarios exclusivos de ventas (propietario_alquiler_id NULL).

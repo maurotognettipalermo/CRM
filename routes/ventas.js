@@ -482,7 +482,7 @@ router.get('/propiedades/:id', (req, res) => {
     SELECT v.*, c.nombre AS cliente_nombre, c.apellidos AS cliente_apellidos, c.telefono AS cliente_telefono
     FROM visitas_venta v
     JOIN clientes_compradores c ON c.id = v.cliente_id
-    WHERE v.propiedad_id = ?
+    WHERE EXISTS (SELECT 1 FROM visitas_propiedades vp WHERE vp.visita_id = v.id AND vp.propiedad_id = ?)
     ORDER BY v.fecha DESC, v.id DESC
   `).all(prop.id);
   res.json({ ...prop, visitas });
@@ -718,7 +718,7 @@ router.get('/clientes/:id', (req, res) => {
     JOIN propiedades_venta p ON p.id = v.propiedad_id
     WHERE v.cliente_id = ?
     ORDER BY v.fecha DESC, v.id DESC
-  `).all(cli.id);
+  `).all(cli.id).map((v) => ({ ...v, propiedades: propsDeVisita(v.id) }));
   res.json({ ...cli, visitas });
 });
 
@@ -779,6 +779,18 @@ const SELECT_VISITA = `
   JOIN clientes_compradores c ON c.id = v.cliente_id
   JOIN propiedades_venta p ON p.id = v.propiedad_id`;
 
+// Propiedades (N:M) de una visita: [{id, referencia, calle, precio}].
+function propsDeVisita(visitaId) {
+  return db.prepare(`
+    SELECT p.id, p.referencia, p.calle, p.precio
+    FROM visitas_propiedades vp
+    JOIN propiedades_venta p ON p.id = vp.propiedad_id
+    WHERE vp.visita_id = ?
+    ORDER BY p.referencia
+  `).all(visitaId);
+}
+const conProps = (v) => ({ ...v, propiedades: propsDeVisita(v.id) });
+
 // GET /api/ventas/visitas — lista con filtros (sin fecha = todas).
 router.get('/visitas', (req, res) => {
   let sql = SELECT_VISITA + ' WHERE 1 = 1';
@@ -787,27 +799,30 @@ router.get('/visitas', (req, res) => {
   if (fecha) { sql += ' AND v.fecha = ?'; params.push(fecha); }
   if (estado) { sql += ' AND v.estado = ?'; params.push(estado); }
   if (cliente_id) { sql += ' AND v.cliente_id = ?'; params.push(aEntero(cliente_id)); }
-  if (propiedad_id) { sql += ' AND v.propiedad_id = ?'; params.push(aEntero(propiedad_id)); }
+  if (propiedad_id) {
+    sql += ' AND EXISTS (SELECT 1 FROM visitas_propiedades vp WHERE vp.visita_id = v.id AND vp.propiedad_id = ?)';
+    params.push(aEntero(propiedad_id));
+  }
   sql += ' ORDER BY v.fecha DESC, v.hora DESC, v.id DESC';
-  res.json(db.prepare(sql).all(...params));
+  res.json(db.prepare(sql).all(...params).map(conProps));
 });
 
 // GET /api/ventas/visitas/hoy — programadas para hoy (antes de /:id).
 router.get('/visitas/hoy', (req, res) => {
   const sql = SELECT_VISITA + " WHERE v.fecha = ? AND v.estado = 'Programada' ORDER BY v.hora ASC, v.id ASC";
-  res.json(db.prepare(sql).all(hoyISO()));
+  res.json(db.prepare(sql).all(hoyISO()).map(conProps));
 });
 
-// GET /api/ventas/visitas/:id — detalle + notas.
+// GET /api/ventas/visitas/:id — detalle + notas + propiedades.
 router.get('/visitas/:id', (req, res) => {
   const visita = db.prepare(SELECT_VISITA + ' WHERE v.id = ?').get(req.params.id);
   if (!visita) return res.status(404).json({ error: 'Visita no encontrada' });
   const notas = db.prepare('SELECT * FROM visitas_notas WHERE visita_id = ? ORDER BY fecha ASC, id ASC').all(visita.id);
-  res.json({ ...visita, notas });
+  res.json({ ...conProps(visita), notas });
 });
 
 // POST /api/ventas/visitas — crear. Avanza el cliente Nuevo -> Contactado.
-// Acepta propiedad_id (singular) o propiedad_ids[] (array): una visita por propiedad.
+// Acepta propiedad_id (singular) o propiedad_ids[]: UNA visita con N propiedades (N:M).
 router.post('/visitas', (req, res) => {
   const b = req.body || {};
   const clienteId = aEntero(b.cliente_id);
@@ -826,39 +841,40 @@ router.post('/visitas', (req, res) => {
   const cli = db.prepare('SELECT id, estado FROM clientes_compradores WHERE id = ?').get(clienteId);
   if (!cli) return res.status(400).json({ error: 'El cliente indicado no existe' });
 
+  // Valida existencia + que ninguna propiedad ya tenga visita de ese cliente en esa fecha.
   for (const pid of propIds) {
     if (!db.prepare('SELECT id FROM propiedades_venta WHERE id = ?').get(pid)) {
       return res.status(400).json({ error: `La propiedad ${pid} no existe` });
     }
-    const dup = db.prepare('SELECT id FROM visitas_venta WHERE cliente_id = ? AND propiedad_id = ? AND fecha = ?')
-      .get(clienteId, pid, fecha);
+    const dup = db.prepare(`
+      SELECT vp.visita_id FROM visitas_propiedades vp
+      JOIN visitas_venta v ON v.id = vp.visita_id
+      WHERE v.cliente_id = ? AND v.fecha = ? AND vp.propiedad_id = ?
+    `).get(clienteId, fecha, pid);
     if (dup) return res.status(409).json({ error: 'Ya existe una visita de ese cliente a esa propiedad en esa fecha' });
   }
 
-  const visitas = [];
+  let visitaId;
   db.transaction(() => {
-    const ins = db.prepare(`
+    // propiedad_id (NOT NULL en visitas_venta) = 1ª propiedad, solo por compat.
+    const info = db.prepare(`
       INSERT INTO visitas_venta (cliente_id, propiedad_id, fecha, hora, atendido_por, notas, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const pid of propIds) {
-      const info = ins.run(clienteId, pid, fecha, txt(b.hora), txt(b.atendido_por), txt(b.notas), actor(req));
-      visitas.push({ id: info.lastInsertRowid, propiedad_id: pid });
-    }
+    `).run(clienteId, propIds[0], fecha, txt(b.hora), txt(b.atendido_por), txt(b.notas), actor(req));
+    visitaId = info.lastInsertRowid;
+    const insProp = db.prepare('INSERT INTO visitas_propiedades (visita_id, propiedad_id) VALUES (?, ?)');
+    for (const pid of propIds) insProp.run(visitaId, pid);
     if (cli.estado === 'Nuevo') {
       db.prepare("UPDATE clientes_compradores SET estado = 'Contactado', updated_at = datetime('now') WHERE id = ?").run(clienteId);
     }
   })();
-  for (const v of visitas) {
-    registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'visita-venta', v.id, fecha);
-  }
-  // Compat: id = primera visita creada.
-  res.status(201).json({ ok: true, id: visitas[0].id, visitas });
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'visita-venta', visitaId, fecha);
+  res.status(201).json({ ok: true, id: visitaId, propiedades: propsDeVisita(visitaId) });
 });
 
-// PUT /api/ventas/visitas/:id — editar estado / valoración / notas.
-// Acepta propiedad_ids[]: la 1ª propiedad actualiza esta visita, las adicionales
-// se crean como visitas nuevas (mismos cliente/fecha/hora/atendido_por/notas).
+// PUT /api/ventas/visitas/:id — editar campos y/o reemplazar sus propiedades (N:M).
+// Acepta propiedad_ids[]: borra e inserta todas las filas de visitas_propiedades. UN solo
+// registro de visita; propiedad_id queda como compat (1ª propiedad).
 router.put('/visitas/:id', (req, res) => {
   const visita = db.prepare('SELECT * FROM visitas_venta WHERE id = ?').get(req.params.id);
   if (!visita) return res.status(404).json({ error: 'Visita no encontrada' });
@@ -888,48 +904,39 @@ router.put('/visitas/:id', (req, res) => {
     propIds = [aEntero(b.propiedad_id)];
   }
 
-  if (propIds) {
-    // La 1ª propiedad actualiza esta visita.
-    add('propiedad_id', propIds[0]);
-  }
+  // La 1ª propiedad pasa a ser la de compat (propiedad_id).
+  if (propIds) add('propiedad_id', propIds[0]);
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
 
-  // Valores efectivos para las visitas adicionales (body o, si no, los de la visita actual).
+  // Fecha efectiva (body o la actual) para el control de duplicados.
   const efFecha = 'fecha' in vals ? vals.fecha : visita.fecha;
-  const efHora = 'hora' in vals ? vals.hora : visita.hora;
-  const efAtendido = 'atendido_por' in vals ? vals.atendido_por : visita.atendido_por;
-  const efNotas = 'notas' in vals ? vals.notas : visita.notas;
 
-  // Valida existencia y duplicados de TODAS las propiedades (excluyendo esta visita).
+  // Valida existencia y que ninguna propiedad ya esté en OTRA visita del cliente esa fecha.
   if (propIds) {
     for (const pid of propIds) {
       if (!db.prepare('SELECT id FROM propiedades_venta WHERE id = ?').get(pid)) {
         return res.status(400).json({ error: `La propiedad ${pid} no existe` });
       }
-      const dup = db.prepare(
-        'SELECT id FROM visitas_venta WHERE cliente_id = ? AND propiedad_id = ? AND fecha = ? AND id != ?'
-      ).get(visita.cliente_id, pid, efFecha, visita.id);
+      const dup = db.prepare(`
+        SELECT vp.visita_id FROM visitas_propiedades vp
+        JOIN visitas_venta v ON v.id = vp.visita_id
+        WHERE v.cliente_id = ? AND v.fecha = ? AND vp.propiedad_id = ? AND v.id != ?
+      `).get(visita.cliente_id, efFecha, pid, visita.id);
       if (dup) return res.status(409).json({ error: 'Ya existe una visita de ese cliente a esa propiedad en esa fecha' });
     }
   }
 
   vals.id = visita.id;
-  const idsResultantes = [visita.id];
   db.transaction(() => {
     db.prepare(`UPDATE visitas_venta SET ${sets.join(', ')} WHERE id = @id`).run(vals);
-    if (propIds && propIds.length > 1) {
-      const ins = db.prepare(`
-        INSERT INTO visitas_venta (cliente_id, propiedad_id, fecha, hora, atendido_por, notas, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const pid of propIds.slice(1)) {
-        const info = ins.run(visita.cliente_id, pid, efFecha, efHora, efAtendido, efNotas, actor(req));
-        idsResultantes.push(info.lastInsertRowid);
-      }
+    if (propIds) {
+      db.prepare('DELETE FROM visitas_propiedades WHERE visita_id = ?').run(visita.id);
+      const insProp = db.prepare('INSERT INTO visitas_propiedades (visita_id, propiedad_id) VALUES (?, ?)');
+      for (const pid of propIds) insProp.run(visita.id, pid);
     }
   })();
 
-  res.json({ ok: true, visitas_ids: idsResultantes });
+  res.json({ ok: true, propiedades: propsDeVisita(visita.id) });
 });
 
 // POST /api/ventas/visitas/:id/realizar — marcar realizada. Avanza Contactado -> Visitado.

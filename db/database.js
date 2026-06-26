@@ -203,6 +203,7 @@ function init() {
   migrarUsuariosRol();
   migrarFacturasTipo();
   migrarPropiedadesVenta();
+  migrarVisitasPropiedades();
   seedAdmin();
   seedPortales();
   seedModificadores();
@@ -355,6 +356,20 @@ function migrarCatalogoExtras() {
 // Migración de propiedades_venta: añade los campos de la venta cerrada si faltan.
 function migrarPropiedadesVenta() {
   anadirColumnasFaltantes('propiedades_venta', COLUMNAS_PROPIEDADES_VENTA);
+}
+
+// Backfill de la tabla N:M visitas_propiedades (creada por schema.sql). Para cada visita
+// legada con propiedad_id no nulo y SIN filas en visitas_propiedades, inserta su propiedad.
+// Idempotente y seguro: solo toca visitas aún no migradas (las creadas tras el refactor ya
+// insertan sus filas en el POST/PUT). No borra ni pisa nada.
+function migrarVisitasPropiedades() {
+  db.prepare(`
+    INSERT INTO visitas_propiedades (visita_id, propiedad_id)
+    SELECT v.id, v.propiedad_id
+    FROM visitas_venta v
+    WHERE v.propiedad_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM visitas_propiedades vp WHERE vp.visita_id = v.id)
+  `).run();
 }
 
 // Amplía el CHECK de facturas.tipo para admitir 'mayorista' y 'libre'. SQLite no permite alterar
