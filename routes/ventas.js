@@ -857,6 +857,8 @@ router.post('/visitas', (req, res) => {
 });
 
 // PUT /api/ventas/visitas/:id — editar estado / valoración / notas.
+// Acepta propiedad_ids[]: la 1ª propiedad actualiza esta visita, las adicionales
+// se crean como visitas nuevas (mismos cliente/fecha/hora/atendido_por/notas).
 router.put('/visitas/:id', (req, res) => {
   const visita = db.prepare('SELECT * FROM visitas_venta WHERE id = ?').get(req.params.id);
   if (!visita) return res.status(404).json({ error: 'Visita no encontrada' });
@@ -877,10 +879,57 @@ router.put('/visitas/:id', (req, res) => {
   if ('fecha' in b && txt(b.fecha)) add('fecha', txt(b.fecha));
   if ('atendido_por' in b) add('atendido_por', txt(b.atendido_por));
 
+  // Normaliza propiedad_ids (array) — array tiene prioridad sobre propiedad_id.
+  let propIds = null;
+  if (Array.isArray(b.propiedad_ids)) {
+    propIds = [...new Set(b.propiedad_ids.map(aEntero).filter((id) => id !== null))];
+    if (propIds.length === 0) return res.status(400).json({ error: 'Selecciona al menos una propiedad' });
+  } else if (aEntero(b.propiedad_id) !== null) {
+    propIds = [aEntero(b.propiedad_id)];
+  }
+
+  if (propIds) {
+    // La 1ª propiedad actualiza esta visita.
+    add('propiedad_id', propIds[0]);
+  }
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+
+  // Valores efectivos para las visitas adicionales (body o, si no, los de la visita actual).
+  const efFecha = 'fecha' in vals ? vals.fecha : visita.fecha;
+  const efHora = 'hora' in vals ? vals.hora : visita.hora;
+  const efAtendido = 'atendido_por' in vals ? vals.atendido_por : visita.atendido_por;
+  const efNotas = 'notas' in vals ? vals.notas : visita.notas;
+
+  // Valida existencia y duplicados de TODAS las propiedades (excluyendo esta visita).
+  if (propIds) {
+    for (const pid of propIds) {
+      if (!db.prepare('SELECT id FROM propiedades_venta WHERE id = ?').get(pid)) {
+        return res.status(400).json({ error: `La propiedad ${pid} no existe` });
+      }
+      const dup = db.prepare(
+        'SELECT id FROM visitas_venta WHERE cliente_id = ? AND propiedad_id = ? AND fecha = ? AND id != ?'
+      ).get(visita.cliente_id, pid, efFecha, visita.id);
+      if (dup) return res.status(409).json({ error: 'Ya existe una visita de ese cliente a esa propiedad en esa fecha' });
+    }
+  }
+
   vals.id = visita.id;
-  db.prepare(`UPDATE visitas_venta SET ${sets.join(', ')} WHERE id = @id`).run(vals);
-  res.json({ ok: true });
+  const idsResultantes = [visita.id];
+  db.transaction(() => {
+    db.prepare(`UPDATE visitas_venta SET ${sets.join(', ')} WHERE id = @id`).run(vals);
+    if (propIds && propIds.length > 1) {
+      const ins = db.prepare(`
+        INSERT INTO visitas_venta (cliente_id, propiedad_id, fecha, hora, atendido_por, notas, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const pid of propIds.slice(1)) {
+        const info = ins.run(visita.cliente_id, pid, efFecha, efHora, efAtendido, efNotas, actor(req));
+        idsResultantes.push(info.lastInsertRowid);
+      }
+    }
+  })();
+
+  res.json({ ok: true, visitas_ids: idsResultantes });
 });
 
 // POST /api/ventas/visitas/:id/realizar — marcar realizada. Avanza Contactado -> Visitado.

@@ -1471,9 +1471,19 @@ const Ventas = (() => {
     } catch (e) { toast(e.message, 'error'); }
   }
 
-  // ---- Editar visita (estado / valoración / fecha / hora) ----
-  function modalEditarVisita(v) {
+  // ---- Editar visita (estado / valoración / fecha / hora / propiedades) ----
+  async function modalEditarVisita(v) {
     if (!v) return;
+    // Catálogo de propiedades buscables; añade la actual si no está (puede no estar Disponible).
+    let cache = [];
+    try { cache = await API.get('/api/ventas/propiedades?estado=Disponible'); }
+    catch (e) { return toast(e.message, 'error'); }
+    if (!cache.some((p) => p.id === v.propiedad_id)) {
+      cache = [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }, ...cache];
+    }
+    // Propiedad actual preseleccionada (1ª propiedad = esta visita en el backend).
+    let veProps = [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }];
+
     const selEstado = ['Programada', 'Realizada', 'Cancelada']
       .map((e) => `<option value="${e}"${v.estado === e ? ' selected' : ''}>${e}</option>`).join('');
     const selVal = ['', 'Le encantó', 'Interesado', 'Indiferente', 'No le gustó']
@@ -1482,8 +1492,8 @@ const Ventas = (() => {
       <h3>✏️ Editar visita</h3>
       <div class="vta-pv-resumen">
         <div>👤 <strong>${esc(clienteNomVis(v))}</strong></div>
-        <div>🏠 <strong>${esc(v.propiedad_referencia)}</strong></div>
       </div>
+      ${selectorPropsHTML()}
       <div class="fila-campos">
         <div class="campo"><label>Fecha</label><input type="date" id="ve-fecha" value="${esc(v.fecha)}"></div>
         <div class="campo"><label>Hora</label><input type="time" id="ve-hora" value="${esc(v.hora)}"></div>
@@ -1498,18 +1508,30 @@ const Ventas = (() => {
         <button class="btn-sec" id="ve-cancelar">Cancelar</button>
         <button class="btn-pri" id="ve-guardar">Guardar</button>
       </div>`);
+
+    montarSelectorProps(cache, () => veProps, (a) => { veProps = a; });
+    document.getElementById('modal-contenido').addEventListener('click', (e) => {
+      if (!e.target.closest('.vta-ta')) {
+        const pr = document.getElementById('nv-prop-res');
+        if (pr) pr.classList.add('oculto');
+      }
+    });
+
     document.getElementById('ve-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('ve-guardar').addEventListener('click', async () => {
+      if (!veProps.length) return toast('Selecciona al menos una propiedad', 'error');
       const btn = document.getElementById('ve-guardar');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        await API.put('/api/ventas/visitas/' + v.id, {
+        const r = await API.put('/api/ventas/visitas/' + v.id, {
+          propiedad_ids: veProps.map((p) => p.id),
           fecha: val('ve-fecha'), hora: val('ve-hora'), estado: val('ve-estado'),
           valoracion: val('ve-valoracion'), atendido_por: val('ve-atendido'), notas: val('ve-notas'),
         });
+        const n = (r && r.visitas_ids) ? r.visitas_ids.length : 1;
         cerrarModal();
         await cargarVisitas();
-        toast('Visita actualizada', 'ok');
+        toast(n > 1 ? `${n} visitas guardadas` : 'Visita actualizada', 'ok');
       } catch (e) {
         toast(e.message, 'error');
         btn.disabled = false; btn.textContent = 'Guardar';
@@ -1587,6 +1609,69 @@ const Ventas = (() => {
     });
   }
 
+  // ---- Selector múltiple de propiedades (reutilizado en nueva / editar visita) ----
+  // Usa ids fijos nv-prop-* para heredar el CSS; los modales nunca coexisten.
+  function selectorPropsHTML() {
+    return `
+      <div class="campo vta-ta">
+        <label>Propiedades *</label>
+        <div id="nv-prop-pills" class="vta-nv-pills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <input id="nv-prop-input" class="input-buscar" autocomplete="off" placeholder="Buscar propiedad por referencia o calle...">
+        <div id="nv-prop-res" class="vta-ta-res oculto"></div>
+        <div id="nv-prop-contador" class="vta-nv-contador" style="font-size:12px;color:#6b7280;margin-top:4px"></div>
+      </div>`;
+  }
+
+  // cache = propiedades buscables; getSel/setSel acceden al array de seleccionadas.
+  function montarSelectorProps(cache, getSel, setSel) {
+    const propInput = document.getElementById('nv-prop-input');
+    const propRes = document.getElementById('nv-prop-res');
+    const propPills = document.getElementById('nv-prop-pills');
+    const propContador = document.getElementById('nv-prop-contador');
+
+    // Pinta las propiedades seleccionadas como pills + actualiza el contador.
+    function pintarProps() {
+      const sel = getSel();
+      propPills.innerHTML = sel.map((p) =>
+        `<span class="vta-nv-pill" data-id="${p.id}" style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:14px;padding:3px 6px 3px 10px;font-size:13px">${esc(p.referencia)} <button type="button" class="vta-nv-pill-x" data-quitar="${p.id}" style="border:0;background:none;color:#6366f1;cursor:pointer;font-size:13px;line-height:1;padding:0">✕</button></span>`).join('');
+      propContador.textContent = sel.length
+        ? `${sel.length} propiedad${sel.length === 1 ? '' : 'es'} seleccionada${sel.length === 1 ? '' : 's'}`
+        : '';
+      propPills.querySelectorAll('[data-quitar]').forEach((b) =>
+        b.addEventListener('click', () => {
+          setSel(getSel().filter((p) => p.id !== Number(b.dataset.quitar)));
+          pintarProps();
+          if (propInput.value.trim().length >= 2) renderResultados();
+        }));
+    }
+
+    // Lista de resultados con checkbox (solo con ≥2 caracteres).
+    function renderResultados() {
+      const q = propInput.value.trim().toLowerCase();
+      if (q.length < 2) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
+      const items = cache.filter((p) =>
+        `${p.referencia} ${p.calle || ''}`.toLowerCase().includes(q)).slice(0, 12);
+      if (!items.length) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
+      const sel = getSel();
+      propRes.innerHTML = items.map((p) => {
+        const marcada = sel.some((s) => s.id === p.id);
+        return `<label class="vta-ta-item vta-nv-check" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-pid="${p.id}"${marcada ? ' checked' : ''}> ${esc(p.referencia)} · ${esc(p.calle) || '—'} · ${euro(p.precio)}</label>`;
+      }).join('');
+      propRes.classList.remove('oculto');
+      propRes.querySelectorAll('input[data-pid]').forEach((chk) =>
+        chk.addEventListener('change', () => {
+          const pid = Number(chk.dataset.pid);
+          const prop = cache.find((p) => p.id === pid);
+          if (chk.checked) { if (!getSel().some((s) => s.id === pid)) setSel([...getSel(), prop]); }
+          else { setSel(getSel().filter((p) => p.id !== pid)); }
+          pintarProps();
+        }));
+    }
+
+    propInput.addEventListener('input', renderResultados);
+    pintarProps();
+  }
+
   // ---- Modal nueva visita (typeahead cliente + propiedad) ----
   async function modalNuevaVisita() {
     // Carga de catálogos (clientes, propiedades disponibles, usuarios) bajo demanda.
@@ -1612,13 +1697,7 @@ const Ventas = (() => {
         <div id="nv-cli-res" class="vta-ta-res oculto"></div>
         <button type="button" class="btn-sec vta-nv-crear" id="nv-cli-crear">＋ Crear cliente nuevo</button>
       </div>
-      <div class="campo vta-ta">
-        <label>Propiedades *</label>
-        <div id="nv-prop-pills" class="vta-nv-pills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
-        <input id="nv-prop-input" class="input-buscar" autocomplete="off" placeholder="Buscar propiedad por referencia o calle...">
-        <div id="nv-prop-res" class="vta-ta-res oculto"></div>
-        <div id="nv-prop-contador" class="vta-nv-contador" style="font-size:12px;color:#6b7280;margin-top:4px"></div>
-      </div>
+      ${selectorPropsHTML()}
       <div class="fila-campos">
         <div class="campo"><label>Fecha *</label><input type="date" id="nv-fecha" value="${hoy}"></div>
         <div class="campo"><label>Hora</label><input type="time" id="nv-hora"></div>
@@ -1637,53 +1716,14 @@ const Ventas = (() => {
       (c) => `${esc([c.nombre, c.apellidos].filter(Boolean).join(' '))}${c.telefono ? ' · ' + esc(c.telefono) : ''}`,
       (c) => { nvCliente = c; cliInput.value = [c.nombre, c.apellidos].filter(Boolean).join(' '); cliRes.classList.add('oculto'); }); });
 
-    const propInput = document.getElementById('nv-prop-input');
-    const propRes = document.getElementById('nv-prop-res');
-    const propPills = document.getElementById('nv-prop-pills');
-    const propContador = document.getElementById('nv-prop-contador');
-
-    // Pinta las propiedades seleccionadas como pills + actualiza el contador.
-    function pintarProps() {
-      propPills.innerHTML = nvProps.map((p) =>
-        `<span class="vta-nv-pill" data-id="${p.id}" style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:14px;padding:3px 6px 3px 10px;font-size:13px">${esc(p.referencia)} <button type="button" class="vta-nv-pill-x" data-quitar="${p.id}" style="border:0;background:none;color:#6366f1;cursor:pointer;font-size:13px;line-height:1;padding:0">✕</button></span>`).join('');
-      propContador.textContent = nvProps.length
-        ? `${nvProps.length} propiedad${nvProps.length === 1 ? '' : 'es'} seleccionada${nvProps.length === 1 ? '' : 's'}`
-        : '';
-      propPills.querySelectorAll('[data-quitar]').forEach((b) =>
-        b.addEventListener('click', () => {
-          nvProps = nvProps.filter((p) => p.id !== Number(b.dataset.quitar));
-          pintarProps();
-          if (propInput.value.trim().length >= 2) renderResultados();
-        }));
-    }
-
-    // Lista de resultados con checkbox (solo con ≥2 caracteres).
-    function renderResultados() {
-      const q = propInput.value.trim().toLowerCase();
-      if (q.length < 2) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
-      const items = nvPropsCache.filter((p) =>
-        `${p.referencia} ${p.calle || ''}`.toLowerCase().includes(q)).slice(0, 12);
-      if (!items.length) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
-      propRes.innerHTML = items.map((p) => {
-        const marcada = nvProps.some((s) => s.id === p.id);
-        return `<label class="vta-ta-item vta-nv-check" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-pid="${p.id}"${marcada ? ' checked' : ''}> ${esc(p.referencia)} · ${esc(p.calle) || '—'} · ${euro(p.precio)}</label>`;
-      }).join('');
-      propRes.classList.remove('oculto');
-      propRes.querySelectorAll('input[data-pid]').forEach((chk) =>
-        chk.addEventListener('change', () => {
-          const pid = Number(chk.dataset.pid);
-          const prop = nvPropsCache.find((p) => p.id === pid);
-          if (chk.checked) { if (!nvProps.some((s) => s.id === pid)) nvProps.push(prop); }
-          else { nvProps = nvProps.filter((p) => p.id !== pid); }
-          pintarProps();
-        }));
-    }
-
-    propInput.addEventListener('input', renderResultados);
-    pintarProps();
+    montarSelectorProps(nvPropsCache, () => nvProps, (a) => { nvProps = a; });
 
     document.getElementById('modal-contenido').addEventListener('click', (e) => {
-      if (!e.target.closest('.vta-ta')) { cliRes.classList.add('oculto'); propRes.classList.add('oculto'); }
+      if (!e.target.closest('.vta-ta')) {
+        cliRes.classList.add('oculto');
+        const pr = document.getElementById('nv-prop-res');
+        if (pr) pr.classList.add('oculto');
+      }
     });
 
     document.getElementById('nv-cli-crear').addEventListener('click', () => {

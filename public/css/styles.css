@@ -3094,6 +3094,37 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-ta-item:hover { background: #f3f4f6; }
 .vta-nv-crear { margin-top: 8px; }
 
+/* Selector múltiple de propiedades en "Nueva visita".
+   El dropdown de propiedades comparte .vta-ta-res (absoluto) con el de cliente,
+   por eso flotaba sobre el contador; aquí se baja al flujo normal bajo el input. */
+#nv-prop-res {
+  position: static; margin-top: 6px;
+  max-height: 220px; border-radius: 10px;
+}
+#nv-prop-res .vta-nv-check {
+  border-radius: 8px; padding: 9px 12px;
+  font-size: 13px; color: #1e293b;
+}
+#nv-prop-res .vta-nv-check:hover { background: #f0f4ff; }
+#nv-prop-res .vta-nv-check input[type="checkbox"] {
+  width: 18px; height: 18px; accent-color: var(--blue);
+  cursor: pointer; flex-shrink: 0;
+}
+
+/* Pills de las propiedades seleccionadas (override de los estilos inline). */
+#nv-prop-pills .vta-nv-pill {
+  background: #eff6ff !important; color: #2563eb !important;
+  border-color: #bfdbfe !important; border-radius: 20px !important;
+  padding: 4px 6px 4px 12px !important;
+  font-size: 12px !important; font-weight: 600 !important;
+}
+#nv-prop-pills .vta-nv-pill-x {
+  color: #2563eb !important; font-size: 14px !important; opacity: 0.7;
+}
+#nv-prop-pills .vta-nv-pill-x:hover { opacity: 1; }
+
+#nv-prop-contador { color: #64748b !important; }
+
 /* Formulario de Autorización de venta. */
 .aut-form { max-width: 720px; padding: 4px 2px 24px; }
 .aut-sec-tit {
