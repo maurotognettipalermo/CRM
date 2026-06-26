@@ -643,7 +643,7 @@ const Facturas = (() => {
         <button class="btn-sec" id="wiz-atras">← Anterior</button>
         <span style="flex:1"></span>
         <button class="btn-sec" id="wiz-borrador">Guardar borrador</button>
-        <button class="btn-pri" id="wiz-emitir">Emitir factura</button>
+        <button class="btn-pri" id="wiz-emitir">${wiz.tipo === 'proforma' ? '📋 Emitir proforma' : '📄 Emitir factura'}</button>
       </div>`;
   }
 
