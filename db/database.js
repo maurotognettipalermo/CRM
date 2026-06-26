@@ -166,8 +166,11 @@ const ESTADOS_RESERVA_DEFECTO = [
 ];
 
 // Columnas extra de las tablas de facturación (forward-compat: se añaden si faltan).
-// Las tablas las crea schema.sql; aquí solo reservamos el punto para columnas futuras.
-const COLUMNAS_FACTURAS = {};
+// Las tablas las crea schema.sql; aquí se añaden las columnas de proformas.
+const COLUMNAS_FACTURAS = {
+  proforma_convertida: 'INTEGER DEFAULT 0',                       // 1 = la proforma ya se convirtió en factura
+  factura_origen_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL', // en la factura convertida: id de la proforma origen
+};
 
 // Mayoristas por defecto (se insertan si la tabla está vacía).
 const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
@@ -380,15 +383,15 @@ function migrarVisitasPropiedades() {
 // referencian.
 function migrarFacturasTipo() {
   const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facturas'").get();
-  if (!def || /'libre'/.test(def.sql)) return; // ya admite el tipo más reciente (o tabla no creada aún)
+  if (!def || /'proforma'/.test(def.sql)) return; // ya admite el tipo más reciente (o tabla no creada aún)
 
   // Reescribe el nombre de la tabla y amplía la lista del CHECK del tipo.
   const sqlNueva = def.sql
     .replace(/CREATE TABLE\s+"?facturas"?/i, 'CREATE TABLE facturas_nueva')
     .replace(/CHECK\s*\(\s*tipo\s+IN\s*\([^)]*\)\s*\)/i,
-      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista','libre'))");
+      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista','libre','proforma'))");
 
-  if (!/facturas_nueva/.test(sqlNueva) || !/'libre'/.test(sqlNueva)) {
+  if (!/facturas_nueva/.test(sqlNueva) || !/'proforma'/.test(sqlNueva)) {
     console.error('AVISO: no se pudo reescribir el CHECK de facturas.tipo; se omite la migración.');
     return;
   }
@@ -406,7 +409,7 @@ function migrarFacturasTipo() {
   db.pragma('foreign_keys = ON');
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo:', rotas);
-  console.log("Migración: facturas.tipo ahora admite 'mayorista' y 'libre'.");
+  console.log("Migración: facturas.tipo ahora admite 'mayorista', 'libre' y 'proforma'.");
 }
 
 // Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no

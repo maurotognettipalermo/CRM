@@ -24,10 +24,20 @@ const Facturas = (() => {
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
   function hoyISO() { return new Date().toISOString().slice(0, 10); }
   function tipoTexto(t) {
-    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre' }[t] || t;
+    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre', proforma: 'Proforma' }[t] || t;
   }
   function estadoTexto(e) { return (e || '').charAt(0).toUpperCase() + (e || '').slice(1); }
   function badgeTipo(t) { return `<span class="badge-fac-tipo bf-${t === 'huésped' ? 'huesped' : t}">${tipoTexto(t)}</span>`; }
+  // Badge del tipo en la tabla: las proformas llevan badge propio (azul grisáceo / verde si convertida).
+  const BADGE_PRO = 'display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.02em';
+  function badgeTipoFila(f) {
+    if (f.tipo === 'proforma') {
+      return f.proforma_convertida
+        ? `<span style="${BADGE_PRO};background:#dcfce7;color:#166534">Convertida ✓</span>`
+        : `<span style="${BADGE_PRO};background:#e2e8f0;color:#475569">PROFORMA</span>`;
+    }
+    return badgeTipo(f.tipo);
+  }
   function badgeEstado(e) { return `<span class="badge-fac-estado be-${e}">${estadoTexto(e)}</span>`; }
 
   // ==================== Carga + tabla ====================
@@ -65,7 +75,7 @@ const Facturas = (() => {
       tr.dataset.ficha = f.id;
       tr.innerHTML = `
         <td><span class="enlace-fila">${esc(f.numero)}</span></td>
-        <td>${badgeTipo(f.tipo)}</td>
+        <td>${badgeTipoFila(f)}</td>
         <td>${fechaES(f.fecha_emision)}</td>
         <td><span class="fac-emisor-cel">${logo}${esc(f.emisor_nombre)}</span></td>
         <td>${esc(f.receptor_nombre)}</td>
@@ -354,7 +364,22 @@ const Facturas = (() => {
     document.getElementById('fac-anular').classList.toggle('oculto', fichaActual.estado === 'anulada');
     document.getElementById('fac-editar').classList.toggle('oculto', !esAdmin());
     document.getElementById('fac-cuerpo').innerHTML = fichaHTML(fichaActual);
+    const btnConv = document.getElementById('fac-convertir-pro');
+    if (btnConv) btnConv.addEventListener('click', () => convertirProforma(fichaActual.id));
+    const lnkConv = document.getElementById('fac-ver-convertida');
+    if (lnkConv) lnkConv.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(lnkConv.dataset.id); });
     abrirPanel();
+  }
+
+  // Convierte una proforma en factura 'libre' con numeración normal F-AAAA-XXX.
+  async function convertirProforma(id) {
+    if (!confirm('¿Convertir esta proforma en factura? Se generará con numeración F-YYYY-XXX')) return;
+    try {
+      const r = await API.post(`/api/facturas/${id}/convertir-proforma`, {});
+      toast(`Factura ${r.numero_factura} creada`, 'ok');
+      await cargar();
+      await abrirFicha(r.factura_id);
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   function dato(etq, val) { return `<div class="campo-ficha"><div class="etq">${etq}</div><div class="val">${val || '—'}</div></div>`; }
@@ -382,7 +407,20 @@ const Facturas = (() => {
     const ivaRow = f.porcentaje_iva ? `<div class="fac-tot-row"><span>IVA ${f.porcentaje_iva}%</span><span>${euro(f.importe_iva)}</span></div>` : '';
     const retRow = f.porcentaje_retencion ? `<div class="fac-tot-row" style="color:var(--red)"><span>Retención ${f.porcentaje_retencion}%</span><span>−${euro(f.importe_retencion)}</span></div>` : '';
 
+    // Banner + acciones de proforma (no tiene validez fiscal; convertir / enlace a la convertida).
+    const proformaBanner = f.tipo === 'proforma' ? `
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 12px;border-radius:8px;margin-bottom:12px">
+        📋 <strong>Documento proforma</strong> — No tiene validez fiscal
+      </div>
+      ${f.proforma_convertida && f.convertida_en ? `
+        <div style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:10px 12px;border-radius:8px;margin-bottom:12px">
+          ✅ Convertida en factura <a href="#" id="fac-ver-convertida" data-id="${f.convertida_en.id}" style="color:#166534;font-weight:700;text-decoration:underline">${esc(f.convertida_en.numero)}</a>
+        </div>`
+        : (esAdmin() ? `<button class="btn-pri" id="fac-convertir-pro" style="margin-bottom:12px">🔄 Convertir a factura</button>` : '')}
+    ` : '';
+
     return `
+      ${proformaBanner}
       <div class="rsv-grid">
         <div>
           <div class="ficha-seccion-titulo">Emisor</div>
@@ -427,6 +465,7 @@ const Facturas = (() => {
     { tipo: 'gastos', icono: '🔧', titulo: 'Gastos', desc: 'Refacturación de gastos del apartamento al propietario' },
     { tipo: 'huésped', icono: '👤', titulo: 'Huésped', desc: 'Factura de estancia al cliente' },
     { tipo: 'libre', icono: '✏️', titulo: 'Libre', desc: 'Factura personalizada con datos manuales' },
+    { tipo: 'proforma', icono: '📋', titulo: 'Proforma', desc: 'Documento previo a la factura, no tiene validez fiscal' },
   ];
 
   async function ensureRazones() { if (!razonesCache) razonesCache = await API.get('/api/ajustes/razones-sociales'); return razonesCache; }
@@ -543,7 +582,7 @@ const Facturas = (() => {
         <div id="wiz-gastos"></div>
         <div id="wiz-gastos-resumen" class="fac-resumen oculto"></div>
         ${camposFechasHTML()}`;
-    } else if (wiz.tipo === 'libre') {
+    } else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma') {
       const ivaOps = [0, 10, 21].map((v) => `<option value="${v}"${wiz.libreIva === v ? ' selected' : ''}>${v}%</option>`).join('');
       const retOps = [0, 19, 24].map((v) => `<option value="${v}"${wiz.libreRet === v ? ' selected' : ''}>${v}%</option>`).join('');
       cuerpo = `
@@ -615,7 +654,7 @@ const Facturas = (() => {
 
     if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') wirePropietario();
     else if (wiz.tipo === 'gastos') wireGastos();
-    else if (wiz.tipo === 'libre') wireLibre();
+    else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma') wireLibre();
     else wireHuesped();
   }
 
@@ -840,7 +879,7 @@ const Facturas = (() => {
       if (!wiz.gastoSel.length) return toast('Selecciona al menos un gasto', 'error');
       body.apartamento_id = wiz.aptoSel;
       body.gasto_ids = wiz.gastoSel;
-    } else if (wiz.tipo === 'libre') {
+    } else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma') {
       const nombre = document.getElementById('wiz-rec-nombre').value.trim();
       if (!nombre) return toast('El nombre del receptor es obligatorio', 'error');
       const lineas = wiz.libreLineas
@@ -896,7 +935,11 @@ const Facturas = (() => {
     poblarAnios();
     document.getElementById('btn-nueva-factura').addEventListener('click', abrirWizard);
     document.getElementById('fac-filtro-anio').addEventListener('change', (e) => { filtroAnio = Number(e.target.value); cargar().catch((err) => toast(err.message, 'error')); });
-    document.getElementById('fac-filtro-tipo').addEventListener('change', (e) => { filtroTipo = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
+    const ftipo = document.getElementById('fac-filtro-tipo');
+    if (ftipo && !ftipo.querySelector('option[value="proforma"]')) {
+      const o = document.createElement('option'); o.value = 'proforma'; o.textContent = 'Proforma'; ftipo.appendChild(o);
+    }
+    ftipo.addEventListener('change', (e) => { filtroTipo = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
     document.getElementById('fac-filtro-estado').addEventListener('change', (e) => { filtroEstado = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
     inyectarFiltroRazon();
   }

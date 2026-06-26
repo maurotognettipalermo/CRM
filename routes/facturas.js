@@ -14,7 +14,7 @@ const router = express.Router();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
-const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre'];
+const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre', 'proforma'];
 const ESTADOS = ['borrador', 'emitida', 'pagada', 'anulada'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -27,6 +27,7 @@ const COLS = [
   'base_imponible', 'porcentaje_iva', 'importe_iva', 'porcentaje_retencion', 'importe_retencion', 'total',
   'contrato_id', 'apartamento_id', 'propietario_id', 'reserva_id',
   'fecha_emision', 'fecha_vencimiento', 'notas', 'created_by',
+  'proforma_convertida', 'factura_origen_id',
 ];
 
 // --- Helpers ---
@@ -71,6 +72,7 @@ function nuevaFactura() {
     base_imponible: 0, porcentaje_iva: 0, importe_iva: 0, porcentaje_retencion: 0, importe_retencion: 0, total: 0,
     contrato_id: null, apartamento_id: null, propietario_id: null, reserva_id: null,
     fecha_emision: hoyISO(), fecha_vencimiento: null, notas: null, created_by: null,
+    proforma_convertida: 0, factura_origen_id: null,
   };
 }
 
@@ -111,9 +113,21 @@ function siguienteNumeroFactura(anio, serie) {
   return `${serie || 'F'}-${anio}-${String(n).padStart(3, '0')}`;
 }
 
+// Numeración propia de proformas (PRO-AAAA-NNN), independiente del contador de facturas.
+// Se deriva del mayor sufijo existente del año (UNIQUE de numero protege ante carreras).
+function siguienteNumeroProforma(anio) {
+  const filas = db.prepare("SELECT numero FROM facturas WHERE tipo = 'proforma' AND anio = ?").all(anio);
+  let max = 0;
+  for (const r of filas) {
+    const m = /(\d+)$/.exec(r.numero || '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `PRO-${anio}-${String(max + 1).padStart(3, '0')}`;
+}
+
 // Inserta factura + líneas en una transacción, fijando el número correlativo.
 const insertarFactura = db.transaction((f, lineas) => {
-  f.numero = siguienteNumeroFactura(f.anio, f.serie);
+  f.numero = f.tipo === 'proforma' ? siguienteNumeroProforma(f.anio) : siguienteNumeroFactura(f.anio, f.serie);
   const ph = COLS.map((c) => '@' + c).join(', ');
   const info = db.prepare(`INSERT INTO facturas (${COLS.join(', ')}) VALUES (${ph})`).run(f);
   const fid = info.lastInsertRowid;
@@ -348,6 +362,15 @@ function construirLibre(body) {
   return { f, lineas };
 }
 
+// Proforma: idéntica a 'libre' (receptor manual, líneas, IVA/retención configurables).
+// Solo cambian el tipo y la numeración (PRO-AAAA-NNN, vía insertarFactura).
+function construirProforma(body) {
+  const construido = construirLibre(body);
+  if (construido.error) return construido;
+  construido.f.tipo = 'proforma';
+  return construido;
+}
+
 // ==================== Endpoints ====================
 
 // GET /api/facturas?anio=&tipo=&estado=&propietario_id=&reserva_id=
@@ -494,6 +517,10 @@ router.get('/:id', (req, res) => {
   const factura = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
   factura.lineas = db.prepare('SELECT * FROM factura_lineas WHERE factura_id = ? ORDER BY orden, id').all(factura.id);
+  // Proforma convertida: adjunta la factura resultante (para el enlace del panel).
+  if (factura.tipo === 'proforma') {
+    factura.convertida_en = db.prepare('SELECT id, numero FROM facturas WHERE factura_origen_id = ?').get(factura.id) || null;
+  }
   res.json(factura);
 });
 
@@ -508,13 +535,14 @@ router.post('/', (req, res) => {
   else if (body.tipo === 'gastos') construido = construirGastos(body);
   else if (body.tipo === 'mayorista') construido = construirMayorista(body);
   else if (body.tipo === 'libre') construido = construirLibre(body);
+  else if (body.tipo === 'proforma') construido = construirProforma(body);
   else construido = construirHuesped(body);
 
   if (construido.error) return res.status(400).json({ error: construido.error });
   const { f, lineas } = construido;
 
   // Metadatos comunes del body.
-  f.serie = String(body.serie || 'F');
+  f.serie = f.tipo === 'proforma' ? 'PRO' : String(body.serie || 'F');
   f.fecha_emision = String(body.fecha_emision || '').trim() || hoyISO();
   f.anio = intOrNull(body.anio) || parseInt(f.fecha_emision.slice(0, 4), 10);
   f.estado = ESTADOS.includes(body.estado) ? body.estado : 'emitida';
@@ -539,6 +567,50 @@ router.post('/', (req, res) => {
 
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (${f.tipo})`);
   res.status(201).json({ id: r.id, numero: r.numero });
+});
+
+// POST /api/facturas/:id/convertir-proforma — solo admin. Copia la proforma en una factura
+// 'libre' con numeración normal F-AAAA-NNN; marca la proforma como convertida.
+router.post('/:id/convertir-proforma', (req, res) => {
+  if (!(req.usuario && req.usuario.rol === 'administrador')) {
+    return res.status(403).json({ error: 'Solo los administradores pueden convertir proformas' });
+  }
+  const prof = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
+  if (!prof) return res.status(404).json({ error: 'Factura no encontrada' });
+  if (prof.tipo !== 'proforma') return res.status(400).json({ error: 'La factura no es una proforma' });
+  if (prof.proforma_convertida) return res.status(409).json({ error: 'La proforma ya fue convertida' });
+
+  const lineas = db.prepare('SELECT * FROM factura_lineas WHERE factura_id = ? ORDER BY orden, id').all(prof.id)
+    .map((l, i) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precio_unitario: l.precio_unitario, importe: l.importe, orden: l.orden != null ? l.orden : i }));
+
+  const f = nuevaFactura();
+  Object.assign(f, {
+    serie: 'F', tipo: 'libre', estado: 'emitida',
+    anio: prof.anio, fecha_emision: hoyISO(), fecha_vencimiento: prof.fecha_vencimiento,
+    razon_social_id: prof.razon_social_id,
+    emisor_nombre: prof.emisor_nombre, emisor_cif: prof.emisor_cif,
+    emisor_direccion: prof.emisor_direccion, emisor_logo_url: prof.emisor_logo_url,
+    receptor_nombre: prof.receptor_nombre, receptor_cif: prof.receptor_cif,
+    receptor_direccion: prof.receptor_direccion, receptor_email: prof.receptor_email,
+    base_imponible: prof.base_imponible, porcentaje_iva: prof.porcentaje_iva, porcentaje_retencion: prof.porcentaje_retencion,
+    notas: prof.notas, created_by: (req.usuario && req.usuario.username) || null,
+    factura_origen_id: prof.id,
+  });
+  calcularImportes(f);
+
+  let r;
+  try {
+    r = db.transaction(() => {
+      const creada = insertarFactura(f, lineas);
+      db.prepare('UPDATE facturas SET proforma_convertida = 1 WHERE id = ?').run(prof.id);
+      return creada;
+    })();
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (proforma ${prof.numero})`);
+  res.status(201).json({ ok: true, factura_id: r.id, numero_factura: r.numero });
 });
 
 // PUT /api/facturas/:id — edición completa (solo administradores): emisor, receptor,
