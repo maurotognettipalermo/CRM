@@ -1260,7 +1260,7 @@ const Ventas = (() => {
   let visEstado = '';             // '' = todas
   // Estado del modal Nueva visita (para restaurar selección al crear cliente nuevo).
   let nvCliente = null;
-  let nvProp = null;
+  let nvProps = [];               // propiedades seleccionadas (multi-select)
   let nvClientesCache = [];
   let nvPropsCache = [];
   let nvUsuarios = [];
@@ -1613,9 +1613,11 @@ const Ventas = (() => {
         <button type="button" class="btn-sec vta-nv-crear" id="nv-cli-crear">＋ Crear cliente nuevo</button>
       </div>
       <div class="campo vta-ta">
-        <label>Propiedad *</label>
-        <input id="nv-prop-input" class="input-buscar" autocomplete="off" placeholder="Buscar por referencia o calle..." value="${nvProp ? esc(nvProp.referencia + ' · ' + (nvProp.calle || '')) : ''}">
+        <label>Propiedades *</label>
+        <div id="nv-prop-pills" class="vta-nv-pills" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <input id="nv-prop-input" class="input-buscar" autocomplete="off" placeholder="Buscar propiedad por referencia o calle...">
         <div id="nv-prop-res" class="vta-ta-res oculto"></div>
+        <div id="nv-prop-contador" class="vta-nv-contador" style="font-size:12px;color:#6b7280;margin-top:4px"></div>
       </div>
       <div class="fila-campos">
         <div class="campo"><label>Fecha *</label><input type="date" id="nv-fecha" value="${hoy}"></div>
@@ -1637,10 +1639,48 @@ const Ventas = (() => {
 
     const propInput = document.getElementById('nv-prop-input');
     const propRes = document.getElementById('nv-prop-res');
-    propInput.addEventListener('input', () => { nvProp = null; renderTA(propRes, nvPropsCache.filter((p) =>
-      `${p.referencia} ${p.calle || ''}`.toLowerCase().includes(propInput.value.trim().toLowerCase())),
-      (p) => `${esc(p.referencia)} · ${esc(p.calle) || '—'} · ${euro(p.precio)}`,
-      (p) => { nvProp = p; propInput.value = `${p.referencia} · ${p.calle || ''}`; propRes.classList.add('oculto'); }); });
+    const propPills = document.getElementById('nv-prop-pills');
+    const propContador = document.getElementById('nv-prop-contador');
+
+    // Pinta las propiedades seleccionadas como pills + actualiza el contador.
+    function pintarProps() {
+      propPills.innerHTML = nvProps.map((p) =>
+        `<span class="vta-nv-pill" data-id="${p.id}" style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:14px;padding:3px 6px 3px 10px;font-size:13px">${esc(p.referencia)} <button type="button" class="vta-nv-pill-x" data-quitar="${p.id}" style="border:0;background:none;color:#6366f1;cursor:pointer;font-size:13px;line-height:1;padding:0">✕</button></span>`).join('');
+      propContador.textContent = nvProps.length
+        ? `${nvProps.length} propiedad${nvProps.length === 1 ? '' : 'es'} seleccionada${nvProps.length === 1 ? '' : 's'}`
+        : '';
+      propPills.querySelectorAll('[data-quitar]').forEach((b) =>
+        b.addEventListener('click', () => {
+          nvProps = nvProps.filter((p) => p.id !== Number(b.dataset.quitar));
+          pintarProps();
+          if (propInput.value.trim().length >= 2) renderResultados();
+        }));
+    }
+
+    // Lista de resultados con checkbox (solo con ≥2 caracteres).
+    function renderResultados() {
+      const q = propInput.value.trim().toLowerCase();
+      if (q.length < 2) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
+      const items = nvPropsCache.filter((p) =>
+        `${p.referencia} ${p.calle || ''}`.toLowerCase().includes(q)).slice(0, 12);
+      if (!items.length) { propRes.classList.add('oculto'); propRes.innerHTML = ''; return; }
+      propRes.innerHTML = items.map((p) => {
+        const marcada = nvProps.some((s) => s.id === p.id);
+        return `<label class="vta-ta-item vta-nv-check" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-pid="${p.id}"${marcada ? ' checked' : ''}> ${esc(p.referencia)} · ${esc(p.calle) || '—'} · ${euro(p.precio)}</label>`;
+      }).join('');
+      propRes.classList.remove('oculto');
+      propRes.querySelectorAll('input[data-pid]').forEach((chk) =>
+        chk.addEventListener('change', () => {
+          const pid = Number(chk.dataset.pid);
+          const prop = nvPropsCache.find((p) => p.id === pid);
+          if (chk.checked) { if (!nvProps.some((s) => s.id === pid)) nvProps.push(prop); }
+          else { nvProps = nvProps.filter((p) => p.id !== pid); }
+          pintarProps();
+        }));
+    }
+
+    propInput.addEventListener('input', renderResultados);
+    pintarProps();
 
     document.getElementById('modal-contenido').addEventListener('click', (e) => {
       if (!e.target.closest('.vta-ta')) { cliRes.classList.add('oculto'); propRes.classList.add('oculto'); }
@@ -1654,7 +1694,7 @@ const Ventas = (() => {
       });
     });
 
-    document.getElementById('nv-cancelar').addEventListener('click', () => { nvCliente = null; nvProp = null; cerrarModal(); });
+    document.getElementById('nv-cancelar').addEventListener('click', () => { nvCliente = null; nvProps = []; cerrarModal(); });
     document.getElementById('nv-guardar').addEventListener('click', guardarNuevaVisita);
   }
 
@@ -1671,21 +1711,22 @@ const Ventas = (() => {
 
   async function guardarNuevaVisita() {
     if (!nvCliente) return toast('Selecciona un cliente', 'error');
-    if (!nvProp) return toast('Selecciona una propiedad', 'error');
+    if (!nvProps.length) return toast('Selecciona al menos una propiedad', 'error');
     const fecha = val('nv-fecha');
     if (!fecha) return toast('La fecha es obligatoria', 'error');
     const btn = document.getElementById('nv-guardar');
     btn.disabled = true; btn.textContent = 'Programando…';
     try {
-      await API.post('/api/ventas/visitas', {
-        cliente_id: nvCliente.id, propiedad_id: nvProp.id, fecha,
+      const r = await API.post('/api/ventas/visitas', {
+        cliente_id: nvCliente.id, propiedad_ids: nvProps.map((p) => p.id), fecha,
         hora: val('nv-hora'), atendido_por: val('nv-atendido'), notas: val('nv-notas'),
       });
-      nvCliente = null; nvProp = null;
+      const n = (r && r.visitas) ? r.visitas.length : nvProps.length;
+      nvCliente = null; nvProps = [];
       cerrarModal();
       await cargarVisitas();
       cargarResumen();
-      toast('Visita programada', 'ok');
+      toast(n === 1 ? 'Visita programada' : `${n} visitas programadas`, 'ok');
     } catch (e) {
       toast(e.message, 'error'); // 409 si ya existe
       btn.disabled = false; btn.textContent = 'Programar';
@@ -1747,7 +1788,7 @@ const Ventas = (() => {
         renderVisitas();
       }));
     document.getElementById('vvi-buscar').addEventListener('input', (e) => { visBusqueda = e.target.value; renderVisitas(); });
-    document.getElementById('vvi-nueva').addEventListener('click', () => { nvCliente = null; nvProp = null; modalNuevaVisita(); });
+    document.getElementById('vvi-nueva').addEventListener('click', () => { nvCliente = null; nvProps = []; modalNuevaVisita(); });
 
     visConstruido = true;
   }
@@ -1919,7 +1960,7 @@ const Ventas = (() => {
   }
 
   function nuevaVisitaEnFecha(iso) {
-    nvCliente = null; nvProp = null; nvFechaPre = iso;
+    nvCliente = null; nvProps = []; nvFechaPre = iso;
     modalNuevaVisita();
   }
 
