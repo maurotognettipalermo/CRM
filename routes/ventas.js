@@ -558,11 +558,9 @@ router.post('/propiedades/importar', upload.single('archivo'), (req, res) => {
   }
 });
 
-// POST /api/ventas/propiedades/:id/vender — cierra la venta: estado='Vendida' + datos.
-router.post('/propiedades/:id/vender', (req, res) => {
-  const prop = db.prepare('SELECT id, referencia FROM propiedades_venta WHERE id = ?').get(req.params.id);
-  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
-  const b = req.body || {};
+// Cierra una venta: estado='Vendida' + datos del comprador/escritura (lógica compartida por
+// el endpoint de vender y por convertir-venta de una visita).
+function marcarVendida(propId, b) {
   db.prepare(`
     UPDATE propiedades_venta SET
       estado = 'Vendida',
@@ -572,7 +570,14 @@ router.post('/propiedades/:id/vender', (req, res) => {
     WHERE id = ?
   `).run(
     txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), aReal(b.precio_venta_final),
-    txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), prop.id);
+    txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), propId);
+}
+
+// POST /api/ventas/propiedades/:id/vender — cierra la venta: estado='Vendida' + datos.
+router.post('/propiedades/:id/vender', (req, res) => {
+  const prop = db.prepare('SELECT id, referencia FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  marcarVendida(prop.id, req.body || {});
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id, `Vendida ${prop.referencia}`);
   res.json({ ok: true });
 });
@@ -779,10 +784,10 @@ const SELECT_VISITA = `
   JOIN clientes_compradores c ON c.id = v.cliente_id
   JOIN propiedades_venta p ON p.id = v.propiedad_id`;
 
-// Propiedades (N:M) de una visita: [{id, referencia, calle, precio}].
+// Propiedades (N:M) de una visita: [{id, referencia, calle, planta, precio, estado}].
 function propsDeVisita(visitaId) {
   return db.prepare(`
-    SELECT p.id, p.referencia, p.calle, p.precio
+    SELECT p.id, p.referencia, p.calle, p.planta, p.precio, p.estado
     FROM visitas_propiedades vp
     JOIN propiedades_venta p ON p.id = vp.propiedad_id
     WHERE vp.visita_id = ?
@@ -960,6 +965,38 @@ router.post('/visitas/:id/realizar', (req, res) => {
   })();
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'visita-venta', visita.id, 'Visita realizada');
   res.json({ ok: true });
+});
+
+// POST /api/ventas/visitas/:id/convertir-venta — cierra la venta de una de las propiedades de
+// la visita y marca su cliente como 'Compró'. Reutiliza marcarVendida (lógica de vender).
+router.post('/visitas/:id/convertir-venta', (req, res) => {
+  const visita = db.prepare('SELECT * FROM visitas_venta WHERE id = ?').get(req.params.id);
+  if (!visita) return res.status(404).json({ error: 'Visita no encontrada' });
+  const b = req.body || {};
+  const propId = aEntero(b.propiedad_id);
+  if (propId === null) return res.status(400).json({ error: 'propiedad_id es obligatorio' });
+
+  // La propiedad debe pertenecer a esta visita (relación N:M).
+  const pertenece = db.prepare(
+    'SELECT 1 FROM visitas_propiedades WHERE visita_id = ? AND propiedad_id = ?'
+  ).get(visita.id, propId);
+  if (!pertenece) return res.status(400).json({ error: 'La propiedad no pertenece a esta visita' });
+
+  const prop = db.prepare('SELECT id, referencia, estado FROM propiedades_venta WHERE id = ?').get(propId);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  if (prop.estado === 'Vendida') return res.status(409).json({ error: 'La propiedad ya está vendida' });
+
+  const precio = aReal(b.precio_venta_final);
+  if (precio === null || precio <= 0) return res.status(400).json({ error: 'precio_venta_final es obligatorio' });
+
+  db.transaction(() => {
+    marcarVendida(prop.id, b);
+    db.prepare("UPDATE clientes_compradores SET estado = 'Compró', updated_at = datetime('now') WHERE id = ?")
+      .run(visita.cliente_id);
+  })();
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
+    `Venta desde visita ${visita.id}: ${prop.referencia}`);
+  res.json({ ok: true, propiedad_id: prop.id, referencia: prop.referencia, precio_venta_final: precio });
 });
 
 // DELETE /api/ventas/visitas/:id

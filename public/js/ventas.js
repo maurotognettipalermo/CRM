@@ -1319,6 +1319,8 @@ const Ventas = (() => {
     if (v.propiedad_id) return [{ id: v.propiedad_id, referencia: v.propiedad_referencia, calle: v.propiedad_calle, precio: v.propiedad_precio }];
     return [];
   }
+  // ¿Alguna propiedad de la visita está ya vendida?
+  function visitaVendida(v) { return propsDeV(v).some((p) => p.estado === 'Vendida'); }
   // Resumen de refs: "A417, A381 +1 más" si hay más de 2.
   function propsResumen(v) {
     const refs = propsDeV(v).map((p) => p.referencia).filter(Boolean);
@@ -1353,10 +1355,11 @@ const Ventas = (() => {
         <td><a class="vta-ref" data-cli="${v.cliente_id}">${esc(clienteNomVis(v))}</a></td>
         <td>${propsResumen(v)}</td>
         <td>${v.estado === 'Realizada' ? valoracionBadge(v.valoracion) : '—'}</td>
-        <td>${visitaBadge(v.estado)}</td>
+        <td>${visitaVendida(v) ? '<span class="vta-bdg vta-bdg-disp">Venta cerrada</span>' : visitaBadge(v.estado)}</td>
         <td class="vta-acciones">
           <button class="btn-icono" data-editar="${v.id}" title="Editar">✏️</button>
           ${v.estado === 'Programada' ? `<button class="btn-icono" data-realizar="${v.id}" title="Marcar realizada">✅</button>` : ''}
+          ${v.estado === 'Realizada' && !visitaVendida(v) ? `<button class="btn-icono" data-convertir="${v.id}" title="Convertir a venta">💰</button>` : ''}
           <button class="btn-icono" data-borrar="${v.id}" title="Eliminar">🗑</button>
         </td>
       </tr>`).join('');
@@ -1374,6 +1377,8 @@ const Ventas = (() => {
       b.addEventListener('click', (e) => { e.stopPropagation(); modalEditarVisita(visitas.find((v) => v.id == b.dataset.editar)); }));
     tbody.querySelectorAll('[data-realizar]').forEach((b) =>
       b.addEventListener('click', (e) => { e.stopPropagation(); modalRealizar(visitas.find((v) => v.id == b.dataset.realizar)); }));
+    tbody.querySelectorAll('[data-convertir]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalConvertirVenta(visitas.find((v) => v.id == b.dataset.convertir)); }));
     tbody.querySelectorAll('[data-borrar]').forEach((b) =>
       b.addEventListener('click', (e) => { e.stopPropagation(); borrarVisita(visitas.find((v) => v.id == b.dataset.borrar)); }));
   }
@@ -1459,6 +1464,123 @@ const Ventas = (() => {
       } catch (e) {
         toast(e.message, 'error');
         btn.disabled = false; btn.textContent = 'Guardar';
+      }
+    });
+  }
+
+  // ---- Convertir visita a venta ----
+  async function modalConvertirVenta(v) {
+    if (!v) return;
+    const props = propsDeV(v).filter((p) => p.estado !== 'Vendida'); // candidatas a vender
+    if (!props.length) return toast('No hay propiedades disponibles para vender en esta visita', 'error');
+
+    let cli = null;
+    try { cli = await API.get('/api/ventas/clientes/' + v.cliente_id); } catch (e) { cli = null; }
+    const cliNombre = cli ? [cli.nombre, cli.apellidos].filter(Boolean).join(' ') : clienteNomVis(v);
+    const cliTel = (cli && cli.telefono) || v.cliente_telefono || '';
+    const cliEmail = (cli && cli.email) || '';
+
+    const unica = props.length === 1;
+    const propLinea = (p) => `${esc(p.referencia)} — ${esc(p.calle) || '—'}${p.planta ? ', Planta ' + esc(p.planta) : ''} — ${euro(p.precio)}`;
+    const selectorHTML = unica
+      ? `<div class="vta-pv-resumen"><div>🏠 <strong>${propLinea(props[0])}</strong></div></div>
+         <input type="hidden" id="cv-prop" value="${props[0].id}" data-precio="${props[0].precio}">`
+      : `<div class="campo"><label>¿Qué propiedad se ha vendido?</label>
+          <div class="cv-prop-lista" style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          ${props.map((p, i) => `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="cv-prop" value="${p.id}" data-precio="${p.precio}"${i === 0 ? ' checked' : ''}>
+              <span>${propLinea(p)} <span class="vta-muted">(precio publicado)</span></span></label>`).join('')}
+          </div></div>`;
+
+    abrirModal(`
+      <h3>💰 Convertir visita a venta</h3>
+      ${selectorHTML}
+      <div class="fila-campos">
+        <div class="campo"><label>Precio de venta final (€) *</label><input type="number" step="0.01" min="0" id="cv-precio"></div>
+        <div class="campo"><label>Diferencia vs. publicado</label><div id="cv-diff" style="padding-top:8px;font-weight:600">—</div></div>
+      </div>
+      <div class="campo"><label>Comprador</label>
+        <div style="display:flex;gap:16px;margin:4px 0 8px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="cv-modo" value="cliente" checked> Usar datos del cliente de la visita</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="cv-modo" value="manual"> Introducir manualmente</label>
+        </div>
+      </div>
+      <div id="cv-cliente" class="vta-pv-resumen">
+        <div>👤 <strong>${esc(cliNombre) || '—'}</strong></div>
+        ${cliTel ? `<div>📞 ${esc(cliTel)}</div>` : ''}
+        ${cliEmail ? `<div>✉️ ${esc(cliEmail)}</div>` : ''}
+      </div>
+      <div id="cv-manual" style="display:none">
+        <div class="fila-campos">
+          <div class="campo"><label>Nombre</label><input id="cv-m-nombre" value="${esc(cliNombre)}"></div>
+          <div class="campo"><label>Teléfono</label><input id="cv-m-tel" value="${esc(cliTel)}"></div>
+        </div>
+        <div class="campo"><label>Email</label><input id="cv-m-email" value="${esc(cliEmail)}"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha de venta</label><input type="date" id="cv-fventa" value="${hoyStr()}"></div>
+        <div class="campo"><label>Fecha de escrituración</label><input type="date" id="cv-fescritura"></div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="cv-cancelar">Cancelar</button>
+        <button class="btn-pri" id="cv-guardar">💰 Registrar venta</button>
+      </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+
+    const selRadio = () => document.querySelector('input[name="cv-prop"]:checked') || document.getElementById('cv-prop');
+    const precioPub = () => { const r = selRadio(); return r ? Number(r.dataset.precio) : 0; };
+    const selId = () => { const r = selRadio(); return r ? Number(r.value) : null; };
+    const recalc = () => {
+      const diff = document.getElementById('cv-diff');
+      const fin = parseFloat(val('cv-precio'));
+      if (isNaN(fin)) { diff.textContent = '—'; diff.style.color = 'var(--muted)'; return; }
+      const d = fin - precioPub();
+      const pct = precioPub() > 0 ? (d / precioPub()) * 100 : 0;
+      const signo = d > 0 ? '+' : d < 0 ? '−' : '';
+      diff.textContent = `${signo}${euro(Math.abs(d))} (${signo}${Math.abs(pct).toFixed(1)}%)`;
+      diff.style.color = d < 0 ? 'var(--red)' : d > 0 ? 'var(--green)' : 'var(--muted)';
+    };
+
+    document.querySelectorAll('input[name="cv-prop"]').forEach((r) =>
+      r.addEventListener('change', () => { document.getElementById('cv-precio').value = r.dataset.precio; recalc(); }));
+    document.getElementById('cv-precio').value = precioPub();
+    recalc();
+    document.getElementById('cv-precio').addEventListener('input', recalc);
+
+    document.querySelectorAll('input[name="cv-modo"]').forEach((r) =>
+      r.addEventListener('change', () => {
+        const manual = document.querySelector('input[name="cv-modo"]:checked').value === 'manual';
+        document.getElementById('cv-cliente').style.display = manual ? 'none' : '';
+        document.getElementById('cv-manual').style.display = manual ? '' : 'none';
+      }));
+
+    document.getElementById('cv-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('cv-guardar').addEventListener('click', async () => {
+      const propId = selId();
+      if (propId === null) return toast('Selecciona la propiedad vendida', 'error');
+      const precio = parseFloat(val('cv-precio'));
+      if (isNaN(precio) || precio <= 0) return toast('Indica el precio de venta final', 'error');
+      const manual = document.querySelector('input[name="cv-modo"]:checked').value === 'manual';
+      const body = {
+        propiedad_id: propId,
+        precio_venta_final: precio,
+        fecha_venta: val('cv-fventa'),
+        fecha_escritura: val('cv-fescritura'),
+        comprador_nombre: manual ? val('cv-m-nombre') : cliNombre,
+        comprador_telefono: manual ? val('cv-m-tel') : cliTel,
+        comprador_email: manual ? val('cv-m-email') : cliEmail,
+      };
+      const btn = document.getElementById('cv-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const r = await API.post(`/api/ventas/visitas/${v.id}/convertir-venta`, body);
+        cerrarModal();
+        await cargarVisitas();
+        cargarResumen();
+        toast(`Venta registrada — ${r.referencia} vendida por ${euro(r.precio_venta_final)}`, 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+        btn.disabled = false; btn.textContent = '💰 Registrar venta';
       }
     });
   }
@@ -1573,7 +1695,7 @@ const Ventas = (() => {
       <div class="vta-det-grid">
         <div class="vta-det-col">
           <div class="vta-d-titulo-sec">Datos de la visita</div>
-          <div class="vta-det-linea">Estado: ${visitaBadge(v.estado)}</div>
+          <div class="vta-det-linea">Estado: ${visitaBadge(v.estado)}${visitaVendida(v) ? ' <span class="vta-bdg vta-bdg-disp">Vendida ✓</span>' : ''}</div>
           <div class="vta-det-linea">Fecha: ${fechaES(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</div>
           <div class="vta-det-linea">Atendido por: ${esc(v.atendido_por) || '—'}</div>
           ${v.estado === 'Realizada' ? `<div class="vta-det-linea">Valoración: ${valoracionBadge(v.valoracion) || '—'}</div>` : ''}
@@ -1601,9 +1723,14 @@ const Ventas = (() => {
         <textarea id="vd-nota-texto" rows="2" placeholder="Añadir una nota..."></textarea>
         <button class="btn-pri" id="vd-nota-enviar">Enviar</button>
       </div>
-      <div class="modal-acciones"><button class="btn-sec" id="vd-cerrar">Cerrar</button></div>`);
+      <div class="modal-acciones">
+        ${v.estado === 'Realizada' && !visitaVendida(v) ? '<button class="btn-pri" id="vd-convertir">💰 Convertir a venta</button>' : ''}
+        <button class="btn-sec" id="vd-cerrar">Cerrar</button>
+      </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
     document.getElementById('vd-cerrar').addEventListener('click', cerrarModal);
+    const btnConv = document.getElementById('vd-convertir');
+    if (btnConv) btnConv.addEventListener('click', () => modalConvertirVenta(v));
 
     const enviar = async () => {
       const ta = document.getElementById('vd-nota-texto');
