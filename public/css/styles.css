@@ -1344,6 +1344,10 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 
 .est-vacio { color: var(--muted); font-size: 14px; padding: 32px 0; text-align: center; }
 
+/* Sub-sección dentro de una pestaña (p. ej. "Pagos a cuenta" en Propietarios) */
+.est-seccion-sep { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--border); }
+.est-seccion-titulo { font-size: 16px; font-weight: 700; color: var(--text); margin: 0 0 14px; }
+
 /* Estado de error / skeleton */
 .est-error { text-align: center; padding: 40px 16px; color: var(--text); }
 .est-error-msg { color: var(--muted); font-size: 13px; margin: 6px 0 16px; }

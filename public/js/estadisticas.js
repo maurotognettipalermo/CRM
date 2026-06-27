@@ -28,6 +28,7 @@ const Estadisticas = (() => {
   // Estado de "Propietarios": texto del buscador y caché de la respuesta del año.
   let propBuscar = '';
   let propCache = null;
+  let pagosCuentaCache = null; // caché de la sección "Pagos a cuenta" (resumen + propietario + nº pagos)
 
   // Estado de "Mayoristas": caché del resumen del año y contrato abierto en el panel lateral.
   let mayCache = null;
@@ -552,7 +553,7 @@ const Estadisticas = (() => {
         <div class="est-placeholder">
           <span class="est-placeholder-icono">📋</span>
           <p class="est-placeholder-texto">Sin contratos registrados para ${anio}</p>
-        </div>`;
+        </div>` + '<div class="est-pagos-cuenta-cont" data-pagos-cuenta></div>';
     }
 
     // Cashflow global: barra verde (pagado) + naranja (pendiente).
@@ -596,7 +597,100 @@ const Estadisticas = (() => {
         </table>
       </div>`;
 
-    return cards + cashflow + buscador + tabla;
+    return cards + cashflow + buscador + tabla + '<div class="est-pagos-cuenta-cont" data-pagos-cuenta></div>';
+  }
+
+  // ==================== Pagos a cuenta a propietarios ====================
+  // Datos cruzados en cliente: resumen (totales por apto) + propietario (de /apartamentos) +
+  // nº de pagos (longitud de la lista por apto). Usa solo endpoints existentes (sin backend).
+  function pagosCuentaHTML(data) {
+    const { resumen = {}, porApto = [], propMap = {}, counts = {} } = data || {};
+    const totalPagado = Number(resumen.total_pagado) || 0;
+    const totalPend = Number(resumen.total_pendiente) || 0;
+    const nPagos = Object.values(counts).reduce((s, c) => s + (Number(c) || 0), 0);
+
+    const titulo = '<h3 class="est-seccion-titulo">Pagos a cuenta a propietarios</h3>';
+    const cards = `
+      <div class="est-cards">
+        ${tarjetaResumen({ icono: '✅', color: '#10b981', valor: euro(totalPagado), label: `Total pagado ${anio}` })}
+        ${tarjetaResumen({ icono: '⏳', color: '#f59e0b', valor: euro(totalPend), label: 'Total pendiente' })}
+        ${tarjetaResumen({ icono: '📋', color: '#3b82f6', valor: num(nPagos), label: 'Nº de pagos' })}
+      </div>`;
+
+    if (!porApto.length) {
+      return `<div class="est-seccion-sep">${titulo}${cards}<div class="est-vacio">Sin pagos a cuenta registrados en ${anio}</div></div>`;
+    }
+
+    const ordenados = [...porApto].sort((a, b) => (Number(b.total) || 0) - (Number(a.total) || 0));
+    const filas = ordenados.map((p) => `
+      <tr>
+        <td>${esc(p.apartamento_nombre)}</td>
+        <td>${esc(propMap[p.apartamento_id] || '—')}</td>
+        <td class="num">${euro(p.total)}</td>
+        <td>${euro(p.total_pagado)}</td>
+        <td class="num">${euro(p.total_pendiente)}</td>
+        <td class="num">${num(counts[p.apartamento_id] || 0)}</td>
+      </tr>`).join('');
+    const tabla = `
+      <div class="tabla-scroll">
+        <table class="tabla est-tabla">
+          <thead>
+            <tr>
+              <th>Apartamento</th>
+              <th>Propietario</th>
+              <th class="num">Total año</th>
+              <th>Pagado</th>
+              <th class="num">Pendiente</th>
+              <th class="num">Nº pagos</th>
+            </tr>
+          </thead>
+          <tbody>${filas}</tbody>
+          <tfoot>
+            <tr class="est-fila-total">
+              <td>Total</td>
+              <td></td>
+              <td class="num">${euro(totalPagado + totalPend)}</td>
+              <td>${euro(totalPagado)}</td>
+              <td class="num">${euro(totalPend)}</td>
+              <td class="num">${num(nPagos)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+    return `<div class="est-seccion-sep">${titulo}${cards}${tabla}</div>`;
+  }
+
+  // Carga (o repinta desde caché) la sección de pagos a cuenta dentro del panel de Propietarios.
+  async function renderPagosCuenta(panel) {
+    const cont = panel.querySelector('[data-pagos-cuenta]');
+    if (!cont) return;
+    if (pagosCuentaCache && pagosCuentaCache.anio === anio) { cont.innerHTML = pagosCuentaHTML(pagosCuentaCache); return; }
+    cont.innerHTML = '<div class="est-seccion-sep"><div class="est-vacio">Cargando pagos a cuenta…</div></div>';
+    const seq = ++reqSeq;
+    let resumen, apts;
+    try {
+      [resumen, apts] = await Promise.all([
+        API.get(`/api/apartamentos/pagos-propietario/resumen?anio=${anio}`),
+        API.get('/api/apartamentos?todos=1'),
+      ]);
+    } catch (e) {
+      if (seq !== reqSeq) return;
+      cont.innerHTML = `<div class="est-seccion-sep"><div class="est-vacio">No se pudieron cargar los pagos a cuenta.</div></div>`;
+      return;
+    }
+    if (seq !== reqSeq) return;
+    const porApto = (resumen && resumen.por_apartamento) || [];
+    const propMap = {};
+    (apts || []).forEach((a) => { propMap[a.id] = [a.propietario_nombre, a.propietario_apellidos].filter(Boolean).join(' '); });
+    // Nº de pagos por apartamento: longitud de la lista de cada apto con pagos.
+    const counts = {};
+    const listas = await Promise.all(porApto.map((p) =>
+      API.get(`/api/apartamentos/${p.apartamento_id}/pagos-propietario?anio=${anio}`).catch(() => [])));
+    if (seq !== reqSeq) return;
+    porApto.forEach((p, i) => { counts[p.apartamento_id] = (listas[i] || []).length; });
+
+    pagosCuentaCache = { anio, resumen, porApto, propMap, counts };
+    cont.innerHTML = pagosCuentaHTML(pagosCuentaCache);
   }
 
   // Conecta el buscador (filtra en memoria) y los botones "Ver contratos".
@@ -631,7 +725,7 @@ const Estadisticas = (() => {
   }
 
   async function renderPropietarios(panel) {
-    if (propCache) { panel.innerHTML = propietariosHTML(propCache); enlazarProp(panel); return; }
+    if (propCache) { panel.innerHTML = propietariosHTML(propCache); enlazarProp(panel); renderPagosCuenta(panel); return; }
     panel.innerHTML = skeletonCarga(4);
     const seq = ++reqSeq;
     let data;
@@ -648,6 +742,7 @@ const Estadisticas = (() => {
     propCache = data;
     panel.innerHTML = propietariosHTML(data);
     enlazarProp(panel);
+    renderPagosCuenta(panel);
   }
 
   // ==================== Mayoristas (cashflow de cobros) ====================
@@ -1303,6 +1398,7 @@ const Estadisticas = (() => {
       anio = Number(sel.value);
       aptoSel = null; aptoCache = null; aptoBuscar = ''; // el año invalida los datos cacheados
       propCache = null; propBuscar = '';
+      pagosCuentaCache = null;
       mayCache = null;
       renderSeccion(); // al cambiar el año se recarga la sección activa
     });
