@@ -1330,6 +1330,17 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .est-card-valor { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.2; }
 .est-card-label { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
+/* "Pagos propietario": 3 mini-tarjetas en una fila, mismo ancho (anula el grid de 2 col) */
+.sub-panel[data-panel-sub="pagos"] .est-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.sub-panel[data-panel-sub="pagos"] .est-card {
+  flex: 1;
+  min-width: 200px;
+}
+
 /* Tabla de ingresos por portal */
 .est-tabla th.num, .est-tabla td.num { text-align: right; white-space: nowrap; }
 .est-tabla .est-col-logo { width: 44px; }
