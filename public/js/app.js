@@ -107,7 +107,7 @@ const ROL_RESTRINGIDO = {
 };
 
 // Estado por defecto de los grupos del sidebar (true = abierto).
-const GRUPOS_DEFAULT = { alquiler: true, administracion: false, ventas: false, equipo: false };
+const GRUPOS_DEFAULT = { alquiler: true, administracion: false, equipo: false };
 
 // Aplica el estado guardado a los grupos y cablea el clic en sus cabeceras.
 function inicializarGruposSidebar() {
