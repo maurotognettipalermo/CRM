@@ -1473,26 +1473,22 @@ const Personal = (() => {
     abrirModal(`
       <h3>💰 Registrar pago</h3>
       <div class="vta-pv-resumen"><div>${fechaES(h.fecha)} · <strong>${h.horas} h</strong>${h.descripcion ? ' · ' + esc(h.descripcion) : ''}</div></div>
-      ${modoHorasHTML('hxp', h, { importe: true })}
-      <div class="campo"><label>Fecha de pago</label><input type="date" id="hxp-fecha" value="${esc(h.fecha_pago) || hoyStr()}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="hxp-importe" value="${h.importe ?? ''}"></div>
+        <div class="campo"><label>Fecha de pago</label><input type="date" id="hxp-fecha" value="${esc(h.fecha_pago) || hoyStr()}"></div>
+      </div>
       <div class="modal-acciones">
         <button class="btn-sec" id="hxp-cancelar">Cancelar</button>
         <button class="btn-pri" id="hxp-guardar">Confirmar pago</button>
       </div>`);
-    document.querySelector('.modal').classList.add('modal-ancho');
-    wireModoHoras('hxp', { importe: true });
     document.getElementById('hxp-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('hxp-guardar').addEventListener('click', async () => {
-      const m = leerModoHoras('hxp');
-      if (m.error) return toast(m.error, 'error');
       const importe = parseFloat(val('hxp-importe'));
       if (isNaN(importe) || importe < 0) return toast('Indica el importe', 'error');
-      const body = { pagada: 1, importe, fecha_pago: val('hxp-fecha'), horas: m.horas };
-      if (m.hora_inicio) { body.hora_inicio = m.hora_inicio; body.hora_fin = m.hora_fin; }
       const btn = document.getElementById('hxp-guardar');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        await API.put('/api/personal/horas-extra/' + h.id, body);
+        await API.put('/api/personal/horas-extra/' + h.id, { pagada: 1, importe, fecha_pago: val('hxp-fecha') });
         cerrarModal();
         await recargarHoras();
         toast('Pago registrado', 'ok');
