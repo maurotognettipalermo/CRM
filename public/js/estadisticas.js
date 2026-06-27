@@ -10,6 +10,7 @@ const Estadisticas = (() => {
     apartamento: 'Ingresos por apartamento',
     ocupacion:   'Ocupación',
     propietario: 'Propietarios',
+    pagos:       'Pagos propietario',
     mayorista:   'Mayoristas',
   };
   const METODOS_PAGO = [['transferencia', 'Transferencia'], ['cheque', 'Cheque'], ['efectivo', 'Efectivo']];
@@ -553,7 +554,7 @@ const Estadisticas = (() => {
         <div class="est-placeholder">
           <span class="est-placeholder-icono">📋</span>
           <p class="est-placeholder-texto">Sin contratos registrados para ${anio}</p>
-        </div>` + '<div class="est-pagos-cuenta-cont" data-pagos-cuenta></div>';
+        </div>`;
     }
 
     // Cashflow global: barra verde (pagado) + naranja (pendiente).
@@ -597,7 +598,7 @@ const Estadisticas = (() => {
         </table>
       </div>`;
 
-    return cards + cashflow + buscador + tabla + '<div class="est-pagos-cuenta-cont" data-pagos-cuenta></div>';
+    return cards + cashflow + buscador + tabla;
   }
 
   // ==================== Pagos a cuenta a propietarios ====================
@@ -618,7 +619,7 @@ const Estadisticas = (() => {
       </div>`;
 
     if (!porApto.length) {
-      return `<div class="est-seccion-sep">${titulo}${cards}<div class="est-vacio">Sin pagos a cuenta registrados en ${anio}</div></div>`;
+      return `${titulo}${cards}<div class="est-vacio">Sin pagos a cuenta registrados en ${anio}</div>`;
     }
 
     const ordenados = [...porApto].sort((a, b) => (Number(b.total) || 0) - (Number(a.total) || 0));
@@ -657,15 +658,13 @@ const Estadisticas = (() => {
           </tfoot>
         </table>
       </div>`;
-    return `<div class="est-seccion-sep">${titulo}${cards}${tabla}</div>`;
+    return `${titulo}${cards}${tabla}`;
   }
 
-  // Carga (o repinta desde caché) la sección de pagos a cuenta dentro del panel de Propietarios.
-  async function renderPagosCuenta(panel) {
-    const cont = panel.querySelector('[data-pagos-cuenta]');
-    if (!cont) return;
-    if (pagosCuentaCache && pagosCuentaCache.anio === anio) { cont.innerHTML = pagosCuentaHTML(pagosCuentaCache); return; }
-    cont.innerHTML = '<div class="est-seccion-sep"><div class="est-vacio">Cargando pagos a cuenta…</div></div>';
+  // Carga (o repinta desde caché) la sub-pestaña independiente "Pagos propietario".
+  async function renderPagosSeccion(panel) {
+    if (pagosCuentaCache && pagosCuentaCache.anio === anio) { panel.innerHTML = pagosCuentaHTML(pagosCuentaCache); return; }
+    panel.innerHTML = skeletonCarga(3);
     const seq = ++reqSeq;
     let resumen, apts;
     try {
@@ -675,7 +674,9 @@ const Estadisticas = (() => {
       ]);
     } catch (e) {
       if (seq !== reqSeq) return;
-      cont.innerHTML = `<div class="est-seccion-sep"><div class="est-vacio">No se pudieron cargar los pagos a cuenta.</div></div>`;
+      panel.innerHTML = errorHTML(e.message);
+      const btn = panel.querySelector('[data-reintentar]');
+      if (btn) btn.addEventListener('click', () => renderPagosSeccion(panel));
       return;
     }
     if (seq !== reqSeq) return;
@@ -690,7 +691,7 @@ const Estadisticas = (() => {
     porApto.forEach((p, i) => { counts[p.apartamento_id] = (listas[i] || []).length; });
 
     pagosCuentaCache = { anio, resumen, porApto, propMap, counts };
-    cont.innerHTML = pagosCuentaHTML(pagosCuentaCache);
+    panel.innerHTML = pagosCuentaHTML(pagosCuentaCache);
   }
 
   // Conecta el buscador (filtra en memoria) y los botones "Ver contratos".
@@ -725,7 +726,7 @@ const Estadisticas = (() => {
   }
 
   async function renderPropietarios(panel) {
-    if (propCache) { panel.innerHTML = propietariosHTML(propCache); enlazarProp(panel); renderPagosCuenta(panel); return; }
+    if (propCache) { panel.innerHTML = propietariosHTML(propCache); enlazarProp(panel); return; }
     panel.innerHTML = skeletonCarga(4);
     const seq = ++reqSeq;
     let data;
@@ -742,7 +743,6 @@ const Estadisticas = (() => {
     propCache = data;
     panel.innerHTML = propietariosHTML(data);
     enlazarProp(panel);
-    renderPagosCuenta(panel);
   }
 
   // ==================== Mayoristas (cashflow de cobros) ====================
@@ -1339,6 +1339,7 @@ const Estadisticas = (() => {
     if (seccionActiva === 'apartamento') { renderApartamentos(panel); return; }
     if (seccionActiva === 'ocupacion') { renderOcupacion(panel); return; }
     if (seccionActiva === 'propietario') { renderPropietarios(panel); return; }
+    if (seccionActiva === 'pagos') { renderPagosSeccion(panel); return; }
     if (seccionActiva === 'mayorista') { renderMayoristas(panel); return; }
     panel.innerHTML = placeholderHTML(SECCIONES[seccionActiva]);
   }
@@ -1387,6 +1388,7 @@ const Estadisticas = (() => {
   }
   function inyectarSubPropietarios() {
     inyectarSub('propietario', 'Propietarios');
+    inyectarSub('pagos', 'Pagos propietario');
     inyectarSub('mayorista', 'Mayoristas');
   }
 
