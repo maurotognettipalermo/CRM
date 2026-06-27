@@ -860,6 +860,23 @@ CREATE TABLE IF NOT EXISTS clientes (
 CREATE INDEX IF NOT EXISTS idx_clientes_avantio ON clientes(id_avantio);
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
 
+-- Pagos a propietario por apartamento (suministros, comunidad, IBI…). Cada pago puede
+-- generar una autofactura (factura_id la vincula).
+CREATE TABLE IF NOT EXISTS pagos_propietario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  apartamento_id INTEGER NOT NULL REFERENCES apartamentos(id) ON DELETE CASCADE,
+  concepto TEXT NOT NULL,
+  importe REAL NOT NULL,
+  fecha TEXT NOT NULL,
+  pagado INTEGER DEFAULT 0,
+  fecha_pago TEXT,
+  factura_id INTEGER REFERENCES facturas(id) ON DELETE SET NULL,
+  notas TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_pagos_propietario_apto ON pagos_propietario(apartamento_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

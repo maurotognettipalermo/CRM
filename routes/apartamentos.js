@@ -7,6 +7,7 @@ const db = require('../db/database');
 const { normalizaTih } = require('../services/asignacion');
 const { importarAlojamientos } = require('../services/importAlojamientos');
 const { registrarActividad } = require('../services/actividadService');
+const { crearAutofacturaPago } = require('./facturas');
 
 const router = express.Router();
 
@@ -71,6 +72,29 @@ router.post('/importar', upload.single('archivo'), (req, res) => {
     console.error('Error importando alojamientos:', e);
     res.status(500).json({ error: 'No se pudo procesar el archivo: ' + e.message });
   }
+});
+
+// GET /api/apartamentos/pagos-propietario/resumen?anio= — total pagado a propietarios en el
+// año por apartamento (para estadísticas). Declarado antes de /:id (ruta estática).
+router.get('/pagos-propietario/resumen', (req, res) => {
+  const anio = aEntero(req.query.anio);
+  const cond = ['1=1'];
+  const params = [];
+  if (anio !== null) { cond.push("strftime('%Y', pp.fecha) = ?"); params.push(String(anio)); }
+  const filas = db.prepare(`
+    SELECT pp.apartamento_id, a.nombre AS apartamento_nombre,
+           COALESCE(SUM(CASE WHEN pp.pagado = 1 THEN pp.importe ELSE 0 END), 0) AS total_pagado,
+           COALESCE(SUM(CASE WHEN pp.pagado = 0 THEN pp.importe ELSE 0 END), 0) AS total_pendiente,
+           COALESCE(SUM(pp.importe), 0) AS total
+    FROM pagos_propietario pp
+    JOIN apartamentos a ON a.id = pp.apartamento_id
+    WHERE ${cond.join(' AND ')}
+    GROUP BY pp.apartamento_id, a.nombre
+    ORDER BY a.nombre
+  `).all(...params);
+  const total_pagado = filas.reduce((s, f) => s + f.total_pagado, 0);
+  const total_pendiente = filas.reduce((s, f) => s + f.total_pendiente, 0);
+  res.json({ anio, total_pagado, total_pendiente, total: total_pagado + total_pendiente, por_apartamento: filas });
 });
 
 // Ficha completa: datos + propietarios (activos e históricos) + historial de reservas.
@@ -381,6 +405,123 @@ router.get('/:id/limpieza-log', (req, res) => {
     'SELECT * FROM limpieza_log WHERE apartamento_id = ? ORDER BY fecha DESC, id DESC LIMIT 50'
   ).all(req.params.id);
   res.json(log);
+});
+
+// ==================== Pagos a propietario ====================
+
+// GET /api/apartamentos/:id/pagos-propietario?anio= — pagos del apartamento (con nº de factura
+// si tiene), filtrable por año.
+router.get('/:id/pagos-propietario', (req, res) => {
+  const apto = db.prepare('SELECT id FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+  const anio = aEntero(req.query.anio);
+  const cond = ['pp.apartamento_id = ?'];
+  const params = [req.params.id];
+  if (anio !== null) { cond.push("strftime('%Y', pp.fecha) = ?"); params.push(String(anio)); }
+  const filas = db.prepare(`
+    SELECT pp.*, f.numero AS factura_numero, f.estado AS factura_estado
+    FROM pagos_propietario pp
+    LEFT JOIN facturas f ON f.id = pp.factura_id
+    WHERE ${cond.join(' AND ')}
+    ORDER BY pp.fecha DESC, pp.id DESC
+  `).all(...params);
+  res.json(filas);
+});
+
+// POST /api/apartamentos/:id/pagos-propietario — crear pago. Body: { concepto, importe, fecha, notas }.
+router.post('/:id/pagos-propietario', (req, res) => {
+  const apto = db.prepare('SELECT id, nombre FROM apartamentos WHERE id = ?').get(req.params.id);
+  if (!apto) return res.status(404).json({ error: 'Alojamiento no encontrado' });
+  const b = req.body || {};
+  const concepto = String(b.concepto || '').trim();
+  if (!concepto) return res.status(400).json({ error: 'El concepto es obligatorio' });
+  const importe = parseFloat(b.importe);
+  if (isNaN(importe) || importe <= 0) return res.status(400).json({ error: 'El importe debe ser mayor que 0' });
+  const fecha = String(b.fecha || '').trim() || new Date().toISOString().slice(0, 10);
+
+  const info = db.prepare(`
+    INSERT INTO pagos_propietario (apartamento_id, concepto, importe, fecha, notas, created_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(apto.id, concepto, importe, fecha, txt(b.notas), req.usuario && req.usuario.username);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'crear', 'pago-propietario', info.lastInsertRowid, `${concepto} (${importe} €) en ${apto.nombre}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// PUT /api/apartamentos/:id/pagos-propietario/:pago_id — editar. Acepta { concepto, importe,
+// fecha, notas, pagado, fecha_pago }.
+router.put('/:id/pagos-propietario/:pago_id', (req, res) => {
+  const pago = db.prepare('SELECT * FROM pagos_propietario WHERE id = ? AND apartamento_id = ?')
+    .get(req.params.pago_id, req.params.id);
+  if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+  const b = req.body || {};
+  const sets = [];
+  const vals = [];
+  const add = (col, val) => { sets.push(`${col} = ?`); vals.push(val); };
+
+  if ('concepto' in b) {
+    const c = String(b.concepto || '').trim();
+    if (!c) return res.status(400).json({ error: 'El concepto no puede quedar vacío' });
+    add('concepto', c);
+  }
+  if ('importe' in b) {
+    const imp = parseFloat(b.importe);
+    if (isNaN(imp) || imp <= 0) return res.status(400).json({ error: 'El importe debe ser mayor que 0' });
+    add('importe', imp);
+  }
+  if ('fecha' in b) { const fe = String(b.fecha || '').trim(); if (fe) add('fecha', fe); }
+  if ('notas' in b) add('notas', txt(b.notas));
+  if ('pagado' in b) {
+    const pagado = b.pagado ? 1 : 0;
+    add('pagado', pagado);
+    // Al marcar pagado sin fecha → hoy; al desmarcar → limpiar fecha de pago.
+    if (pagado) { if (!('fecha_pago' in b)) add('fecha_pago', String(b.fecha_pago || '').trim() || new Date().toISOString().slice(0, 10)); }
+    else add('fecha_pago', null);
+  }
+  if ('fecha_pago' in b) add('fecha_pago', String(b.fecha_pago || '').trim() || null);
+
+  if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+  vals.push(pago.id);
+  db.prepare(`UPDATE pagos_propietario SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  res.json({ ok: true });
+});
+
+// DELETE /api/apartamentos/:id/pagos-propietario/:pago_id — borrar si no tiene factura.
+router.delete('/:id/pagos-propietario/:pago_id', (req, res) => {
+  const pago = db.prepare('SELECT * FROM pagos_propietario WHERE id = ? AND apartamento_id = ?')
+    .get(req.params.pago_id, req.params.id);
+  if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+  if (pago.factura_id) {
+    return res.status(409).json({ error: 'No se puede eliminar: el pago tiene una factura vinculada' });
+  }
+  db.prepare('DELETE FROM pagos_propietario WHERE id = ?').run(pago.id);
+  res.json({ ok: true });
+});
+
+// POST /api/apartamentos/:id/pagos-propietario/:pago_id/generar-factura — autofactura del pago.
+router.post('/:id/pagos-propietario/:pago_id/generar-factura', (req, res) => {
+  const pago = db.prepare('SELECT * FROM pagos_propietario WHERE id = ? AND apartamento_id = ?')
+    .get(req.params.pago_id, req.params.id);
+  if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+  if (pago.factura_id) return res.status(409).json({ error: 'Este pago ya tiene una factura generada' });
+
+  let r;
+  try {
+    r = crearAutofacturaPago({
+      apartamento_id: pago.apartamento_id,
+      concepto: pago.concepto,
+      importe: pago.importe,
+      razon_social_id: (req.body || {}).razon_social_id,
+      fecha_emision: pago.fecha,
+      created_by: req.usuario && req.usuario.username,
+    });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  db.prepare('UPDATE pagos_propietario SET factura_id = ? WHERE id = ?').run(r.id, pago.id);
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
+    'crear', 'factura', r.id, `${r.numero} (autofactura pago propietario)`);
+  res.status(201).json({ ok: true, factura_id: r.id, numero_factura: r.numero });
 });
 
 function aEntero(v) {

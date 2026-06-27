@@ -19,6 +19,11 @@ const Alojamientos = (() => {
   let gtaMatches = [];         // resultados typeahead de concepto
   let gtaIndex = -1;
 
+  // ---- Estado de la pestaña Pagos propietario ----
+  let pagoAnio = new Date().getFullYear();
+  let pagosCargados = false;   // ya cargada la lista de pagos para esta ficha
+  let pagosLista = [];         // pagos del apartamento abierto
+
   // ---- Estado de la pestaña Galería ----
   let galeriaFotos = [];       // fotos del apartamento abierto
   let galeriaCargada = false;  // ya cargada la galería para esta ficha
@@ -394,6 +399,7 @@ const Alojamientos = (() => {
         <button class="rsv-subtab activo" data-asub="alojamiento">Alojamiento</button>
         <button class="rsv-subtab" data-asub="propietario">Propietario</button>
         <button class="rsv-subtab" data-asub="gastos">Gastos</button>
+        <button class="rsv-subtab" data-asub="pagos">💳 Pagos propietario</button>
         <button class="rsv-subtab" data-asub="galeria">Galería</button>
         <button class="rsv-subtab" data-asub="calendario">Calendario</button>
         <button class="rsv-subtab" data-asub="mantenimiento">Mantenimiento</button>
@@ -433,6 +439,7 @@ const Alojamientos = (() => {
       p.classList.toggle('activo', p.dataset.asubpanel === sub));
     if (sub === 'propietario' && !propTabCargada) renderPropietario();
     if (sub === 'gastos' && !gastosCargados) cargarGastos();
+    if (sub === 'pagos' && !pagosCargados) cargarPagos();
     if (sub === 'galeria' && !galeriaCargada) cargarGaleria();
     if (sub === 'calendario' && !calCargado) cargarCalendario();
     if (sub === 'mantenimiento' && !mantCargado) cargarMantenimiento();
@@ -447,10 +454,12 @@ const Alojamientos = (() => {
     }
     propTabCargada = false;
     gastosCargados = false;
+    pagosCargados = false;
     galeriaCargada = false;
     calCargado = false;
     mantCargado = false;
     if (!ANIOS_GASTO.includes(gastoAnio)) gastoAnio = ANIOS_GASTO[ANIOS_GASTO.length - 1];
+    if (!ANIOS_GASTO.includes(pagoAnio)) pagoAnio = ANIOS_GASTO[ANIOS_GASTO.length - 1];
     document.getElementById('alo-titulo').textContent = fichaActual.nombre || 'Alojamiento';
     document.getElementById('alo-badges').innerHTML = badgesCabecera(fichaActual);
     renderCuerpo();
@@ -468,6 +477,7 @@ const Alojamientos = (() => {
       <div class="rsv-subpanel activo" data-asubpanel="alojamiento">${alojamientoHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="propietario"><div id="alo-prop-cont"></div></div>
       <div class="rsv-subpanel" data-asubpanel="gastos">${gastosShellHTML()}</div>
+      <div class="rsv-subpanel" data-asubpanel="pagos">${pagosShellHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="galeria">${galeriaShellHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="calendario">${calendarioShellHTML()}</div>
       <div class="rsv-subpanel" data-asubpanel="mantenimiento">${mantenimientoShellHTML()}</div>`;
@@ -484,6 +494,11 @@ const Alojamientos = (() => {
     if (selAnio) selAnio.addEventListener('change', (e) => { gastoAnio = Number(e.target.value); cargarGastos(); });
     const btnAdd = document.getElementById('alo-gasto-add');
     if (btnAdd) btnAdd.addEventListener('click', modalAnadirGasto);
+
+    const pagoSelAnio = document.getElementById('alo-pago-anio');
+    if (pagoSelAnio) pagoSelAnio.addEventListener('change', (e) => { pagoAnio = Number(e.target.value); cargarPagos(); });
+    const pagoAdd = document.getElementById('alo-pago-add');
+    if (pagoAdd) pagoAdd.addEventListener('click', modalAnadirPago);
 
     const calSelAnio = document.getElementById('alo-cal-anio');
     if (calSelAnio) calSelAnio.addEventListener('change', (e) => { calAnio = Number(e.target.value); cargarCalendario(); });
@@ -1131,6 +1146,235 @@ const Alojamientos = (() => {
     const dd = document.getElementById('ag-concepto-dropdown');
     if (dd) dd.classList.add('oculto');
     gtaIndex = -1;
+  }
+
+  // ==================== Pestaña Pagos propietario ====================
+  function pagosShellHTML() {
+    const opts = ANIOS_GASTO.map((a) => `<option value="${a}"${a === pagoAnio ? ' selected' : ''}>${a}</option>`).join('');
+    return `
+      <div class="alo-gastos-head">
+        <div class="alo-gastos-head-left">
+          <select id="alo-pago-anio" class="select-filtro">${opts}</select>
+        </div>
+        <button id="alo-pago-add" class="btn-pri">＋ Añadir pago</button>
+      </div>
+      <div id="alo-pagos-minis"></div>
+      <div id="alo-pagos-tabla"></div>`;
+  }
+
+  function pagosMiniCardsHTML(pagado, pendiente, total) {
+    const card = (bg, bd, col, ico, lbl, val) =>
+      `<div style="flex:1;min-width:120px;background:${bg};border:1px solid ${bd};border-radius:10px;padding:10px 12px">
+         <div style="font-size:12px;color:${col}">${ico} ${lbl}</div>
+         <div style="font-size:18px;font-weight:700;color:${col}">${euro(val)}</div>
+       </div>`;
+    return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      ${card('#f0fdf4', '#dcfce7', '#047857', '✅', 'Total pagado', pagado)}
+      ${card('#fff7ed', '#fed7aa', '#c2410c', '⏳', 'Pendiente de pago', pendiente)}
+      ${card('#eff6ff', '#dbeafe', '#2563eb', '💰', `Total ${pagoAnio}`, total)}
+    </div>`;
+  }
+
+  async function cargarPagos() {
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    pagosCargados = true;
+    const cont = document.getElementById('alo-pagos-tabla');
+    if (cont) cont.innerHTML = skeletonGastos();
+    let data;
+    try {
+      data = await API.get(`/api/apartamentos/${id}/pagos-propietario?anio=${pagoAnio}`);
+    } catch (e) {
+      if (cont) cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar los pagos.</div>';
+      return;
+    }
+    if (!fichaActual || String(fichaActual.id) !== String(id)) return; // la ficha cambió
+    pagosLista = data || [];
+    renderPagos();
+  }
+
+  function renderPagos() {
+    const minis = document.getElementById('alo-pagos-minis');
+    const cont = document.getElementById('alo-pagos-tabla');
+    const totPagado = pagosLista.filter((p) => p.pagado).reduce((s, p) => s + Number(p.importe || 0), 0);
+    const totPend = pagosLista.filter((p) => !p.pagado).reduce((s, p) => s + Number(p.importe || 0), 0);
+    const totAnio = totPagado + totPend;
+    if (minis) minis.innerHTML = pagosMiniCardsHTML(totPagado, totPend, totAnio);
+    if (!cont) return;
+    if (!pagosLista.length) {
+      cont.innerHTML = `<div style="color:var(--muted);padding:8px 0">Sin pagos registrados en ${pagoAnio}</div>`;
+      return;
+    }
+    const filas = pagosLista.map((p) => {
+      const estado = p.pagado
+        ? '<span class="badge-estado activo">Pagado ✓</span>'
+        : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>';
+      const factura = p.factura_id
+        ? `<a class="vta-ref" data-ver-factura="${p.factura_id}" style="cursor:pointer">${esc(p.factura_numero) || 'Ver factura'}</a>`
+        : `<button class="btn-mini" data-generar-factura="${p.id}">🧾 Generar autofactura</button>`;
+      const acc = [`<button class="btn-mini" data-editar-pago="${p.id}">Editar</button>`];
+      if (!p.pagado) acc.push(`<button class="btn-mini" data-marcar-pago="${p.id}">Marcar pagado</button>`);
+      if (!p.factura_id) acc.push(`<button class="btn-mini" data-borrar-pago="${p.id}">Eliminar</button>`);
+      const notas = p.notas ? ` <span class="alo-gasto-notas">${esc(p.notas)}</span>` : '';
+      return `
+        <tr>
+          <td>${fechaES(p.fecha)}</td>
+          <td>${esc(p.concepto)}${notas}</td>
+          <td style="text-align:right;white-space:nowrap">${euro(p.importe)}</td>
+          <td>${estado}</td>
+          <td>${factura}</td>
+          <td class="acciones">${acc.join('')}</td>
+        </tr>`;
+    }).join('');
+    cont.innerHTML = `
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th>Estado</th><th>Factura</th><th></th></tr></thead>
+          <tbody>${filas}</tbody>
+          <tfoot><tr class="est-fila-total"><td colspan="2">Total ${pagoAnio}</td><td style="text-align:right;white-space:nowrap">${euro(totAnio)}</td><td colspan="3"></td></tr></tfoot>
+        </table>
+      </div>`;
+    cont.querySelectorAll('[data-ver-factura]').forEach((b) =>
+      b.addEventListener('click', () => irAFactura(b.dataset.verFactura)));
+    cont.querySelectorAll('[data-generar-factura]').forEach((b) =>
+      b.addEventListener('click', () => generarFacturaPago(b.dataset.generarFactura)));
+    cont.querySelectorAll('[data-editar-pago]').forEach((b) =>
+      b.addEventListener('click', () => modalEditarPago(pagosLista.find((x) => String(x.id) === b.dataset.editarPago))));
+    cont.querySelectorAll('[data-marcar-pago]').forEach((b) =>
+      b.addEventListener('click', () => modalMarcarPagado(pagosLista.find((x) => String(x.id) === b.dataset.marcarPago))));
+    cont.querySelectorAll('[data-borrar-pago]').forEach((b) =>
+      b.addEventListener('click', () => borrarPago(b.dataset.borrarPago)));
+  }
+
+  // Navega a Facturación y abre la factura.
+  function irAFactura(facturaId) {
+    if (typeof activarTab === 'function') activarTab('facturacion');
+    if (typeof Facturas !== 'undefined' && Facturas.abrirFicha) Facturas.abrirFicha(facturaId);
+  }
+
+  async function generarFacturaPago(pagoId) {
+    if (!confirm('¿Generar autofactura de este pago? (IVA 0%, retención 19%)')) return;
+    try {
+      const r = await API.post(`/api/apartamentos/${fichaActual.id}/pagos-propietario/${pagoId}/generar-factura`, {});
+      await cargarPagos();
+      toast('Autofactura ' + (r.numero_factura || '') + ' generada', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  async function borrarPago(pagoId) {
+    if (!confirm('¿Eliminar este pago?')) return;
+    try {
+      await API.del(`/api/apartamentos/${fichaActual.id}/pagos-propietario/${pagoId}`);
+      await cargarPagos();
+      toast('Pago eliminado', 'ok');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // ---- Modal "Añadir pago" ----
+  function modalAnadirPago() {
+    const apto = fichaActual;
+    const hoy = new Date().toISOString().slice(0, 10);
+    abrirModal(`
+      <h3>Añadir pago a propietario</h3>
+      <div class="campo"><label>Concepto *</label><input id="pp-concepto" placeholder="Ej: Suministro luz julio, Comunidad, IBI"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="pp-importe"></div>
+        <div class="campo"><label>Fecha *</label><input type="date" id="pp-fecha" value="${hoy}"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="pp-notas"></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pp-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pp-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('pp-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pp-guardar').addEventListener('click', async () => {
+      const concepto = val('pp-concepto').trim();
+      if (!concepto) return toast('El concepto es obligatorio', 'error');
+      const importe = parseFloat(val('pp-importe'));
+      if (isNaN(importe) || importe <= 0) return toast('Indica un importe mayor que 0', 'error');
+      const fecha = val('pp-fecha');
+      if (!fecha) return toast('La fecha es obligatoria', 'error');
+      try {
+        await API.post(`/api/apartamentos/${apto.id}/pagos-propietario`, { concepto, importe, fecha, notas: val('pp-notas') });
+        cerrarModal();
+        await cargarPagos();
+        toast('Pago añadido', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // ---- Modal "Editar pago" (incluye toggle Pagado + fecha de pago) ----
+  function modalEditarPago(pago) {
+    if (!pago) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+    abrirModal(`
+      <h3>Editar pago</h3>
+      <div class="campo"><label>Concepto *</label><input id="pe-concepto" value="${esc(pago.concepto)}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="pe-importe" value="${pago.importe ?? ''}"></div>
+        <div class="campo"><label>Fecha *</label><input type="date" id="pe-fecha" value="${esc(pago.fecha) || hoy}"></div>
+      </div>
+      <div class="campo"><label>Notas</label><textarea id="pe-notas">${esc(pago.notas)}</textarea></div>
+      <label class="toggle-campo"><input type="checkbox" id="pe-pagado"${pago.pagado ? ' checked' : ''}><span>Pagado</span></label>
+      <div class="campo" id="pe-fpago-wrap" style="${pago.pagado ? '' : 'display:none'}"><label>Fecha de pago</label><input type="date" id="pe-fpago" value="${esc(pago.fecha_pago) || hoy}"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pe-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pe-guardar">Guardar</button>
+      </div>`);
+    const chk = document.getElementById('pe-pagado');
+    chk.addEventListener('change', () => {
+      document.getElementById('pe-fpago-wrap').style.display = chk.checked ? '' : 'none';
+    });
+    document.getElementById('pe-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pe-guardar').addEventListener('click', async () => {
+      const concepto = val('pe-concepto').trim();
+      if (!concepto) return toast('El concepto es obligatorio', 'error');
+      const importe = parseFloat(val('pe-importe'));
+      if (isNaN(importe) || importe <= 0) return toast('Indica un importe mayor que 0', 'error');
+      const fecha = val('pe-fecha');
+      if (!fecha) return toast('La fecha es obligatoria', 'error');
+      const pagado = chk.checked ? 1 : 0;
+      const body = { concepto, importe, fecha, notas: val('pe-notas'), pagado, fecha_pago: pagado ? val('pe-fpago') : null };
+      try {
+        await API.put(`/api/apartamentos/${fichaActual.id}/pagos-propietario/${pago.id}`, body);
+        cerrarModal();
+        await cargarPagos();
+        toast('Pago actualizado', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // ---- Mini modal "Marcar pagado" ----
+  function modalMarcarPagado(pago) {
+    if (!pago) return;
+    const hoy = new Date().toISOString().slice(0, 10);
+    abrirModal(`
+      <h3>Marcar como pagado</h3>
+      <div class="vta-pv-resumen"><div>${esc(pago.concepto)} · <strong>${euro(pago.importe)}</strong></div></div>
+      <div class="campo"><label>Fecha de pago</label><input type="date" id="pm-fpago" value="${esc(pago.fecha_pago) || hoy}"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pm-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pm-guardar">Confirmar</button>
+      </div>`);
+    document.getElementById('pm-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pm-guardar').addEventListener('click', async () => {
+      try {
+        await API.put(`/api/apartamentos/${fichaActual.id}/pagos-propietario/${pago.id}`, { pagado: 1, fecha_pago: val('pm-fpago') });
+        cerrarModal();
+        await cargarPagos();
+        toast('Pago marcado como pagado', 'ok');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
   }
 
   // ==================== Pestaña Galería ====================

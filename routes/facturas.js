@@ -371,6 +371,56 @@ function construirProforma(body) {
   return construido;
 }
 
+// Crea una autofactura a partir de un pago a propietario suelto (concepto + importe).
+// Emisor = propietario activo del apartamento; receptor = la razón social indicada o, si no,
+// la predeterminada (primera por id). IVA 0%, retención 19% (IRPF propietario residente).
+// Devuelve { id, numero } o lanza Error. Reutilizada por routes/apartamentos.js.
+function crearAutofacturaPago({ apartamento_id, concepto, importe, razon_social_id, anio, fecha_emision, created_by }) {
+  const apto = db.prepare('SELECT * FROM apartamentos WHERE id = ?').get(intOrNull(apartamento_id));
+  if (!apto) throw new Error('Apartamento no encontrado');
+
+  let rs = razon_social_id != null && razon_social_id !== ''
+    ? db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(razon_social_id)) : null;
+  if (!rs) rs = db.prepare('SELECT * FROM razones_sociales ORDER BY id LIMIT 1').get();
+  if (!rs) throw new Error('No hay ninguna razón social configurada');
+
+  const propietario = db.prepare(`
+    SELECT p.* FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ? AND ap.activo = 1
+    ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC, ap.id ASC
+    LIMIT 1
+  `).get(apto.id);
+  if (!propietario) throw new Error('El apartamento no tiene propietario activo');
+
+  const imp = round2(importe);
+  const lineas = [{ descripcion: String(concepto || 'Pago a propietario'), cantidad: 1, precio_unitario: imp, importe: imp }];
+
+  const f = nuevaFactura();
+  f.tipo = 'autofactura';
+  f.apartamento_id = apto.id;
+  f.propietario_id = propietario.id;
+  f.porcentaje_iva = 0;          // pagos a propietario sin IVA por defecto
+  f.porcentaje_retencion = 19;   // IRPF estándar propietario residente
+  f.base_imponible = imp;
+  // Autofactura: emisor = propietario, receptor = nuestra razón social.
+  f.razon_social_id = rs.id;
+  f.emisor_nombre = nombrePropietario(propietario);
+  f.emisor_cif = cifPropietario(propietario);
+  f.emisor_direccion = direccionPropietario(propietario);
+  f.emisor_logo_url = null;
+  f.receptor_nombre = rs.razon_social || rs.nombre_comercial || '';
+  f.receptor_cif = rs.cif_nif || null;
+  f.receptor_direccion = direccionRazon(rs);
+  f.receptor_email = rs.email_contacto || null;
+  f.fecha_emision = String(fecha_emision || '').trim() || hoyISO();
+  f.anio = intOrNull(anio) || parseInt(f.fecha_emision.slice(0, 4), 10);
+  f.estado = 'emitida';
+  f.created_by = created_by || null;
+  calcularImportes(f);
+  return insertarFactura(f, lineas);
+}
+
 // ==================== Endpoints ====================
 
 // GET /api/facturas?anio=&tipo=&estado=&propietario_id=&reserva_id=
@@ -712,3 +762,5 @@ router.delete('/:id', (req, res) => {
 });
 
 module.exports = router;
+// Helper reutilizable por otros routers (p. ej. apartamentos → pagos a propietario).
+module.exports.crearAutofacturaPago = crearAutofacturaPago;
