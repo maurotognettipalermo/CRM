@@ -37,7 +37,8 @@ db/database.js         better-sqlite3, WAL + foreign_keys. Ejecuta schema + limp
                        para ampliar el CHECK de rol con 'limpieza' y 'mantenimiento'; el guard mira si
                        el CHECK ya incluye 'mantenimiento') + migrarFacturasTipo() (recrea facturas para
                        ampliar el CHECK de tipo con 'mayorista', reescribiendo su SQL por regex) +
-                       migrarPropiedadesVenta() (ALTER de los campos de venta cerrada + propietario_venta_id) + seeds (admin,
+                       migrarPropiedadesVenta() (ALTER de los campos de venta cerrada + propietario_venta_id) +
+                       migrarHorasExtra() (ALTER hora_inicio/hora_fin en horas_extra) + seeds (admin,
                        portales, estados_reserva, mayoristas: Apartplaya/Viajes Himalaya).
                        Columna estado_limpieza ('limpio'|'sucio', CHECK) se añade vía COLUMNAS_APARTAMENTOS.
 scripts/crear-usuario.js  Crear/actualizar usuario admin directamente en BD (node scripts/crear-usuario.js).
@@ -51,18 +52,22 @@ db/schema.sql          Tablas: propietarios, apartamentos, apartamento_propietar
                        mantenimiento_notas, mantenimiento_fotos, propiedades_venta,
                        clientes_compradores, visitas_venta, visitas_propiedades, visitas_notas, propietarios_venta, mayoristas,
                        mayorista_contratos, mayorista_pagos, empleados, fichajes, ausencias, horas_extra,
-                       leads, lead_propuestas, lead_plantillas, lead_notas, clientes.
+                       leads, lead_propuestas, lead_plantillas, lead_notas, clientes, pagos_propietario.
 routes/                Un router Express por recurso:
   apartamentos · propietarios · reservas · importar · ajustes · auth · usuarios ·
   portales · dashboard · estadisticas · contratos · gastos · facturas · tarifas ·
   reserva-pagos (/api/reservas/:id/pagos) · catalogo-extras (exporta catalogo + reservaExtras) ·
   fotos (/api/apartamentos/:id/fotos, galería de fotos del apartamento) ·
+  apartamentos también: pagos a propietario (/api/apartamentos/:id/pagos-propietario, CRUD +
+    generar-factura —autofactura del pago, requiere `crearAutofacturaPago` exportado por
+    routes/facturas.js— + /pagos-propietario/resumen?anio para Estadísticas) ·
   email (/api/email/enviar-fotos, envío de fotos por SMTP) ·
   limpieza (/api/limpieza, tareas de limpieza por día + reportes) ·
   mantenimiento (/api/mantenimiento, tareas kanban + notas + fotos + historial por apto) ·
   ventas (/api/ventas, módulo inmobiliaria: propiedades en venta + clientes compradores +
     propietarios de venta + visitas + notas de visita + resumen; importación de Idealista;
-    venta de propiedad) ·
+    venta de propiedad; convertir-venta: cierra la venta de una propiedad desde una visita
+    Realizada vía marcarVendida() + cliente→'Compró') ·
   mayoristas (/api/mayoristas, Pagos de Mayoristas: mayoristas + contratos anuales +
     plan de pagos + resumen) ·
   personal (/api/personal, módulo RRHH: empleados + fichajes/control horario +
@@ -114,7 +119,9 @@ public/                Frontend vanilla. Sin build, servido estático.
                        {principal, permitidas[]} → esos roles solo ven su módulo + Personal (para
                        fichar); arrancan en su `principal`. badge de rol vía pintarBadgeRol().
                        Sidebar agrupado: `.nav-group[data-group]` colapsables (Alquiler/Administración/
-                       Ventas/Equipo) + ítems sueltos (Dashboard/Estadísticas/Ajustes). Estado abierto/
+                       Equipo) + ítems sueltos (Dashboard/Ventas/Estadísticas/Ajustes). Ventas es ítem
+                       suelto (data-tab="ventas", NO grupo); orden del sidebar: …Administración, Equipo,
+                       Ventas, Estadísticas, Ajustes. Estado abierto/
                        cerrado en localStorage('sidebar-grupos'); activarTab expande el grupo del ítem
                        activo; ocultarGruposVacios() esconde grupos sin ítems visibles (roles restringidos).
   js/dashboard.js      4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, check-out)
@@ -138,7 +145,10 @@ public/                Frontend vanilla. Sin build, servido estático.
                        typeahead de propietario). Ficha en panel con 6 pestañas: Alojamiento (datos +
                        limpieza clicable + popover /limpieza-log + recaudación), Propietario (gestión
                        N:M: cards % verde/naranja/rojo según suma=100, histórico, modales Añadir/Editar/
-                       Cerrar), Gastos (por año, modal con typeahead), Galería (grid, subida XHR con
+                       Cerrar), Gastos (por año, modal con typeahead), Pagos propietario (por año,
+                       mini-tarjetas pagado/pendiente/total, tabla con badge Pagado/Pendiente, columna
+                       Factura clicable→Facturación o "Generar autofactura", modales añadir/editar/marcar
+                       pagado; /api/apartamentos/:id/pagos-propietario), Galería (grid, subida XHR con
                        progreso, drag&drop reordenar, lightbox, enviar por email vía /api/email/enviar-
                        fotos), Calendario (12 meses tintados por estado de reserva, clic→ficha) y
                        Mantenimiento (resumen + cards desde /mantenimiento/historial; "＋ Nueva tarea"
@@ -192,14 +202,17 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Mantenimiento con descripción dinámica vía ROL_DESC).
                        Portales, Catálogo de gastos, Catálogo de extras, Estados de reserva y Correo
                        electrónico se inyectan por JS (Correo y Actividad ocultas para no-admin).
-  js/estadisticas.js   Solo admin. Selector de año + 5 sub-pestañas con datos reales y anti-respuesta-obsoleta:
+  js/estadisticas.js   Solo admin. Selector de año + 6 sub-pestañas con datos reales y anti-respuesta-obsoleta:
                        (1) Ingresos por portal · (2) Ingresos por apartamento (general + detalle por apto) ·
                        (3) Ocupación (barras por mes + comparativa 1ª/2ª Línea) ·
                        (4) Propietarios 💰 (cashflow precio_cerrado → link a Contratos filtrado) ·
-                       (5) Mayoristas (4 cards + cashflow + card por mayorista + panel lateral con plan
+                       (5) Pagos propietario (mini-tarjetas pagado/pendiente/nº pagos + tabla por apto
+                       ordenada por total; cruza en cliente /apartamentos/pagos-propietario/resumen +
+                       /apartamentos —propietario— + listas por apto —nº pagos—) ·
+                       (6) Mayoristas (4 cards + cashflow + card por mayorista + panel lateral con plan
                        de pagos: marcar/desmarcar cobro, generar factura tipo 'mayorista' —el nº enlaza a
                        Facturación—, gestionar mayoristas y nuevo contrato; desde /api/mayoristas).
-                       Sub-pestañas 4 y 5 y sus paneles se inyectan por JS (no en index.html).
+                       Sub-pestañas 4, 5 y 6 y sus paneles se inyectan por JS (no en index.html).
   js/limpieza.js       Módulo Limpieza (todos los roles; rol 'limpieza' solo ve esta pestaña).
                        Sub-pestaña "Tareas del día": selector de fecha + Hoy/Mañana, 4 mini-tarjetas
                        de resumen, buscador + filtro pill por estado (Todos/Pendientes/Completadas),
@@ -243,7 +256,12 @@ public/                Frontend vanilla. Sin build, servido estático.
                        Propiedad = "A417, A381 +1 más"), modal detalle con cards de propiedades + notas
                        chat. Modales crear/editar con selector múltiple compartido (selectorPropsHTML/
                        montarSelectorProps, pills+checkboxes) que envía `propiedad_ids[]`. Avance
-                       automático del cliente: crear visita Nuevo→Contactado, realizar Contactado→Visitado. **Calendario**: vista
+                       automático del cliente: crear visita Nuevo→Contactado, realizar Contactado→Visitado.
+                       **Convertir a venta** (modalConvertirVenta): botón 💰 en tabla y detalle si la visita
+                       está Realizada y ninguna propiedad vendida; selector de propiedad (auto si 1),
+                       precio final + diferencia en vivo (rojo/verde), comprador cliente/manual → POST
+                       /visitas/:id/convertir-venta; badge verde "Venta cerrada"/"Vendida ✓" si vendida.
+                       **Calendario**: vista
                        mensual (grid 7 col + flechas/Hoy + leyenda; modo lista en móvil) con las visitas
                        por día; clic en visita → detalle, clic en día → nueva visita. **Vendidos**:
                        buscador + selector de año (por fecha_venta) + contador + volumen total; tabla
@@ -262,7 +280,11 @@ public/                Frontend vanilla. Sin build, servido estático.
                        por fetch con token). **Empleados** (admin/usuario): tabla + ficha (#per-panel,
                        resumen anual), modal alta/edición (vincula usuario CRM). **Ausencias** (admin/
                        usuario): calendario empleados×días por tipo, saldo por empleado, aprobar/rechazar
-                       (solo admin). **Horas extra** (todos): vista propia + gestión del pago (admin).
+                       (solo admin). **Horas extra** (todos): vista propia + gestión del pago (admin). El
+                       modal admin "añadir" tiene 3 modos (radio): Horas directas (horas+precio/h) ·
+                       Por horario (hora inicio/fin → calcula horas) · Otro concepto (descripción+importe,
+                       horas=0). Cálculo de importe/horas en vivo. El modal "Registrar pago" solo pide
+                       importe+fecha. En la tabla, horas=0 → "—" y muestra el importe directamente.
                        Clases `per-*`/`aus-*`/`hx-*`. UI mobile-first.
   js/leads.js          Módulo Comercial (Leads). IIFE `Leads`, sub-pestañas Leads | Plantillas.
                        Resumen (5 minis + tasa conversión), tabla con filtros (estado/atendido/fechas,
@@ -315,6 +337,9 @@ Patrones clave:
 | POST | /api/apartamentos/:id/fotos/reordenar | Body `{orden:[id1,id2,...]}` → fija el campo orden de cada foto |
 | PUT | /api/apartamentos/:id/limpieza | Body `{estado_limpieza:'limpio'\|'sucio'}`. Actualiza + registra en limpieza_log con req.usuario |
 | GET | /api/apartamentos/:id/limpieza-log | Historial de limpieza, fecha DESC, máx 50 |
+| GET | /api/apartamentos/pagos-propietario/resumen | `?anio=`. Total pagado/pendiente por apartamento (para Estadísticas). **Declarar antes de /:id** |
+| GET/POST/PUT/DELETE | /api/apartamentos/:id/pagos-propietario[/:pago_id] | Pagos a propietario del apto (`?anio=`, JOIN facturas→nº). POST `{concepto, importe, fecha, notas}`. PUT acepta `pagado`/`fecha_pago`. DELETE→409 si tiene factura |
+| POST | /api/apartamentos/:id/pagos-propietario/:pago_id/generar-factura | Autofactura del pago (IVA 0%, ret 19%, emisor=propietario) vía `crearAutofacturaPago`; fija `factura_id`. 409 si ya tiene |
 | GET/POST/PUT/DELETE | /api/apartamentos/:id/gastos[/:gasto_id] | Gastos del apto por año. POST: snapshot nombre+precio del catálogo |
 | GET/POST/PUT/DELETE | /api/catalogo-gastos[/:id] | Catálogo de gastos. DELETE→409 si tiene gastos asociados |
 | GET/POST/PUT/DELETE | /api/propietarios[/:id] | CRUD propietarios |
@@ -368,6 +393,7 @@ Patrones clave:
 | GET | /api/ventas/visitas/hoy | Programadas para hoy, con `propiedades[]` (**declarar antes de /:id**) |
 | GET/POST/PUT/DELETE | /api/ventas/visitas[/:id] | CRUD visitas (N:M con `visitas_propiedades`). Body `propiedad_ids[]` (o `propiedad_id` compat): UNA visita con N propiedades. POST inserta todas; PUT reemplaza (DELETE+INSERT); 409 si alguna propiedad ya tiene visita de ese cliente esa fecha. GET/:id + POST/PUT devuelven `propiedades[]`. POST avanza cliente Nuevo→Contactado |
 | POST | /api/ventas/visitas/:id/realizar | `{valoracion, notas}` → estado='Realizada'; avanza cliente Contactado→Visitado |
+| POST | /api/ventas/visitas/:id/convertir-venta | `{propiedad_id, precio_venta_final, comprador_*, fecha_venta, fecha_escritura}`. Valida que la propiedad es de la visita (400) y no vendida (409); `marcarVendida` + cliente→'Compró'. → `{ok, propiedad_id, referencia, precio_venta_final}` |
 | POST/DELETE | /api/ventas/visitas/:id/notas[/:nota_id] | Hilo de notas de la visita |
 | GET | /api/ventas/propietarios-venta?buscar= | Cartera de propietarios de venta (+ `num_propiedades`) |
 | GET/POST/PUT/DELETE | /api/ventas/propietarios-venta[/:id] | CRUD. GET/:id incluye `propiedades[]`. DELETE→409 si tiene propiedades |
@@ -378,7 +404,7 @@ Patrones clave:
 | GET/PUT/DELETE | /api/mayoristas/contratos/:id | Detalle (con `pagos[]`) / editar + reemplazar plan de pagos (transacción, valida suma==total) / borrar (409 si pagos cobrados) |
 | GET/POST | /api/mayoristas/:id/contratos | Contratos de un mayorista (`?anio=`) / crear contrato + plan de pagos `{anio, importe_total, pagos:[{numero_pago,fecha_prevista,importe}]}` (valida suma, 409 si año duplicado) |
 | PUT | /api/mayoristas/pagos/:pago_id | Marcar/desmarcar cobro `{pagado, fecha_pago, metodo_pago, numero_factura}`. Marcar sin fecha→hoy; desmarcar limpia fecha+método |
-| GET/POST/PUT/DELETE | /api/personal/empleados[/:id] | CRUD empleados. POST/PUT validan `usuario_id` (existe + UNIQUE). DELETE→409 si tiene fichajes o ausencias |
+| GET/POST/PUT/DELETE | /api/personal/empleados[/:id] | CRUD empleados. GET por defecto solo activos; `?todos=1` incluye inactivos. POST/PUT validan `usuario_id` (existe + UNIQUE). DELETE→409 si tiene fichajes o ausencias |
 | GET | /api/personal/fichajes/estado | Estado actual (`trabajando`/`pausa`/`fuera`) + resumen del día del empleado logueado. **Antes de /:id** |
 | GET | /api/personal/fichajes/resumen?empleado_id=&mes=&anio= | Resumen mensual (horas/día + total). Admin cualquiera o todos; empleado el suyo |
 | GET | /api/personal/fichajes?empleado_id=&fecha= | Fichajes del día. Admin sin empleado_id→todos; no-admin→solo el suyo |
@@ -388,8 +414,8 @@ Patrones clave:
 | GET/POST | /api/personal/ausencias[?empleado_id=&anio=&tipo=] | Lista (admin todas / empleado las suyas) / crear (empleado solo para sí; `dias`=laborables auto) |
 | PUT/DELETE | /api/personal/ausencias/:id | Editar / eliminar. **Solo admin** (PUT registra actividad aprobar/rechazar) |
 | GET | /api/personal/horas-extra/resumen?empleado_id=&anio= | `{total_horas, horas_pagadas, horas_pendientes, total_pagado, total_pendiente}`. **Antes de /:id** |
-| GET/POST | /api/personal/horas-extra[?empleado_id=&anio=&pagada=] | Lista (admin todas / empleado las suyas) / crear (del usuario logueado) |
-| PUT/DELETE | /api/personal/horas-extra/:id | Admin: pago (pagada/importe/fecha_pago). Empleado: solo fecha/horas/descripción de las suyas no pagadas; DELETE admin o propio si no pagada |
+| GET/POST | /api/personal/horas-extra[?empleado_id=&anio=&pagada=] | Lista (admin todas / empleado las suyas) / crear (admin puede pasar `empleado_id`). Acepta `hora_inicio`/`hora_fin` (calcula horas), `precio_hora` (→importe), `importe` directo; `horas=0` exige `importe>0` |
+| PUT/DELETE | /api/personal/horas-extra/:id | Admin: pago (pagada/importe/fecha_pago) + `hora_inicio`/`hora_fin`/`precio_hora`. Empleado: solo fecha/horas/descripción de las suyas no pagadas; DELETE admin o propio si no pagada |
 | GET | /api/personal/resumen-dia?fecha= | **Solo admin**. `{empleados_fichados, en_pausa, ausentes_hoy[], fichajes[]}` (fichajes con entrada/salida/estado/horas/pausas[]) |
 | GET | /api/personal/fichajes/exportar?empleado_ids=&meses=&anio= | **Solo admin**. CSV (`;`, BOM UTF-8) de fichajes; `meses`/`empleado_ids` listas por coma (vacío=todos); una fila por día laborable, columnas de pausa dinámicas, TOTAL por empleado; filename según rango. **Antes de /fichajes** |
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD razones sociales |
@@ -487,17 +513,18 @@ Todas las rutas `/api/*` salvo `/api/auth/login` pasan por `requireAuth` (header
 - **mayoristas** (Pagos de Mayoristas): nombre (UNIQUE NOT NULL), cif, direccion, telefono, email, contacto_nombre, notas, activo. Seed: Apartplaya, Viajes Himalaya (si tabla vacía). DELETE→409 si tiene contratos. `MAY_CAMPOS`/`CLI_CAMPOS`-style en `routes/mayoristas.js`.
 - **mayorista_contratos**: mayorista_id (FK CASCADE), anio, descripcion, importe_total, estado (CHECK activo/finalizado/cancelado, def. 'activo'), notas. **UNIQUE(mayorista_id, anio)**. La suma del plan de pagos debe cuadrar con importe_total (±0.01€).
 - **mayorista_pagos**: contrato_id (FK CASCADE), numero_pago, fecha_prevista, importe, pagado (0/1), fecha_pago, metodo_pago (CHECK transferencia/cheque/efectivo), numero_factura, notas. Plan de pagos del contrato; al facturar (tipo 'mayorista') se anota el numero_factura.
-- **empleados** (módulo Personal): `usuario_id` (FK a `usuarios`, UNIQUE, ON DELETE SET NULL — vincula con el login para que pueda fichar), nombre (NOT NULL), apellidos, dni, telefono, email, puesto, fecha_inicio, dias_vacaciones_anio (def. 30), activo, notas. `EMP_CAMPOS` en `routes/personal.js`.
+- **empleados** (módulo Personal): `usuario_id` (FK a `usuarios`, UNIQUE, ON DELETE SET NULL — vincula con el login para que pueda fichar), nombre (NOT NULL), apellidos, dni, telefono, email, puesto, fecha_inicio, dias_vacaciones_anio (def. 30), activo, notas. `EMP_CAMPOS` en `routes/personal.js`. `GET /empleados` devuelve solo activos por defecto; `?todos=1` incluye inactivos. Los inactivos se excluyen de calendario de ausencias, resumen-dia y lista de fichajes del día; en horas extra SÍ aparecen (historial).
+- **pagos_propietario** (pestaña Pagos propietario de la ficha del alojamiento): apartamento_id (FK CASCADE), concepto (NOT NULL), importe (NOT NULL), fecha (NOT NULL), pagado (0/1), fecha_pago, `factura_id` (FK a `facturas`, ON DELETE SET NULL — al "generar autofactura"), notas, created_by. CRUD en `routes/apartamentos.js`; DELETE→409 si tiene factura. `generar-factura` crea una autofactura (IVA 0%, retención 19%, emisor=propietario activo) vía `crearAutofacturaPago` (exportado por `routes/facturas.js`) y fija `factura_id`. Tabla creada por schema.sql.
 - **fichajes**: empleado_id (FK CASCADE), fecha (ISO), tipo (CHECK entrada/pausa/reanudacion/salida), hora ('HH:MM:SS', `time('now','localtime')`), notas. Una fila por evento. El estado del día y las horas se derivan de la secuencia (sin tabla de estado). Tabla creada por schema.sql.
 - **ausencias**: empleado_id (FK CASCADE), tipo (CHECK vacaciones/dia_libre/dia_gracia/baja_medica/asuntos_propios), fecha_inicio/fecha_fin, dias (laborables lun-vie, calculado en el backend), estado (CHECK pendiente/aprobada/rechazada, def. 'aprobada'), aprobado_por, notas. Empleado crea pendientes para sí; admin crea/edita/aprueba/rechaza/borra.
-- **horas_extra**: empleado_id (FK CASCADE), fecha, horas (REAL), descripcion, pagada (0/1), importe, fecha_pago, created_by. El empleado apunta las suyas (editables/borrables solo si no pagadas); el admin gestiona el pago.
+- **horas_extra**: empleado_id (FK CASCADE), fecha, horas (REAL), descripcion, pagada (0/1), importe, fecha_pago, `hora_inicio`/`hora_fin` (TEXT, rango horario opcional, vía ALTER en `COLUMNAS_HORAS_EXTRA`/`migrarHorasExtra`), created_by. El empleado apunta las suyas (editables/borrables solo si no pagadas); el admin gestiona el pago. POST/PUT aceptan `hora_inicio`/`hora_fin` (calculan horas), `precio_hora` (→ importe = horas×precio_hora) e `importe` directo. `horas=0` solo es válido con `importe>0` ("Otro concepto").
 - **clientes** (módulo Clientes — huéspedes/inquilinos): id_avantio (clave de upsert al importar), nombre (NOT NULL), apellido1/apellido2, fecha_nacimiento, sexo, nacionalidad, dirección (calle/numero/puerta/codigo_postal/ciudad/provincia/pais/region), dni, email/email2, telefono/telefono2/telefono3, idioma, tipo_cliente, cuenta_bancaria, codigo_fiscal, observaciones, cuenta_contable. `CAMPOS` en `routes/clientes.js`. Importación: `importClientes.js` no pisa `observaciones` en UPDATE. Vinculado a reservas vía `reservas.cliente_id`.
 - **leads** (módulo Comercial): nombre (NOT NULL), telefono, email, apartamento_id (FK SET NULL) + apartamento_nombre, fecha_entrada/salida, personas, presupuesto, estado (CHECK nuevo/contactado/propuesta_enviada/esperando_respuesta/reservado/descartado, def. 'nuevo'), notas (texto libre), reserva_id (FK SET NULL — al convertir), atendido_por, created_by. `routes/leads.js`.
 - **lead_propuestas**: lead_id (FK CASCADE), asunto, mensaje, apartamento_id (FK SET NULL), precio_propuesto, fotos_enviadas (JSON de foto_ids), email_destino, enviada (0/1), fecha_envio, plantilla_id (FK SET NULL), created_by. Propuestas de email enviadas/borrador.
 - **lead_plantillas**: nombre (UNIQUE), asunto, cuerpo (con placeholders {nombre}/{apartamento}/{fecha_entrada}/{fecha_salida}/{precio}/{empresa}/{tipo}/{capacidad}/{zona}), activa (0/1). Seed de 2 (Propuesta estándar, Seguimiento) si la tabla está vacía.
 - **lead_notas**: lead_id (FK CASCADE), texto, usuario_nombre, fecha. Hilo de notas (chat) del lead; la ficha lo devuelve en `notas_chat` (para no eclipsar la columna texto `notas` del lead).
 
-**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_propiedades`, `visitas_notas`, `propietarios_venta`, `mayoristas`, `mayorista_contratos`, `mayorista_pagos`, `empleados`, `fichajes`, `ausencias`, `horas_extra`, `clientes`, `leads`, `lead_propuestas`, `lead_plantillas`, `lead_notas` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo: la columna `estado_limpieza` vía ALTER en `COLUMNAS_APARTAMENTOS`; el CHECK de `usuarios.rol` recreando la tabla en `migrarUsuariosRol()`; el CHECK de `facturas.tipo` recreado en `migrarFacturasTipo()`; los campos de venta + `propietario_venta_id` de `propiedades_venta` vía ALTER en `migrarPropiedadesVenta()`; `reservas.cliente_id` vía ALTER en `COLUMNAS_RESERVAS` —REFERENCES exige default NULL implícito, por eso `clientes` se crea en schema.sql antes de `migrarReservas`—; y `portales.prefijo` vía ALTER en `COLUMNAS_PORTALES`; y el backfill N:M de `visitas_propiedades` en `migrarVisitasPropiedades()`). Seed de `lead_plantillas` en `seedLeadPlantillas()`. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
+**Tablas nuevas sin migración**: `reserva_pagos`, `catalogo_extras`, `reserva_extras`, `temporadas`, `tipo_modificadores`, `descuentos`, `apartamento_fotos`, `estados_reserva`, `limpieza_log`, `limpieza_tareas`, `limpieza_fotos`, `mantenimiento_tareas`, `mantenimiento_notas`, `mantenimiento_fotos`, `propiedades_venta`, `clientes_compradores`, `visitas_venta`, `visitas_propiedades`, `visitas_notas`, `propietarios_venta`, `mayoristas`, `mayorista_contratos`, `mayorista_pagos`, `empleados`, `fichajes`, `ausencias`, `horas_extra`, `clientes`, `leads`, `lead_propuestas`, `lead_plantillas`, `lead_notas`, `pagos_propietario` se crean solo vía `CREATE TABLE IF NOT EXISTS` en schema.sql (re-ejecutado cada arranque). No hay entradas en `database.js` porque no existen BD antiguas que migrar con ALTER (salvo: la columna `estado_limpieza` vía ALTER en `COLUMNAS_APARTAMENTOS`; el CHECK de `usuarios.rol` recreando la tabla en `migrarUsuariosRol()`; el CHECK de `facturas.tipo` recreado en `migrarFacturasTipo()`; los campos de venta + `propietario_venta_id` de `propiedades_venta` vía ALTER en `migrarPropiedadesVenta()`; `reservas.cliente_id` vía ALTER en `COLUMNAS_RESERVAS` —REFERENCES exige default NULL implícito, por eso `clientes` se crea en schema.sql antes de `migrarReservas`—; y `portales.prefijo` vía ALTER en `COLUMNAS_PORTALES`; y `horas_extra.hora_inicio`/`hora_fin` vía ALTER en `COLUMNAS_HORAS_EXTRA`/`migrarHorasExtra()`; y el backfill N:M de `visitas_propiedades` en `migrarVisitasPropiedades()`). Seed de `lead_plantillas` en `seedLeadPlantillas()`. `apartamento_propietarios` también la crea schema.sql, pero su migración de datos (volcado desde la antigua columna + DROP de `propietario_id` recreando apartamentos) vive en `migrarRelacionPropietarios()` y es idempotente (no-op si la columna ya no existe).
 
 TIH: guardado como `'1'`/`'2'`, mostrado como "1ª Línea"/"2ª Línea" (`tihTexto`). Fechas en BD en ISO; en UI en DD/MM/AAAA (`fechaES`).
 
