@@ -1118,6 +1118,7 @@ const Personal = (() => {
             <select id="hx-adm-emp" class="select-filtro"></select>
             <select id="hx-adm-anio" class="select-filtro">${optAnios(hxAdminAnio)}</select>
           </div>
+          <div class="vta-prop-acciones"><button id="hx-adm-nueva" class="btn-pri">＋ Añadir horas extra</button></div>
         </div>
         <div id="hx-adm-res" class="hx-adm-res"></div>
         <div id="hx-adm-lista" class="tabla-scroll"></div>` : ''}`;
@@ -1127,6 +1128,7 @@ const Personal = (() => {
     if (admin) {
       panel.querySelector('#hx-adm-emp').addEventListener('change', (e) => { hxAdminEmp = e.target.value; cargarAdminHoras(); });
       panel.querySelector('#hx-adm-anio').addEventListener('change', (e) => { hxAdminAnio = Number(e.target.value); cargarAdminHoras(); });
+      panel.querySelector('#hx-adm-nueva').addEventListener('click', () => modalHoras(null, { admin: true, empleadoId: hxAdminEmp }));
     }
     hxConstruido = true;
   }
@@ -1275,32 +1277,151 @@ const Personal = (() => {
     if (esAdmin() && hxAdminEmp) await cargarAdminHoras();
   }
 
+  // ---- Modos de entrada de horas (compartido entre modales) ----
+  // Modo "directo": Horas + Precio/h. Modo "horario": Hora inicio/fin (→ horas) + Precio/h.
+  // `opts.importe` añade un campo Importe (€) editable que se autorrellena con horas×precio.
+
+  // 'HH:MM' inicio/fin → horas decimales (2 dec). null si rango inválido.
+  function horasRango(ini, fin) {
+    const seg = (t) => { const p = String(t).split(':').map(Number); return (p[0] || 0) * 3600 + (p[1] || 0) * 60; };
+    if (!ini || !fin) return null;
+    const a = seg(ini), b = seg(fin);
+    if (isNaN(a) || isNaN(b) || b <= a) return null;
+    return Math.round(((b - a) / 3600) * 100) / 100;
+  }
+  function fmtHoras(h) {
+    const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+    return mm ? `${hh}h ${mm}min` : `${hh}h`;
+  }
+
+  // HTML del bloque de modos. `prefix` evita colisiones de id entre modales.
+  function modoHorasHTML(prefix, h, opts) {
+    opts = opts || {};
+    const importeCampo = opts.importe
+      ? `<div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="${prefix}-importe" value="${h.importe ?? ''}"></div>`
+      : '';
+    return `
+      <div class="hx-modos" style="display:flex;gap:16px;margin:6px 0 10px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="${prefix}-modo" value="directo" checked> Horas directas</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="${prefix}-modo" value="horario"> Por horario</label>
+      </div>
+      <div data-modo="directo">
+        <div class="fila-campos">
+          <div class="campo"><label>Horas</label><input type="number" step="0.5" min="0" id="${prefix}-horas" value="${h.horas ?? ''}"></div>
+          <div class="campo"><label>Precio por hora (€)</label><input type="number" step="0.01" min="0" id="${prefix}-precio" placeholder="Ej: 12"></div>
+        </div>
+      </div>
+      <div data-modo="horario" style="display:none">
+        <div class="fila-campos">
+          <div class="campo"><label>Hora inicio</label><input type="time" id="${prefix}-hini" value="${esc(h.hora_inicio) || ''}"></div>
+          <div class="campo"><label>Hora fin</label><input type="time" id="${prefix}-hfin" value="${esc(h.hora_fin) || ''}"></div>
+          <div class="campo"><label>Precio por hora (€)</label><input type="number" step="0.01" min="0" id="${prefix}-precio2" placeholder="Ej: 12"></div>
+        </div>
+      </div>
+      <div class="hx-calc" id="${prefix}-calc" style="margin:2px 0 8px;color:var(--blue);font-weight:600;min-height:18px"></div>
+      ${importeCampo}`;
+  }
+
+  // Conecta los listeners de recálculo en vivo. `opts.importe` autorrellena el campo importe.
+  function wireModoHoras(prefix, opts) {
+    opts = opts || {};
+    const calc = document.getElementById(prefix + '-calc');
+    const sync = () => {
+      const modo = (document.querySelector(`input[name="${prefix}-modo"]:checked`) || {}).value || 'directo';
+      // Mostrar/ocultar el bloque del modo activo (solo dentro de este modal).
+      const root = calc ? calc.closest('.modal') : document;
+      root.querySelectorAll('[data-modo]').forEach((d) => { d.style.display = d.dataset.modo === modo ? '' : 'none'; });
+
+      let horas = null, precio = null;
+      if (modo === 'horario') {
+        horas = horasRango(val(prefix + '-hini'), val(prefix + '-hfin'));
+        precio = parseFloat(val(prefix + '-precio2'));
+      } else {
+        const n = parseFloat(val(prefix + '-horas'));
+        horas = isNaN(n) ? null : n;
+        precio = parseFloat(val(prefix + '-precio'));
+      }
+      if (isNaN(precio)) precio = null;
+
+      let txt = '';
+      if (horas !== null) {
+        txt = fmtHoras(horas);
+        if (precio !== null) {
+          const total = Math.round(horas * precio * 100) / 100;
+          txt += ` · ${horas}h × ${precio}€ = ${euro(total)}`;
+          if (opts.importe) { const inp = document.getElementById(prefix + '-importe'); if (inp) inp.value = total; }
+        }
+      } else if (modo === 'horario') {
+        txt = 'Indica hora inicio y fin';
+      }
+      if (calc) calc.textContent = txt;
+    };
+    const root = calc ? calc.closest('.modal') : document;
+    root.querySelectorAll(`input[name="${prefix}-modo"]`).forEach((r) => r.addEventListener('change', sync));
+    [`${prefix}-horas`, `${prefix}-precio`, `${prefix}-hini`, `${prefix}-hfin`, `${prefix}-precio2`].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', sync);
+    });
+    sync();
+  }
+
+  // Lee el modo activo. Devuelve { horas, hora_inicio?, hora_fin?, precio_hora?, error }.
+  function leerModoHoras(prefix) {
+    const modo = (document.querySelector(`input[name="${prefix}-modo"]:checked`) || {}).value || 'directo';
+    if (modo === 'horario') {
+      const ini = val(prefix + '-hini'), fin = val(prefix + '-hfin');
+      if (!ini || !fin) return { error: 'Indica la hora de inicio y de fin' };
+      const horas = horasRango(ini, fin);
+      if (horas === null) return { error: 'El rango horario no es válido (la hora fin debe ser posterior)' };
+      const precio = parseFloat(val(prefix + '-precio2'));
+      return { horas, hora_inicio: ini, hora_fin: fin, precio_hora: isNaN(precio) ? null : precio };
+    }
+    const horas = parseFloat(val(prefix + '-horas'));
+    if (isNaN(horas) || horas <= 0) return { error: 'Indica un número de horas mayor que 0' };
+    const precio = parseFloat(val(prefix + '-precio'));
+    return { horas, precio_hora: isNaN(precio) ? null : precio };
+  }
+
   // ---- Modales ----
-  function modalHoras(h) {
+  // opts.admin = true → muestra selector de empleado (admin registra para otro empleado).
+  function modalHoras(h, opts) {
+    opts = opts || {};
     const esNuevo = !h;
     h = h || {};
+    const empSel = opts.admin
+      ? `<div class="campo"><label>Empleado *</label>
+           <select id="hxf-emp" class="select-filtro" style="width:100%">${hxEmpleados.map((e) => `<option value="${e.id}"${String(opts.empleadoId) === String(e.id) ? ' selected' : ''}>${esc(nom(e))}</option>`).join('')}</select>
+         </div>`
+      : '';
     abrirModal(`
       <h3>${esNuevo ? '＋ Registrar horas extra' : '✏️ Editar horas extra'}</h3>
-      <div class="fila-campos">
-        <div class="campo"><label>Fecha</label><input type="date" id="hxf-fecha" value="${esc(h.fecha) || hoyStr()}"></div>
-        <div class="campo"><label>Horas</label><input type="number" step="0.5" min="0" id="hxf-horas" value="${h.horas ?? ''}"></div>
-      </div>
+      ${empSel}
+      <div class="campo"><label>Fecha</label><input type="date" id="hxf-fecha" value="${esc(h.fecha) || hoyStr()}"></div>
+      ${modoHorasHTML('hxf', h)}
       <div class="campo"><label>Descripción</label><textarea id="hxf-desc" rows="2" placeholder="Ej: Limpieza extra apartamento Costa Marina">${esc(h.descripcion)}</textarea></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="hxf-cancelar">Cancelar</button>
         <button class="btn-pri" id="hxf-guardar">${esNuevo ? 'Registrar' : 'Guardar'}</button>
       </div>`);
     document.querySelector('.modal').classList.add('modal-ancho');
+    wireModoHoras('hxf');
     document.getElementById('hxf-cancelar').addEventListener('click', cerrarModal);
-    document.getElementById('hxf-guardar').addEventListener('click', () => guardarHoras(esNuevo ? null : h.id));
+    document.getElementById('hxf-guardar').addEventListener('click', () => guardarHoras(esNuevo ? null : h.id, opts.admin));
   }
 
-  async function guardarHoras(id) {
+  async function guardarHoras(id, admin) {
     const fecha = val('hxf-fecha');
-    const horas = parseFloat(val('hxf-horas'));
     if (!fecha) return toast('La fecha es obligatoria', 'error');
-    if (isNaN(horas) || horas <= 0) return toast('Indica un número de horas mayor que 0', 'error');
-    const body = { fecha, horas, descripcion: val('hxf-desc') };
+    const m = leerModoHoras('hxf');
+    if (m.error) return toast(m.error, 'error');
+    const body = { fecha, horas: m.horas, descripcion: val('hxf-desc') };
+    if (m.hora_inicio) { body.hora_inicio = m.hora_inicio; body.hora_fin = m.hora_fin; }
+    if (m.precio_hora != null) body.precio_hora = m.precio_hora;
+    if (admin) {
+      const emp = val('hxf-emp');
+      if (!emp) return toast('Selecciona un empleado', 'error');
+      body.empleado_id = emp;
+    }
     const btn = document.getElementById('hxf-guardar');
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
@@ -1320,22 +1441,26 @@ const Personal = (() => {
     abrirModal(`
       <h3>💰 Registrar pago</h3>
       <div class="vta-pv-resumen"><div>${fechaES(h.fecha)} · <strong>${h.horas} h</strong>${h.descripcion ? ' · ' + esc(h.descripcion) : ''}</div></div>
-      <div class="fila-campos">
-        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="hxp-importe" value="${h.importe ?? ''}"></div>
-        <div class="campo"><label>Fecha de pago</label><input type="date" id="hxp-fecha" value="${esc(h.fecha_pago) || hoyStr()}"></div>
-      </div>
+      ${modoHorasHTML('hxp', h, { importe: true })}
+      <div class="campo"><label>Fecha de pago</label><input type="date" id="hxp-fecha" value="${esc(h.fecha_pago) || hoyStr()}"></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="hxp-cancelar">Cancelar</button>
         <button class="btn-pri" id="hxp-guardar">Confirmar pago</button>
       </div>`);
+    document.querySelector('.modal').classList.add('modal-ancho');
+    wireModoHoras('hxp', { importe: true });
     document.getElementById('hxp-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('hxp-guardar').addEventListener('click', async () => {
+      const m = leerModoHoras('hxp');
+      if (m.error) return toast(m.error, 'error');
       const importe = parseFloat(val('hxp-importe'));
       if (isNaN(importe) || importe < 0) return toast('Indica el importe', 'error');
+      const body = { pagada: 1, importe, fecha_pago: val('hxp-fecha'), horas: m.horas };
+      if (m.hora_inicio) { body.hora_inicio = m.hora_inicio; body.hora_fin = m.hora_fin; }
       const btn = document.getElementById('hxp-guardar');
       btn.disabled = true; btn.textContent = 'Guardando…';
       try {
-        await API.put('/api/personal/horas-extra/' + h.id, { pagada: 1, importe, fecha_pago: val('hxp-fecha') });
+        await API.put('/api/personal/horas-extra/' + h.id, body);
         cerrarModal();
         await recargarHoras();
         toast('Pago registrado', 'ok');

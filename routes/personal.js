@@ -28,6 +28,13 @@ function horaASegundos(h) {
   return (p[0] || 0) * 3600 + (p[1] || 0) * 60 + (p[2] || 0);
 }
 
+// (hora_fin - hora_inicio) en horas decimales (2 dec). null si falta o el rango es inválido.
+function horasDeRango(ini, fin) {
+  const a = horaASegundos(ini), b = horaASegundos(fin);
+  if (a === null || b === null || b <= a) return null;
+  return Math.round(((b - a) / 3600) * 100) / 100;
+}
+
 // Empleado vinculado al usuario logueado (o null si no tiene ficha).
 function empleadoDeUsuario(req) {
   if (!req.usuario) return null;
@@ -687,19 +694,48 @@ router.get('/horas-extra', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
-// POST /api/personal/horas-extra — el empleado apunta sus propias horas.
+// POST /api/personal/horas-extra — el empleado apunta sus propias horas; el admin puede
+// registrarlas para cualquier empleado. Acepta horas directas o un rango horario
+// (hora_inicio/hora_fin → calcula las horas) y precio_hora (→ importe = horas × precio_hora).
 router.post('/horas-extra', (req, res) => {
-  const emp = empleadoDeUsuario(req);
-  if (!emp) return res.status(404).json({ error: 'No tienes una ficha de empleado vinculada' });
   const b = req.body || {};
+  const admin = esAdmin(req);
+
+  // Empleado destino: admin puede indicar empleado_id; el resto solo el suyo.
+  let empId;
+  if (admin && b.empleado_id != null && b.empleado_id !== '') {
+    empId = aEntero(b.empleado_id);
+    if (empId === null || !empleadoPorId(empId)) return res.status(400).json({ error: 'El empleado indicado no existe' });
+  } else {
+    const emp = empleadoDeUsuario(req);
+    if (!emp) return res.status(404).json({ error: 'No tienes una ficha de empleado vinculada' });
+    empId = emp.id;
+  }
+
   const fecha = txt(b.fecha);
-  const horas = b.horas === '' || b.horas == null ? null : parseFloat(b.horas);
   if (!fecha) return res.status(400).json({ error: 'La fecha es obligatoria' });
+
+  // Horas: si vienen hora_inicio y hora_fin se calculan; si no, el valor directo.
+  const horaIni = txt(b.hora_inicio);
+  const horaFin = txt(b.hora_fin);
+  let horas = horasDeRango(horaIni, horaFin);
+  if (horas === null) horas = (b.horas === '' || b.horas == null ? null : parseFloat(b.horas));
   if (horas === null || isNaN(horas) || horas <= 0) return res.status(400).json({ error: 'Las horas deben ser un número mayor que 0' });
 
-  const info = db.prepare(
-    'INSERT INTO horas_extra (empleado_id, fecha, horas, descripcion, created_by) VALUES (?, ?, ?, ?, ?)'
-  ).run(emp.id, fecha, horas, txt(b.descripcion), req.usuario && req.usuario.username);
+  // Importe: si viene precio_hora → importe = horas × precio_hora; si no, el importe explícito.
+  const precioHora = b.precio_hora === '' || b.precio_hora == null ? null : parseFloat(b.precio_hora);
+  let importe = null;
+  if (precioHora !== null && !isNaN(precioHora)) importe = Math.round(horas * precioHora * 100) / 100;
+  else if (b.importe !== '' && b.importe != null) importe = parseFloat(b.importe);
+
+  // Pago: solo el admin puede marcar las horas como pagadas al registrarlas.
+  const pagada = admin && b.pagada ? 1 : 0;
+  const fechaPago = pagada ? (txt(b.fecha_pago) || ahoraLocal().fecha) : null;
+
+  const info = db.prepare(`
+    INSERT INTO horas_extra (empleado_id, fecha, horas, descripcion, hora_inicio, hora_fin, importe, pagada, fecha_pago, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(empId, fecha, horas, txt(b.descripcion), horaIni, horaFin, importe, pagada, fechaPago, req.usuario && req.usuario.username);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -712,22 +748,52 @@ router.put('/horas-extra/:id', (req, res) => {
   const vals = {};
   const add = (col, v) => { sets.push(`${col} = @${col}`); vals[col] = v; };
 
+  // Resuelve las horas finales: rango horario (hora_inicio/hora_fin) tiene prioridad sobre
+  // el valor directo. Devuelve { horas, error }. horas null = no se tocan.
+  function resolverHoras() {
+    if ('hora_inicio' in b) add('hora_inicio', txt(b.hora_inicio));
+    if ('hora_fin' in b) add('hora_fin', txt(b.hora_fin));
+    if (b.hora_inicio && b.hora_fin) {
+      const hr = horasDeRango(txt(b.hora_inicio), txt(b.hora_fin));
+      if (hr === null) return { error: 'Rango horario no válido' };
+      add('horas', hr);
+      return { horas: hr };
+    }
+    if ('horas' in b) {
+      const n = parseFloat(b.horas);
+      if (isNaN(n) || n <= 0) return { error: 'Horas no válidas' };
+      add('horas', n);
+      return { horas: n };
+    }
+    return { horas: null };
+  }
+
   if (esAdmin(req)) {
     if ('fecha' in b) add('fecha', txt(b.fecha));
-    if ('horas' in b) { const n = parseFloat(b.horas); if (isNaN(n) || n <= 0) return res.status(400).json({ error: 'Horas no válidas' }); add('horas', n); }
+    const rh = resolverHoras();
+    if (rh.error) return res.status(400).json({ error: rh.error });
     if ('descripcion' in b) add('descripcion', txt(b.descripcion));
     if ('pagada' in b) add('pagada', b.pagada ? 1 : 0);
-    if ('importe' in b) add('importe', b.importe === '' || b.importe == null ? null : parseFloat(b.importe));
+    // Importe: precio_hora → importe = horas × precio_hora (sobre las horas resultantes);
+    // si no, el importe explícito.
+    const precioHora = b.precio_hora === '' || b.precio_hora == null ? null : parseFloat(b.precio_hora);
+    if (precioHora !== null && !isNaN(precioHora)) {
+      const baseHoras = rh.horas != null ? rh.horas : h.horas;
+      add('importe', Math.round((baseHoras || 0) * precioHora * 100) / 100);
+    } else if ('importe' in b) {
+      add('importe', b.importe === '' || b.importe == null ? null : parseFloat(b.importe));
+    }
     if ('fecha_pago' in b) add('fecha_pago', txt(b.fecha_pago));
   } else {
     const propio = empleadoDeUsuario(req);
     if (!propio || h.empleado_id !== propio.id) return res.status(403).json({ error: 'No puedes editar este registro' });
     if (h.pagada) return res.status(403).json({ error: 'No puedes editar una hora extra ya pagada' });
-    if ('pagada' in b || 'importe' in b || 'fecha_pago' in b) {
+    if ('pagada' in b || 'importe' in b || 'precio_hora' in b || 'fecha_pago' in b) {
       return res.status(403).json({ error: 'Solo un administrador puede gestionar el pago' });
     }
     if ('fecha' in b) add('fecha', txt(b.fecha));
-    if ('horas' in b) { const n = parseFloat(b.horas); if (isNaN(n) || n <= 0) return res.status(400).json({ error: 'Horas no válidas' }); add('horas', n); }
+    const rh = resolverHoras();
+    if (rh.error) return res.status(400).json({ error: rh.error });
     if ('descripcion' in b) add('descripcion', txt(b.descripcion));
   }
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });

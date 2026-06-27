@@ -175,6 +175,12 @@ const COLUMNAS_FACTURAS = {
 // Mayoristas por defecto (se insertan si la tabla está vacía).
 const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
 
+// Columnas extra de horas_extra (rango horario opcional). ALTER si faltan.
+const COLUMNAS_HORAS_EXTRA = {
+  hora_inicio: 'TEXT',   // 'HH:MM' — si se usa el método "por horario"
+  hora_fin: 'TEXT',      // 'HH:MM'
+};
+
 // Columnas extra de propiedades_venta (datos de la venta cerrada). ALTER si faltan.
 const COLUMNAS_PROPIEDADES_VENTA = {
   apartamento_nombre: 'TEXT',
@@ -207,6 +213,7 @@ function init() {
   migrarFacturasTipo();
   migrarPropiedadesVenta();
   migrarVisitasPropiedades();
+  migrarHorasExtra();
   seedAdmin();
   seedPortales();
   seedModificadores();
@@ -359,6 +366,11 @@ function migrarCatalogoExtras() {
 // Migración de propiedades_venta: añade los campos de la venta cerrada si faltan.
 function migrarPropiedadesVenta() {
   anadirColumnasFaltantes('propiedades_venta', COLUMNAS_PROPIEDADES_VENTA);
+}
+
+// Migración de horas_extra: añade el rango horario opcional (hora_inicio/hora_fin) si falta.
+function migrarHorasExtra() {
+  anadirColumnasFaltantes('horas_extra', COLUMNAS_HORAS_EXTRA);
 }
 
 // Backfill de la tabla N:M visitas_propiedades (creada por schema.sql). Para cada visita
