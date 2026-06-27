@@ -518,7 +518,7 @@ const Ajustes = (() => {
     btn.className = 'subtab';
     btn.id = 'subtab-smtp';
     btn.dataset.sub = 'smtp';
-    btn.textContent = 'Correo electrónico ✉️';
+    btn.textContent = 'Correo electrónico';
     subtabs.appendChild(btn);
 
     const panel = document.createElement('div');
@@ -541,10 +541,10 @@ const Ajustes = (() => {
         <div class="ajuste-campo"><label>Nombre del remitente</label><input type="text" id="smtp-from-name" placeholder="Inmobiliaria Héctor"></div>
         <div class="ajuste-campo"><label>Email del remitente</label><input type="email" id="smtp-from-email" placeholder="reservas@hectorinmobiliaria.com" autocomplete="off"></div>
       </div>
-      <div class="alo-em-aviso" style="max-width:640px">ℹ️ Para Gmail necesitas una contraseña de aplicación. Genérala en myaccount.google.com → Seguridad → Contraseñas de aplicaciones</div>
+      <div class="alo-em-aviso" style="max-width:640px">Para Gmail necesitas una contraseña de aplicación. Genérala en myaccount.google.com → Seguridad → Contraseñas de aplicaciones</div>
       <div class="modal-acciones" style="justify-content:flex-start">
         <button class="btn-pri" id="smtp-guardar">Guardar configuración</button>
-        <button class="btn-sec" id="smtp-test">📧 Enviar email de prueba</button>
+        <button class="btn-sec" id="smtp-test">Enviar email de prueba</button>
       </div>`;
     document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
 
@@ -1211,7 +1211,7 @@ const Ajustes = (() => {
     const btn = document.createElement('button');
     btn.className = 'subtab';
     btn.dataset.sub = 'planning';
-    btn.textContent = 'Planning 📅';
+    btn.textContent = 'Planning';
     subtabs.appendChild(btn);
 
     const panel = document.createElement('div');
