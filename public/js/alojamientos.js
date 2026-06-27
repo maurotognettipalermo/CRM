@@ -399,7 +399,7 @@ const Alojamientos = (() => {
         <button class="rsv-subtab activo" data-asub="alojamiento">Alojamiento</button>
         <button class="rsv-subtab" data-asub="propietario">Propietario</button>
         <button class="rsv-subtab" data-asub="gastos">Gastos</button>
-        <button class="rsv-subtab" data-asub="pagos">💳 Pagos propietario</button>
+        <button class="rsv-subtab" data-asub="pagos">Pagos propietario</button>
         <button class="rsv-subtab" data-asub="galeria">Galería</button>
         <button class="rsv-subtab" data-asub="calendario">Calendario</button>
         <button class="rsv-subtab" data-asub="mantenimiento">Mantenimiento</button>
