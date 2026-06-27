@@ -145,12 +145,14 @@ function normalizaEmp(campo, valor) {
   return txt(valor);
 }
 
-// GET /api/personal/empleados — lista (activos primero, luego alfabético).
+// GET /api/personal/empleados — lista. Por defecto solo activos; ?todos=1 incluye inactivos.
 router.get('/empleados', (req, res) => {
+  const todos = req.query.todos == 1 || req.query.todos === 'true';
   const rows = db.prepare(`
     SELECT e.*, u.username AS usuario_username
     FROM empleados e
     LEFT JOIN usuarios u ON u.id = e.usuario_id
+    ${todos ? '' : 'WHERE e.activo = 1'}
     ORDER BY e.activo DESC, e.nombre COLLATE NOCASE, e.apellidos COLLATE NOCASE
   `).all();
   res.json(rows);
@@ -431,7 +433,7 @@ router.get('/fichajes', (req, res) => {
   const rows = db.prepare(`
     SELECT f.*, e.nombre AS empleado_nombre, e.apellidos AS empleado_apellidos
     FROM fichajes f JOIN empleados e ON e.id = f.empleado_id
-    WHERE f.fecha = ?
+    WHERE f.fecha = ? AND e.activo = 1
     ORDER BY e.nombre COLLATE NOCASE, f.hora ASC, f.id ASC
   `).all(fecha);
   res.json(rows);
@@ -497,7 +499,7 @@ router.get('/ausencias/calendario', (req, res) => {
   const rows = db.prepare(`
     SELECT a.*, e.nombre AS empleado_nombre, e.apellidos AS empleado_apellidos
     FROM ausencias a JOIN empleados e ON e.id = a.empleado_id
-    WHERE a.estado <> 'rechazada' AND a.fecha_inicio <= ? AND a.fecha_fin >= ?
+    WHERE e.activo = 1 AND a.estado <> 'rechazada' AND a.fecha_inicio <= ? AND a.fecha_fin >= ?
   `).all(fin, ini);
 
   const salida = [];
@@ -829,7 +831,7 @@ router.get('/resumen-dia', (req, res) => {
   const empleados = db.prepare(`
     SELECT DISTINCT e.id, e.nombre, e.apellidos
     FROM empleados e JOIN fichajes f ON f.empleado_id = e.id
-    WHERE f.fecha = ? ORDER BY e.nombre COLLATE NOCASE
+    WHERE f.fecha = ? AND e.activo = 1 ORDER BY e.nombre COLLATE NOCASE
   `).all(fecha);
 
   let enPausa = 0, fichados = 0;
@@ -854,7 +856,7 @@ router.get('/resumen-dia', (req, res) => {
   const ausentes = db.prepare(`
     SELECT e.nombre AS nombre, e.apellidos AS apellidos, a.tipo AS tipo
     FROM ausencias a JOIN empleados e ON e.id = a.empleado_id
-    WHERE a.estado = 'aprobada' AND a.fecha_inicio <= ? AND a.fecha_fin >= ?
+    WHERE e.activo = 1 AND a.estado = 'aprobada' AND a.fecha_inicio <= ? AND a.fecha_fin >= ?
     ORDER BY e.nombre COLLATE NOCASE
   `).all(fecha, fecha).map((a) => ({ empleado_nombre: [a.nombre, a.apellidos].filter(Boolean).join(' '), tipo: a.tipo }));
 

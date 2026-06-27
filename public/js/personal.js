@@ -123,7 +123,7 @@ const Personal = (() => {
     const tbody = document.querySelector('#tabla-empleados tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">Cargando empleados…</td></tr>';
     try {
-      empleados = await API.get('/api/personal/empleados');
+      empleados = await API.get('/api/personal/empleados?todos=1');
     } catch (e) {
       if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">No se pudieron cargar los empleados.</td></tr>';
       return toast(e.message, 'error');
@@ -187,7 +187,7 @@ const Personal = (() => {
     const puesto = e.puesto ? `<span class="per-bdg-puesto">${esc(e.puesto)}</span>` : '<span class="vta-muted">—</span>';
     const est = estadoBadge(estadoHoy[e.id] || 'fuera');
     return `
-      <tr data-ficha="${e.id}">
+      <tr data-ficha="${e.id}"${e.activo == 0 ? ' style="background:#f9fafb;color:#9ca3af"' : ''}>
         <td class="per-avatar-cel">${avatarHTML(nombre)}</td>
         <td><a class="vta-ref per-nombre" data-nom="${e.id}">${esc(nombre) || '—'}</a>${inactivo}</td>
         <td>${puesto}</td>
@@ -379,6 +379,14 @@ const Personal = (() => {
       activo: document.getElementById('ef-activo').checked ? 1 : 0,
       notas: val('ef-notas'),
     };
+    // Confirmar al pasar un empleado de activo a inactivo.
+    if (id) {
+      const prev = empleados.find((x) => x.id == id);
+      if (prev && prev.activo != 0 && body.activo == 0 &&
+          !confirm(`¿Marcar a ${nombre} como inactivo? Dejará de aparecer en fichajes, ausencias y calendario del equipo pero se conservará su historial.`)) {
+        return;
+      }
+    }
     const btn = document.getElementById('ef-guardar');
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
@@ -1143,7 +1151,7 @@ const Personal = (() => {
     await resolverMiEmpleado();
     cargarMisHoras();
     if (esAdmin()) {
-      try { hxEmpleados = await API.get('/api/personal/empleados'); } catch (e) { hxEmpleados = []; }
+      try { hxEmpleados = await API.get('/api/personal/empleados?todos=1'); } catch (e) { hxEmpleados = []; }
       const sel = document.getElementById('hx-adm-emp');
       if (sel) {
         sel.innerHTML = '<option value="">— Selecciona empleado —</option>' +
