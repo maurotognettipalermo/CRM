@@ -1213,13 +1213,19 @@ const Personal = (() => {
         acc += `<button class="btn-icono" data-borrar="${h.id}" title="Eliminar">🗑</button>`;
       }
       const pagadaEn = admin ? `<td data-lbl="Pagada en">${h.fecha_pago ? fechaES(h.fecha_pago) : '—'}</td>` : '';
+      // "Otro concepto" (horas=0): sin horas, el importe se muestra directamente.
+      const esOtro = Number(h.horas) === 0;
+      const horasCel = esOtro ? '—' : `${h.horas} h`;
+      const importeCel = esOtro
+        ? euro(h.importe)
+        : (h.pagada ? euro(h.importe) : '—');
       return `
         <tr>
           <td data-lbl="Fecha">${fechaES(h.fecha)}</td>
-          <td data-lbl="Horas">${h.horas} h</td>
+          <td data-lbl="Horas">${horasCel}</td>
           <td data-lbl="Descripción">${esc(h.descripcion) || '—'}</td>
           <td data-lbl="Estado">${hxEstadoBadge(h.pagada)}</td>
-          <td data-lbl="Importe">${h.pagada ? euro(h.importe) : '—'}</td>
+          <td data-lbl="Importe">${importeCel}</td>
           ${pagadaEn}
           <td class="vta-acciones" data-lbl="Acciones">${acc || '—'}</td>
         </tr>`;
@@ -1308,10 +1314,20 @@ const Personal = (() => {
     const importeCampo = opts.importe
       ? `<div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="${prefix}-importe" value="${h.importe ?? ''}"></div>`
       : '';
+    const radioOtro = opts.otro
+      ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="${prefix}-modo" value="otro"> Otro concepto</label>`
+      : '';
+    const bloqueOtro = opts.otro
+      ? `<div data-modo="otro" style="display:none">
+           <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" min="0" id="${prefix}-otro-importe"></div>
+           <div style="font-size:12px;color:var(--muted);margin:2px 0 8px">Sin cálculo de horas. La descripción es obligatoria.</div>
+         </div>`
+      : '';
     return `
-      <div class="hx-modos" style="display:flex;gap:16px;margin:6px 0 10px">
+      <div class="hx-modos" style="display:flex;gap:16px;margin:6px 0 10px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="${prefix}-modo" value="directo" checked> Horas directas</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="${prefix}-modo" value="horario"> Por horario</label>
+        ${radioOtro}
       </div>
       <div data-modo="directo">
         <div class="fila-campos">
@@ -1326,6 +1342,7 @@ const Personal = (() => {
           <div class="campo"><label>Precio por hora (€)</label><input type="number" step="0.01" min="0" id="${prefix}-precio2" placeholder="Ej: 12"></div>
         </div>
       </div>
+      ${bloqueOtro}
       <div class="hx-calc" id="${prefix}-calc" style="margin:2px 0 8px;color:var(--blue);font-weight:600;min-height:18px"></div>
       ${importeCampo}`;
   }
@@ -1376,6 +1393,11 @@ const Personal = (() => {
   // Lee el modo activo. Devuelve { horas, hora_inicio?, hora_fin?, precio_hora?, error }.
   function leerModoHoras(prefix) {
     const modo = (document.querySelector(`input[name="${prefix}-modo"]:checked`) || {}).value || 'directo';
+    if (modo === 'otro') {
+      const importe = parseFloat(val(prefix + '-otro-importe'));
+      if (isNaN(importe) || importe <= 0) return { error: 'Indica un importe mayor que 0' };
+      return { horas: 0, importe, otro: true };
+    }
     if (modo === 'horario') {
       const ini = val(prefix + '-hini'), fin = val(prefix + '-hfin');
       if (!ini || !fin) return { error: 'Indica la hora de inicio y de fin' };
@@ -1405,7 +1427,7 @@ const Personal = (() => {
       <h3>${esNuevo ? '＋ Registrar horas extra' : '✏️ Editar horas extra'}</h3>
       ${empSel}
       <div class="campo"><label>Fecha</label><input type="date" id="hxf-fecha" value="${esc(h.fecha) || hoyStr()}"></div>
-      ${modoHorasHTML('hxf', h)}
+      ${modoHorasHTML('hxf', h, { otro: opts.admin })}
       <div class="campo"><label>Descripción</label><textarea id="hxf-desc" rows="2" placeholder="Ej: Limpieza extra apartamento Costa Marina">${esc(h.descripcion)}</textarea></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="hxf-cancelar">Cancelar</button>
@@ -1422,9 +1444,11 @@ const Personal = (() => {
     if (!fecha) return toast('La fecha es obligatoria', 'error');
     const m = leerModoHoras('hxf');
     if (m.error) return toast(m.error, 'error');
+    if (m.otro && !val('hxf-desc').trim()) return toast('La descripción es obligatoria', 'error');
     const body = { fecha, horas: m.horas, descripcion: val('hxf-desc') };
     if (m.hora_inicio) { body.hora_inicio = m.hora_inicio; body.hora_fin = m.hora_fin; }
     if (m.precio_hora != null) body.precio_hora = m.precio_hora;
+    if (m.importe != null) body.importe = m.importe;  // modo "Otro concepto"
     if (admin) {
       const emp = val('hxf-emp');
       if (!emp) return toast('Selecciona un empleado', 'error');

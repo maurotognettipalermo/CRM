@@ -722,13 +722,18 @@ router.post('/horas-extra', (req, res) => {
   const horaFin = txt(b.hora_fin);
   let horas = horasDeRango(horaIni, horaFin);
   if (horas === null) horas = (b.horas === '' || b.horas == null ? null : parseFloat(b.horas));
-  if (horas === null || isNaN(horas) || horas <= 0) return res.status(400).json({ error: 'Las horas deben ser un número mayor que 0' });
+  if (horas === null || isNaN(horas) || horas < 0) return res.status(400).json({ error: 'Las horas no pueden ser negativas' });
 
   // Importe: si viene precio_hora → importe = horas × precio_hora; si no, el importe explícito.
   const precioHora = b.precio_hora === '' || b.precio_hora == null ? null : parseFloat(b.precio_hora);
   let importe = null;
   if (precioHora !== null && !isNaN(precioHora)) importe = Math.round(horas * precioHora * 100) / 100;
   else if (b.importe !== '' && b.importe != null) importe = parseFloat(b.importe);
+
+  // horas=0 solo es válido si se registra un importe directo ("Otro concepto").
+  if (horas === 0 && (importe === null || isNaN(importe) || importe <= 0)) {
+    return res.status(400).json({ error: 'Las horas deben ser mayores que 0, o indica un importe' });
+  }
 
   // Pago: solo el admin puede marcar las horas como pagadas al registrarlas.
   const pagada = admin && b.pagada ? 1 : 0;
@@ -763,7 +768,7 @@ router.put('/horas-extra/:id', (req, res) => {
     }
     if ('horas' in b) {
       const n = parseFloat(b.horas);
-      if (isNaN(n) || n <= 0) return { error: 'Horas no válidas' };
+      if (isNaN(n) || n < 0) return { error: 'Horas no válidas' };  // 0 permitido ("Otro concepto")
       add('horas', n);
       return { horas: n };
     }
