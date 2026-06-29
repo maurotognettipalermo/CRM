@@ -93,6 +93,7 @@ function arrancarApp() {
   Leads.init();
   ClientesAlquiler.init();
   Personal.init();
+  ExtrasInventario.init();
 
   // Vista por defecto: su módulo principal para roles restringidos, Dashboard para el resto.
   if (restr) activarTab(restr.principal);
@@ -228,6 +229,7 @@ function activarTab(nombre) {
   if (nombre === 'tarifas')      Tarifas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'ventas')       Ventas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'comercial')    Leads.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'extras')       ExtrasInventario.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'clientes')     ClientesAlquiler.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'propietarios') Propietarios.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'reservas')     Reservas.cargar().catch((e) => toast(e.message, 'error'));

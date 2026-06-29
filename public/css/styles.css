@@ -4015,3 +4015,32 @@ span.flatpickr-weekday { color: #9ca3af; font-size: 12px; font-weight: 500; }
 .rsv-restriccion-tit { font-weight: 700; font-size: 13px; margin-bottom: 6px; color: #b91c1c; }
 .rsv-restriccion-linea { font-size: 13px; font-weight: 600; padding: 2px 0; }
 .rsv-restriccion-nota { font-size: 12px; margin-top: 6px; color: #991b1b; opacity: 0.9; }
+
+/* ===== Extras (inventario de objetos prestables) ===== */
+.ext-cab { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.ext-resumen { display: flex; gap: 10px; flex-wrap: wrap; }
+.ext-mini {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 92px; padding: 6px 12px; background: #f8fafc;
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.ext-mini-num { font-size: 20px; font-weight: 800; color: var(--nav); line-height: 1.1; }
+.ext-mini-lbl { font-size: 11px; color: var(--muted); text-align: center; }
+.ext-barra { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ext-barra .input-buscar { max-width: 240px; }
+.ext-vacio { color: var(--muted); text-align: center; padding: 24px; }
+.ext-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.ext-acciones { white-space: nowrap; }
+.ext-ubic {
+  display: inline-block; font-size: 11px; padding: 1px 6px; margin: 1px;
+  background: #eef2ff; color: #3730a3; border-radius: 6px;
+}
+.ext-ubic-vacio { color: var(--muted); }
+.ext-badge-ilim { font-size: 11px; padding: 2px 8px; background: #f3f4f6; color: #4b5563; border-radius: 999px; font-weight: 600; }
+.ext-disp-ok { color: var(--green-dark); font-weight: 700; }
+.ext-disp-bajo { color: #b45309; font-weight: 700; }
+.ext-disp-cero { color: var(--red); font-weight: 700; }
+.ext-btn-prestar { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.ext-btn-devolver { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+.ext-badge-prestamo { font-size: 11px; padding: 2px 8px; background: #ecfdf5; color: #047857; border-radius: 999px; font-weight: 600; }
+.ext-badge-devolucion { font-size: 11px; padding: 2px 8px; background: #eff6ff; color: #1d4ed8; border-radius: 999px; font-weight: 600; }

@@ -889,6 +889,42 @@ CREATE TABLE IF NOT EXISTS restricciones (
 );
 CREATE INDEX IF NOT EXISTS idx_restricciones_fechas ON restricciones(fecha_inicio, fecha_fin);
 
+-- ===========================================================================
+-- Extras (inventario de objetos prestables: cunas, tronas, ventiladores...).
+-- Stock + préstamos/devoluciones por apartamento/reserva.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS extras_categorias (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre     TEXT NOT NULL UNIQUE,
+  icono      TEXT DEFAULT '📦',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS extras_items (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre       TEXT NOT NULL,
+  categoria_id INTEGER REFERENCES extras_categorias(id) ON DELETE SET NULL,
+  stock_total  INTEGER DEFAULT NULL,   -- NULL = ilimitado
+  descripcion  TEXT,
+  created_at   TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_extras_items_categoria ON extras_items(categoria_id);
+
+CREATE TABLE IF NOT EXISTS extras_movimientos (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id        INTEGER NOT NULL REFERENCES extras_items(id) ON DELETE CASCADE,
+  apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
+  reserva_id     INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  cantidad       INTEGER NOT NULL DEFAULT 1,
+  tipo           TEXT NOT NULL CHECK(tipo IN ('prestamo','devolucion')),
+  fecha          TEXT NOT NULL DEFAULT (date('now')),
+  notas          TEXT,
+  created_by     TEXT,
+  created_at     TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_extras_mov_item ON extras_movimientos(item_id);
+CREATE INDEX IF NOT EXISTS idx_extras_mov_apartamento ON extras_movimientos(apartamento_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

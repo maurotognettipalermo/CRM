@@ -175,6 +175,16 @@ const COLUMNAS_FACTURAS = {
 // Mayoristas por defecto (se insertan si la tabla está vacía).
 const MAYORISTAS_DEFECTO = ['Apartplaya', 'Viajes Himalaya'];
 
+// Categorías de extras por defecto (se insertan si la tabla está vacía).
+const EXTRAS_CATEGORIAS_DEFECTO = [
+  { nombre: 'Cunas', icono: '🛏️' },
+  { nombre: 'Tronas', icono: '🪑' },
+  { nombre: 'Ventiladores', icono: '🌀' },
+  { nombre: 'Juguetes', icono: '🧸' },
+  { nombre: 'Accesibilidad', icono: '♿' },
+  { nombre: 'Otros', icono: '📦' },
+];
+
 // Columnas extra de horas_extra (rango horario opcional). ALTER si faltan.
 const COLUMNAS_HORAS_EXTRA = {
   hora_inicio: 'TEXT',   // 'HH:MM' — si se usa el método "por horario"
@@ -220,6 +230,7 @@ function init() {
   seedEstadosReserva();
   seedMayoristas();
   seedLeadPlantillas();
+  seedExtrasCategorias();
 }
 
 // Limpieza ÚNICA de datos de prueba (facturación, contratos, pagos, extras, gastos y
@@ -512,6 +523,16 @@ function seedLeadPlantillas() {
       'Buenos días {nombre},\n\nLe escribimos en relación a la propuesta que le enviamos sobre el apartamento {apartamento}.\n\n¿Ha tenido oportunidad de revisarla? Estaremos encantados de resolver cualquier duda.\n\nUn saludo,\n{empresa}'
     );
     console.log('Plantillas de Leads por defecto creadas (Propuesta estándar, Seguimiento).');
+  }
+}
+
+// Inserta las categorías de extras por defecto si la tabla está vacía.
+function seedExtrasCategorias() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM extras_categorias').get().c;
+  if (n === 0) {
+    const insertar = db.prepare('INSERT INTO extras_categorias (nombre, icono) VALUES (?, ?)');
+    for (const c of EXTRAS_CATEGORIAS_DEFECTO) insertar.run(c.nombre, c.icono);
+    console.log('Categorías de extras por defecto creadas.');
   }
 }
 

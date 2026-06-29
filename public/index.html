@@ -61,6 +61,9 @@
           <button class="nav-item" id="nav-comercial" data-tab="comercial" title="Comercial">
             <span class="nav-icono">📞</span><span class="nav-texto">Comercial</span>
           </button>
+          <button class="nav-item" data-tab="extras" title="Extras">
+            <span class="nav-icono">📦</span><span class="nav-texto">Extras</span>
+          </button>
         </div>
       </div>
 
@@ -416,6 +419,24 @@
       </div>
     </section>
 
+    <!-- ============ EXTRAS (inventario de objetos prestables) ============ -->
+    <section id="vista-extras" class="vista">
+      <div class="barra-herramientas ext-cab">
+        <h2>Extras</h2>
+        <div class="ext-resumen" id="ext-resumen"></div>
+      </div>
+      <div class="vta-subtabs" id="ext-subtabs">
+        <button class="subtab activo" data-sub="inventario">Inventario</button>
+        <button class="subtab" data-sub="prestamos">Préstamos</button>
+        <button class="subtab" data-sub="categorias">Categorías</button>
+      </div>
+      <div class="vta-scroll">
+        <div class="sub-panel activo" data-panel-sub="inventario" id="ext-panel-inventario"></div>
+        <div class="sub-panel" data-panel-sub="prestamos" id="ext-panel-prestamos"></div>
+        <div class="sub-panel" data-panel-sub="categorias" id="ext-panel-categorias"></div>
+      </div>
+    </section>
+
     <section id="vista-ventas" class="vista">
       <div class="barra-herramientas">
         <h2>Ventas</h2>
@@ -687,6 +708,7 @@
   <script src="js/leads.js"></script>
   <script src="js/clientes-alquiler.js"></script>
   <script src="js/personal.js"></script>
+  <script src="js/extras-inventario.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -50,6 +50,7 @@ app.use('/api/personal', require('./routes/personal'));
 app.use('/api/leads', require('./routes/leads'));
 app.use('/api/clientes', require('./routes/clientes'));
 app.use('/api/restricciones', require('./routes/restricciones'));
+app.use('/api/extras', require('./routes/extras-inventario'));
 
 // Manejador de errores genérico.
 app.use((err, req, res, next) => {
