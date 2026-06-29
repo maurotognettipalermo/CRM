@@ -262,9 +262,23 @@ const Contratos = (() => {
       ? dato('Porcentaje comisión', pct(c.porcentaje_comision))
       : dato('Precio total', euro(c.precio_total));
 
+    // IBAN del propietario (campo numero_cuenta). No viene en la ficha del contrato:
+    // lo pedimos al endpoint de propietarios. Sin id (caso N:M) o sin cuenta → aviso en gris.
+    let iban = '';
+    if (c.propietario_id) {
+      try {
+        const p = await API.get(`/api/propietarios/${c.propietario_id}`);
+        iban = p && p.numero_cuenta ? String(p.numero_cuenta).trim() : '';
+      } catch (e) { iban = ''; }
+    }
+    const ibanVal = iban
+      ? esc(iban)
+      : '<span style="color:#9ca3af">Sin cuenta bancaria registrada</span>';
+
     const izquierda =
       dato('Apartamento', aptoLink) +
       dato('Propietario', esc(nombrePropietario(c))) +
+      dato('IBAN', ibanVal) +
       dato('Tipo de contrato', badgeTipo(c.tipo)) +
       dato('Temporada', `${fechaES(c.temporada_inicio)} → ${fechaES(c.temporada_fin)}`);
 
