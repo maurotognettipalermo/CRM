@@ -3961,17 +3961,12 @@ span.flatpickr-weekday { color: #9ca3af; font-size: 12px; font-weight: 500; }
 /* Descripción bajo el título de la sub-pestaña de Ajustes. */
 .ajustes-desc { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 720px; }
 
-/* Overlay rojo semitransparente sobre cada día restringido del planning. Va por encima
-   de las barras de reserva (z-index 2 sobre celdas .dia con z-index auto) sin ocultarlas
-   ni capturar clics (pointer-events: none). */
-.planning-dia-restringido { position: relative; }
-.planning-dia-restringido::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(239, 68, 68, 0.18);
-  pointer-events: none;
-  z-index: 2;
+/* Día restringido del planning: fondo rojo suave directo sobre la celda (sin overlay
+   absoluto, que descuadraba el grid). Borde interior con box-shadow inset para no
+   alterar el tamaño de la celda. Se aplica a cada celda de fondo y a la de cabecera. */
+.planning-celda-restringida {
+  background: rgba(239, 68, 68, 0.15) !important;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.3);
 }
 
 /* Banner de aviso de restricciones encima del planning (rango visible). */

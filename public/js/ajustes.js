@@ -531,7 +531,7 @@ const Ajustes = (() => {
     btn.className = 'subtab';
     btn.id = 'subtab-restricciones';
     btn.dataset.sub = 'restricciones';
-    btn.textContent = 'Restricciones 🚫';
+    btn.textContent = 'Restricciones';
     subtabs.appendChild(btn);
 
     const panel = document.createElement('div');

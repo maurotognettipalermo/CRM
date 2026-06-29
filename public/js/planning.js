@@ -181,7 +181,7 @@ const Planning = (() => {
       if (col.dow === 0 || col.dow === 6) clases.push('finde');
       if (col.iso === hoyISO) clases.push('hoy');
       if (col.cambioMes) clases.push('cambio-mes');
-      if (restriccionDe(col.iso)) clases.push('planning-dia-restringido');
+      if (restriccionDe(col.iso)) clases.push('planning-celda-restringida');
       const mesLbl = col.mostrarMes ? `<span class="mes-label">${MESES_LARGO[col.mes]} ${col.anio}</span>` : '';
       cabHTML += `<div class="${clases.join(' ')}">${mesLbl}<span class="dia-num">${col.dia}</span><span class="dia-dow">${DOW_LETRA[col.dow]}</span></div>`;
     }
@@ -233,7 +233,7 @@ const Planning = (() => {
           (col.dow === 0 || col.dow === 6 ? ' finde' : '') +
           (col.iso === hoyISO ? ' hoy-col' : '') +
           (col.cambioMes ? ' cambio-mes' : '') +
-          (restriccionDe(col.iso) ? ' planning-dia-restringido' : '');
+          (restriccionDe(col.iso) ? ' planning-celda-restringida' : '');
         c.dataset.iso = col.iso;
         c.addEventListener('click', (e) => abrirMenuCelda(e, apto.id, col.iso));
         dias.appendChild(c);
