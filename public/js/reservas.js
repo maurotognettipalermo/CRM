@@ -36,6 +36,7 @@ const Reservas = (() => {
   let pagosData = { pagos: [], total_pagado: 0, total_pendiente: 0, precio_total_reserva: 0 }; // pagos de la ficha
   let extrasData = { extras: [], total_extras: 0 }; // extras de la ficha
   let catalogoExtras = [];  // catálogo de extras activos (para el modal añadir)
+  let restriccionesReserva = []; // [{ fecha_inicio, fecha_fin, motivo }] para el aviso del wizard
 
   // Construye el mapa de portales (API.getPortales está cacheado: solo una llamada real).
   async function cargarPortalesMap() {
@@ -54,6 +55,7 @@ const Reservas = (() => {
         API.get('/api/apartamentos?todos=1'),
       ]);
       await cargarPortalesMap();
+      try { restriccionesReserva = await API.get('/api/restricciones'); } catch (e) { restriccionesReserva = []; }
       sincronizarPortalesFiltro();
       aplicarFiltros();
     } catch (e) {
@@ -406,6 +408,7 @@ const Reservas = (() => {
           </div>
           <span id="rsv-wz-noches" class="rsv-wz-noches oculto"></span>
           <div id="f-disponibilidad" class="disponibilidad-indicator oculto"></div>
+          <div id="rsv-restriccion-aviso" class="rsv-restriccion-aviso oculto"></div>
         </div>
 
         <!-- Precio -->
@@ -487,10 +490,10 @@ const Reservas = (() => {
       if (!e.target.closest('.rsv-ta')) { aptoRes.classList.add('oculto'); cliRes.classList.add('oculto'); }
     });
 
-    // Fechas → noches + disponibilidad + tarifa.
+    // Fechas → noches + disponibilidad + tarifa + aviso de restricción.
     ['f-entrada', 'f-salida'].forEach((fid) =>
       document.getElementById(fid).addEventListener('change', () => {
-        refrescarNoches(); verificarDisponibilidad(null); programarCalculoTarifa();
+        refrescarNoches(); verificarDisponibilidad(null); programarCalculoTarifa(); comprobarRestriccion();
       }));
 
     // Precio manual.
@@ -505,6 +508,25 @@ const Reservas = (() => {
   }
 
   function nombreCli(c) { return [c.nombre, c.apellido1, c.apellido2].filter(Boolean).join(' '); }
+
+  // Aviso (no bloqueante) si las fechas elegidas tocan un período restringido.
+  function comprobarRestriccion() {
+    const box = document.getElementById('rsv-restriccion-aviso');
+    if (!box) return;
+    const entrada = document.getElementById('f-entrada')?.value || '';
+    const salida = document.getElementById('f-salida')?.value || '';
+    if (!entrada || !salida || salida <= entrada) { box.classList.add('oculto'); box.innerHTML = ''; return; }
+    // La reserva ocupa noches [entrada, salida-1]; toca la restricción si entrada <= fin && salida > inicio.
+    const tocadas = restriccionesReserva.filter((r) => entrada <= r.fecha_fin && salida > r.fecha_inicio);
+    if (!tocadas.length) { box.classList.add('oculto'); box.innerHTML = ''; return; }
+    const lineas = tocadas
+      .slice()
+      .sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
+      .map((r) => `<div class="rsv-restriccion-linea">${fechaES(r.fecha_inicio)} al ${fechaES(r.fecha_fin)}${r.motivo ? ' · ' + esc(r.motivo) : ''}</div>`)
+      .join('');
+    box.innerHTML = `<div class="rsv-restriccion-tit">🚨 DANGER — Las fechas seleccionadas incluyen un período restringido:</div>${lineas}<div class="rsv-restriccion-nota">Puedes continuar pero ten en cuenta la restricción.</div>`;
+    box.classList.remove('oculto');
+  }
 
   function setClienteModo(modo) {
     wzClienteModo = modo;

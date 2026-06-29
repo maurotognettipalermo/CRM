@@ -877,6 +877,18 @@ CREATE TABLE IF NOT EXISTS pagos_propietario (
 );
 CREATE INDEX IF NOT EXISTS idx_pagos_propietario_apto ON pagos_propietario(apartamento_id);
 
+-- Restricciones de fechas: bloquean visualmente días en el planning y avisan al crear
+-- reservas. NO impiden crear reservas (solo aviso). Se gestionan en Ajustes (solo admin).
+CREATE TABLE IF NOT EXISTS restricciones (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha_inicio TEXT NOT NULL,
+  fecha_fin    TEXT NOT NULL,
+  motivo       TEXT,
+  created_by   TEXT,
+  created_at   TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_restricciones_fechas ON restricciones(fecha_inicio, fecha_fin);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);

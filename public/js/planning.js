@@ -32,6 +32,12 @@ const Planning = (() => {
   let desdeCache = '';
   let menuCelda = null;            // menú contextual abierto sobre una celda vacía
   let bloqueoColor = '#7f1d1d';    // color del estado "Bloqueado" (estados_reserva); rojo oscuro por defecto
+  let restriccionesActivas = [];   // [{ fecha_inicio, fecha_fin, motivo }] — bloqueo visual + banner
+
+  // Restricción que cubre un día ISO (inclusiva en ambos extremos), o null.
+  function restriccionDe(diaISO) {
+    return restriccionesActivas.find((r) => r.fecha_inicio <= diaISO && diaISO <= r.fecha_fin) || null;
+  }
 
   // Calculadora de precios (panel lateral izquierdo). Cachés de tarifas.
   let pcModificadores = null;      // [{ tipo, porcentaje }]
@@ -122,12 +128,15 @@ const Planning = (() => {
     const desde = iso(fechaInicio);
     const hasta = iso(addDias(fechaInicio, nDias - 1)); // último día visible (inclusive)
 
-    const [apartamentos, reservas, sinAsignar, portales] = await Promise.all([
+    const [apartamentos, reservas, sinAsignar, portales, restricciones] = await Promise.all([
       API.get('/api/apartamentos'),
       API.get('/api/reservas?' + new URLSearchParams({ desde, hasta }).toString()),
       API.get('/api/reservas/sin-asignar'),
       API.getPortales(),
+      API.get('/api/restricciones').catch(() => []),
     ]);
+
+    restriccionesActivas = restricciones || [];
 
     portalesMap = {};
     for (const p of portales) portalesMap[p.nombre] = { color: p.color, imagen_url: p.imagen_url };
@@ -157,6 +166,8 @@ const Planning = (() => {
     const cont = document.getElementById('planning');
     cont.innerHTML = '';
 
+    actualizarBannerRestricciones(desdeISO, iso(addDias(fechaInicio, nDias - 1)));
+
     const hoyISO = iso(hoy());
     const { cols, xDia, anchoTotal } = construirColumnas();
 
@@ -170,6 +181,7 @@ const Planning = (() => {
       if (col.dow === 0 || col.dow === 6) clases.push('finde');
       if (col.iso === hoyISO) clases.push('hoy');
       if (col.cambioMes) clases.push('cambio-mes');
+      if (restriccionDe(col.iso)) clases.push('planning-dia-restringido');
       const mesLbl = col.mostrarMes ? `<span class="mes-label">${MESES_LARGO[col.mes]} ${col.anio}</span>` : '';
       cabHTML += `<div class="${clases.join(' ')}">${mesLbl}<span class="dia-num">${col.dia}</span><span class="dia-dow">${DOW_LETRA[col.dow]}</span></div>`;
     }
@@ -220,7 +232,8 @@ const Planning = (() => {
         c.className = 'dia' +
           (col.dow === 0 || col.dow === 6 ? ' finde' : '') +
           (col.iso === hoyISO ? ' hoy-col' : '') +
-          (col.cambioMes ? ' cambio-mes' : '');
+          (col.cambioMes ? ' cambio-mes' : '') +
+          (restriccionDe(col.iso) ? ' planning-dia-restringido' : '');
         c.dataset.iso = col.iso;
         c.addEventListener('click', (e) => abrirMenuCelda(e, apto.id, col.iso));
         dias.appendChild(c);
@@ -273,6 +286,36 @@ const Planning = (() => {
       activarDrop(fila, apto.id);
       cont.appendChild(fila);
     }
+  }
+
+  // Banner de aviso sobre las restricciones que se solapan con el rango visible.
+  // Se inyecta una vez encima del scroll del planning y se actualiza al navegar.
+  function actualizarBannerRestricciones(desdeISO, hastaISO) {
+    let banner = document.getElementById('planning-restricciones');
+    if (!banner) {
+      const scroll = document.querySelector('#vista-planning .planning-scroll');
+      if (!scroll) return;
+      banner = document.createElement('div');
+      banner.id = 'planning-restricciones';
+      banner.className = 'planning-restricciones-banner oculto';
+      scroll.parentNode.insertBefore(banner, scroll);
+    }
+    // Restricciones que solapan [desdeISO, hastaISO] (intervalos inclusivos).
+    const enRango = restriccionesActivas.filter((r) => r.fecha_inicio <= hastaISO && r.fecha_fin >= desdeISO);
+    if (!enRango.length) { banner.classList.add('oculto'); banner.innerHTML = ''; return; }
+    const partes = enRango
+      .slice()
+      .sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio))
+      .map((r) => `${fechaCorta(r.fecha_inicio)} al ${fechaCorta(r.fecha_fin)}${r.motivo ? ' (' + esc(r.motivo) + ')' : ''}`)
+      .join(' · ');
+    banner.innerHTML = `⚠️ OJO — RESTRICCIONES: ${partes}`;
+    banner.classList.remove('oculto');
+  }
+
+  // ISO YYYY-MM-DD -> DD/MM (para el banner, compacto).
+  function fechaCorta(isoStr) {
+    const p = String(isoStr || '').split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}` : String(isoStr);
   }
 
   // Drop sobre una fila de apartamento -> mover reserva a ese apartamento.

@@ -49,6 +49,7 @@ app.use('/api/mayoristas', require('./routes/mayoristas'));
 app.use('/api/personal', require('./routes/personal'));
 app.use('/api/leads', require('./routes/leads'));
 app.use('/api/clientes', require('./routes/clientes'));
+app.use('/api/restricciones', require('./routes/restricciones'));
 
 // Manejador de errores genérico.
 app.use((err, req, res, next) => {

@@ -38,6 +38,16 @@ const Ajustes = (() => {
   let extrasLista = [];
   let extraBuscar = '';
   let estadosLista = [];
+  let restriccionesLista = [];
+
+  // Días que abarca una restricción (inclusiva en ambos extremos): fin - inicio + 1.
+  function diasRestriccion(ini, fin) {
+    if (!ini || !fin) return 0;
+    const a = new Date(ini + 'T00:00:00');
+    const b = new Date(fin + 'T00:00:00');
+    const d = Math.round((b - a) / 86400000) + 1;
+    return d > 0 ? d : 0;
+  }
 
   // Etiqueta legible del tipo de precio de un extra.
   const TIPO_EXTRA_LABEL = { unidad: 'por unidad', noche: 'por noche', persona: 'por persona' };
@@ -76,6 +86,7 @@ const Ajustes = (() => {
     // Las sub-pestañas Actividad y Correo electrónico solo existen para administradores.
     document.getElementById('subtab-actividad').classList.toggle('oculto', !Auth.esAdmin());
     document.getElementById('subtab-smtp')?.classList.toggle('oculto', !Auth.esAdmin());
+    document.getElementById('subtab-restricciones')?.classList.toggle('oculto', !Auth.esAdmin());
     await cargarRazones();
     await cargarUsuarios();
     await cargarPortales();
@@ -85,6 +96,7 @@ const Ajustes = (() => {
     await cargarPlanning();
     if (Auth.esAdmin()) await cargarActividad();
     if (Auth.esAdmin()) await cargarSmtp();
+    if (Auth.esAdmin()) await cargarRestricciones();
   }
 
   // ==================== Catálogo de gastos ====================
@@ -507,6 +519,116 @@ const Ajustes = (() => {
       if (err.status === 409) toast(err.message || 'No se puede eliminar este estado', 'error');
       else toast(err.message, 'error');
     }
+  }
+
+  // ==================== Restricciones (solo admin) ====================
+  // Bloquean visualmente fechas en el planning y avisan al crear reservas (no las impiden).
+  // La sub-pestaña y su panel se inyectan por JS (no se toca index.html).
+  function inyectarRestricciones() {
+    if (document.querySelector('#ajustes-subtabs [data-sub="restricciones"]')) return;
+    const subtabs = document.getElementById('ajustes-subtabs');
+    const btn = document.createElement('button');
+    btn.className = 'subtab';
+    btn.id = 'subtab-restricciones';
+    btn.dataset.sub = 'restricciones';
+    btn.textContent = 'Restricciones 🚫';
+    subtabs.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'sub-panel';
+    panel.dataset.panelSub = 'restricciones';
+    panel.innerHTML = `
+      <div class="sub-panel-head">
+        <span class="sub-panel-titulo">Restricciones</span>
+        <button id="btn-nueva-restriccion" class="btn-pri">＋ Nueva restricción</button>
+      </div>
+      <p class="ajustes-desc">Las restricciones bloquean visualmente fechas en el planning y avisan al crear reservas. No impiden crear reservas.</p>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-restricciones">
+          <thead>
+            <tr><th>Fecha inicio</th><th>Fecha fin</th><th>Días</th><th>Motivo</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.querySelector('#vista-ajustes .ajustes-scroll').appendChild(panel);
+    document.getElementById('btn-nueva-restriccion').addEventListener('click', () => formularioRestriccion(null));
+  }
+
+  async function cargarRestricciones() {
+    try { restriccionesLista = await API.get('/api/restricciones'); }
+    catch (e) { return toast(e.message, 'error'); }
+    renderRestricciones();
+  }
+
+  function renderRestricciones() {
+    const tbody = document.querySelector('#tabla-restricciones tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!restriccionesLista.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#6b7280;text-align:center;padding:24px">Sin restricciones.</td></tr>';
+      return;
+    }
+    for (const r of restriccionesLista) {
+      const dias = diasRestriccion(r.fecha_inicio, r.fecha_fin);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${fechaES(r.fecha_inicio)}</td>
+        <td>${fechaES(r.fecha_fin)}</td>
+        <td><span class="badge-estado neutro">${dias} día${dias === 1 ? '' : 's'}</span></td>
+        <td>${esc(r.motivo) || '—'}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-res="${r.id}" title="Editar">✏️</button>
+          <button class="btn-mini" data-borrar-res="${r.id}" title="Eliminar">🗑️</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('[data-editar-res]').forEach((b) =>
+      b.addEventListener('click', () => formularioRestriccion(restriccionesLista.find((x) => x.id == b.dataset.editarRes))));
+    tbody.querySelectorAll('[data-borrar-res]').forEach((b) =>
+      b.addEventListener('click', () => borrarRestriccion(b.dataset.borrarRes)));
+  }
+
+  function formularioRestriccion(r) {
+    r = r || {};
+    const esNuevo = !r.id;
+    abrirModal(`
+      <h3>${esNuevo ? 'Nueva' : 'Editar'} restricción</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="res-ini" value="${esc(r.fecha_inicio) || ''}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="res-fin" value="${esc(r.fecha_fin) || ''}"></div>
+      </div>
+      <div class="campo"><label>Motivo</label><input id="res-motivo" placeholder="Feria de Oropesa, Semana Santa, Sin disponibilidad..." value="${esc(r.motivo) || ''}"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="res-cancelar">Cancelar</button>
+        <button class="btn-pri" id="res-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('res-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('res-guardar').addEventListener('click', async () => {
+      const fecha_inicio = document.getElementById('res-ini').value;
+      const fecha_fin = document.getElementById('res-fin').value;
+      const motivo = document.getElementById('res-motivo').value.trim();
+      if (!fecha_inicio || !fecha_fin) return toast('Las fechas de inicio y fin son obligatorias', 'error');
+      if (fecha_fin < fecha_inicio) return toast('La fecha de fin debe ser igual o posterior a la de inicio', 'error');
+      const body = { fecha_inicio, fecha_fin, motivo };
+      try {
+        if (esNuevo) await API.post('/api/restricciones', body);
+        else await API.put('/api/restricciones/' + r.id, body);
+        cerrarModal();
+        await cargarRestricciones();
+        toast('Restricción guardada', 'ok');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  }
+
+  async function borrarRestriccion(id) {
+    const r = restriccionesLista.find((x) => x.id == id);
+    if (!confirm(`¿Eliminar la restricción "${r ? (r.motivo || fechaES(r.fecha_inicio)) : id}"?`)) return;
+    try {
+      await API.del('/api/restricciones/' + id);
+      await cargarRestricciones();
+      toast('Restricción eliminada', 'ok');
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   // ==================== Correo electrónico (SMTP, solo admin) ====================
@@ -1343,6 +1465,7 @@ const Ajustes = (() => {
     inyectarEstadosReserva();  // 7ª sub-pestaña
     inyectarSmtp();            // 8ª sub-pestaña (solo admin)
     inyectarPlanning();        // 9ª sub-pestaña
+    inyectarRestricciones();   // 10ª sub-pestaña (solo admin)
     document.querySelectorAll('#ajustes-subtabs .subtab').forEach((b) =>
       b.addEventListener('click', () => activarSub(b.dataset.sub)));
     document.getElementById('btn-nueva-razon').addEventListener('click', () => formularioRazon(null));
