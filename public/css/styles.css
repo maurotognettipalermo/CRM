@@ -444,8 +444,21 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .fila-cabecera .dia.hoy .dia-dow { color: #ffffff; }
 /* Columna de hoy en las filas de apartamentos: tinte suave. */
 .dia.hoy-col { background: rgba(26, 26, 46, 0.06); }
-/* Frontera de mes en todo el grid (día 1 de un mes nuevo). */
-.dia.cambio-mes { border-left: 2px solid #1a1a2e; }
+/* Frontera de mes en todo el grid (día 1 de un mes nuevo). Se dibuja como pseudo-elemento
+   absoluto sobre el borde izquierdo, NO como border-left, para no competir con el box-model
+   ni con el fondo de restricción/día actual (la celda conserva su tamaño exacto). */
+.dia.cambio-mes { position: relative; }
+.dia.cambio-mes::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #1a1a2e;
+  pointer-events: none;
+  z-index: 1;
+}
 
 /* Columna separadora de mes (decorativa, no es un día). */
 .col-sep-mes {
@@ -3961,12 +3974,11 @@ span.flatpickr-weekday { color: #9ca3af; font-size: 12px; font-weight: 500; }
 /* Descripción bajo el título de la sub-pestaña de Ajustes. */
 .ajustes-desc { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 720px; }
 
-/* Día restringido del planning: fondo rojo suave directo sobre la celda (sin overlay
-   absoluto, que descuadraba el grid). Borde interior con box-shadow inset para no
-   alterar el tamaño de la celda. Se aplica a cada celda de fondo y a la de cabecera. */
+/* Día restringido del planning: SOLO fondo rojo suave sobre la celda. Sin box-shadow,
+   sin position ni nada que altere el box-model (la celda mantiene su tamaño exacto
+   tenga o no restricción / separador de mes / día actual). Celdas de fondo y cabecera. */
 .planning-celda-restringida {
   background: rgba(239, 68, 68, 0.15) !important;
-  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.3);
 }
 
 /* Banner de aviso de restricciones encima del planning (rango visible). */
