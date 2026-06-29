@@ -347,6 +347,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   position: sticky;
   top: 0;
   z-index: 5;
+  margin-top: 20px;   /* espacio para el mes-label que flota encima (top:-18px) */
+  overflow: visible;  /* el label puede sobresalir por arriba */
   background: #f8f9fa;
   border-bottom: 2px solid #9ca3af;
 }
@@ -427,16 +429,21 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .fila-cabecera .dia .dia-num { font-size: 11px; font-weight: 600; color: #374151; }
 .fila-cabecera .dia .dia-dow { font-size: 10px; text-transform: uppercase; color: var(--muted); }
 /* Nombre del mes encima del día 1, sin ocupar columna del grid. */
+/* El nombre del mes flota ENCIMA de la fila de cabecera (top negativo), no dentro de la
+   celda de 28px, para no pintarse sobre los números de los días siguientes. */
 .mes-label {
   position: absolute;
-  top: 2px;
-  left: 3px;
-  font-size: 11px;
+  top: -18px;
+  left: 0;
+  font-size: 10px;
   font-weight: 700;
-  color: #1a1a2e;
+  color: #1e293b;
   white-space: nowrap;
+  background: white;
+  padding: 1px 4px;
+  border-radius: 3px;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
 }
 /* Día actual: destacado en oscuro en la cabecera. */
 .fila-cabecera .dia.hoy { background: var(--nav); }
