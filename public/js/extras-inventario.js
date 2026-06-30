@@ -167,12 +167,41 @@ const ExtrasInventario = (() => {
     }
   }
 
+  // Typeahead de apartamento dentro de un modal abierto. Busca por nombre al escribir 2+
+  // caracteres y llama onSelect(id) al elegir. Devuelve un getter del id seleccionado.
+  // Reutiliza las clases globales .mant-ta / .mant-ta-res / .mant-ta-item (ya estiladas).
+  function montarTypeaheadApto(inputId, resId) {
+    let seleccionado = null;
+    const inp = document.getElementById(inputId);
+    const res = document.getElementById(resId);
+    if (!inp || !res) return () => null;
+    const render = () => {
+      const t = inp.value.trim().toLowerCase();
+      if (t.length < 2) { res.classList.add('oculto'); res.innerHTML = ''; return; }
+      const lista = apartamentos.filter((a) => (a.nombre || '').toLowerCase().includes(t)).slice(0, 8);
+      if (!lista.length) { res.classList.add('oculto'); res.innerHTML = ''; return; }
+      res.innerHTML = lista.map((a) => `<div class="mant-ta-item" data-ap="${a.id}">${esc(a.nombre)}</div>`).join('');
+      res.classList.remove('oculto');
+      res.querySelectorAll('.mant-ta-item').forEach((el) =>
+        el.addEventListener('click', () => {
+          seleccionado = Number(el.dataset.ap);
+          const a = apartamentos.find((x) => x.id === seleccionado);
+          inp.value = a ? a.nombre : '';
+          res.classList.add('oculto');
+        }));
+    };
+    inp.addEventListener('input', () => { seleccionado = null; render(); });
+    inp.addEventListener('focus', render);
+    document.getElementById('modal-contenido')?.addEventListener('click', (e) => {
+      if (!e.target.closest('.mant-ta')) res.classList.add('oculto');
+    });
+    return () => seleccionado;
+  }
+
   // Modal de préstamo o devolución de un artículo.
   function modalMovimiento(itemId, tipo) {
     const it = items.find((x) => x.id == itemId);
     const esPrestamo = tipo === 'prestamo';
-    const aptoOpts = '<option value="">— Apartamento —</option>' +
-      apartamentos.map((a) => `<option value="${a.id}">${esc(a.nombre)}</option>`).join('');
     const hoy = new Date().toISOString().slice(0, 10);
     const dispTxt = it && it.stock_total != null ? ` (disponible: ${it.disponible})` : '';
     abrirModal(`
@@ -181,19 +210,24 @@ const ExtrasInventario = (() => {
         <div class="campo"><label>Cantidad *${dispTxt}</label><input type="number" min="1" id="ext-mv-cant" value="1"></div>
         <div class="campo"><label>Fecha</label><input type="date" id="ext-mv-fecha" value="${hoy}"></div>
       </div>
-      <div class="campo"><label>Apartamento</label><select id="ext-mv-apto">${aptoOpts}</select></div>
+      <div class="campo mant-ta">
+        <label>Apartamento</label>
+        <input id="ext-mv-apto-input" class="input-buscar" autocomplete="off" placeholder="Escribe para buscar...">
+        <div id="ext-mv-apto-res" class="mant-ta-res oculto"></div>
+      </div>
       <div class="campo"><label>Notas</label><textarea id="ext-mv-notas"></textarea></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="ext-mv-cancelar">Cancelar</button>
         <button class="btn-pri" id="ext-mv-guardar">${esPrestamo ? 'Prestar' : 'Devolver'}</button>
       </div>`);
+    const getApto = montarTypeaheadApto('ext-mv-apto-input', 'ext-mv-apto-res');
     document.getElementById('ext-mv-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('ext-mv-guardar').addEventListener('click', async () => {
       const cantidad = Number(document.getElementById('ext-mv-cant').value) || 0;
       if (cantidad < 1) return toast('La cantidad debe ser ≥ 1', 'error');
       const body = {
         item_id: itemId, tipo, cantidad,
-        apartamento_id: document.getElementById('ext-mv-apto').value || null,
+        apartamento_id: getApto() || null,
         fecha: document.getElementById('ext-mv-fecha').value || null,
         notas: document.getElementById('ext-mv-notas').value.trim(),
       };
