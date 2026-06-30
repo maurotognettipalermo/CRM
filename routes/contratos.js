@@ -196,8 +196,20 @@ router.get('/', (req, res) => {
     SELECT
       c.*,
       a.nombre                                              AS apartamento_nombre,
-      p.nombre                                              AS propietario_nombre,
-      p.apellidos                                           AS propietario_apellidos
+      COALESCE(p.nombre, (
+        SELECT p2.nombre FROM apartamento_propietarios ap
+        JOIN propietarios p2 ON p2.id = ap.propietario_id
+        WHERE ap.apartamento_id = c.apartamento_id AND ap.activo = 1
+        ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+        LIMIT 1
+      ))                                                    AS propietario_nombre,
+      COALESCE(p.apellidos, (
+        SELECT p2.apellidos FROM apartamento_propietarios ap
+        JOIN propietarios p2 ON p2.id = ap.propietario_id
+        WHERE ap.apartamento_id = c.apartamento_id AND ap.activo = 1
+        ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+        LIMIT 1
+      ))                                                    AS propietario_apellidos
     FROM contratos c
     JOIN apartamentos a ON a.id = c.apartamento_id
     LEFT JOIN propietarios p ON p.id = c.propietario_id
@@ -762,6 +774,7 @@ router.get('/:id', (req, res) => {
       LIMIT 1
     `).get(contrato.apartamento_id);
     if (activo) {
+      contrato.propietario_id = activo.propietario_id;
       contrato.propietario_nombre = activo.nombre;
       contrato.propietario_apellidos = activo.apellidos;
     }
