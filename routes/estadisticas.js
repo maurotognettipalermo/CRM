@@ -14,6 +14,8 @@ function anioParam(req) {
 // GET /api/estadisticas/portales?anio=2026
 // Ingresos agregados por portal de venta durante el año indicado (por fecha de entrada).
 // Se excluyen las reservas canceladas. Ordena por ingresos brutos desc.
+// Para portales que coinciden con un mayorista (case-insensitive), el ingreso se toma del
+// contrato de ese mayorista en el año (mayorista_contratos), no de las reservas.
 router.get('/portales', (req, res) => {
   const anio = anioParam(req);
 
@@ -37,17 +39,58 @@ router.get('/portales', (req, res) => {
     ORDER BY ingresos_brutos DESC
   `).all(anio);
 
-  // Totales del año (mismo filtro, sin agrupar).
-  const resumen = db.prepare(`
+  // Mapa de mayoristas activos: nombre_lower -> { id, nombre }
+  const mayoristas = db.prepare('SELECT id, nombre FROM mayoristas WHERE activo = 1').all();
+  const mayoristasMap = {};
+  for (const m of mayoristas) {
+    mayoristasMap[m.nombre.toLowerCase().trim()] = m;
+  }
+
+  // Consulta del contrato anual de un mayorista (máx 1 por UNIQUE(mayorista_id, anio)).
+  const stmtContrato = db.prepare(`
     SELECT
-      COUNT(*)                          AS total_reservas,
-      COALESCE(SUM(precio_total), 0)    AS ingresos_brutos,
-      COALESCE(SUM(pagado), 0)          AS ingresos_cobrados,
-      COALESCE(SUM(pendiente), 0)       AS pendiente_cobro
-    FROM reservas
-    WHERE strftime('%Y', entrada) = ?
-      AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')
-  `).get(anio);
+      mc.importe_total,
+      COALESCE(SUM(CASE WHEN mp.pagado = 1 THEN mp.importe ELSE 0 END), 0) AS cobrado,
+      COALESCE(SUM(CASE WHEN mp.pagado = 0 THEN mp.importe ELSE 0 END), 0) AS pendiente
+    FROM mayorista_contratos mc
+    LEFT JOIN mayorista_pagos mp ON mp.contrato_id = mc.id
+    WHERE mc.mayorista_id = ? AND mc.anio = ? AND mc.estado <> 'cancelado'
+    GROUP BY mc.id
+  `);
+
+  // Para portales mayorista, sustituir ingresos por el contrato del año.
+  const anioInt = parseInt(anio, 10);
+  for (const p of portales) {
+    const key = (p.portal || '').toLowerCase().trim();
+    const mayorista = mayoristasMap[key];
+    if (mayorista) {
+      p.es_mayorista = true;
+      const contrato = stmtContrato.get(mayorista.id, anioInt);
+      if (contrato) {
+        p.tiene_contrato = true;
+        p.ingresos_brutos   = contrato.importe_total;
+        p.ingresos_cobrados = contrato.cobrado;
+        p.pendiente_cobro   = contrato.pendiente;
+      } else {
+        p.tiene_contrato    = false;
+        p.ingresos_brutos   = 0;
+        p.ingresos_cobrados = 0;
+        p.pendiente_cobro   = 0;
+      }
+    } else {
+      p.es_mayorista = false;
+    }
+  }
+
+  // Re-ordenar tras los ajustes y recalcular resumen en JS.
+  portales.sort((a, b) => (Number(b.ingresos_brutos) || 0) - (Number(a.ingresos_brutos) || 0));
+
+  const resumen = {
+    total_reservas:     portales.reduce((s, p) => s + (Number(p.total_reservas) || 0), 0),
+    ingresos_brutos:    portales.reduce((s, p) => s + (Number(p.ingresos_brutos) || 0), 0),
+    ingresos_cobrados:  portales.reduce((s, p) => s + (Number(p.ingresos_cobrados) || 0), 0),
+    pendiente_cobro:    portales.reduce((s, p) => s + (Number(p.pendiente_cobro) || 0), 0),
+  };
 
   res.json({ portales, resumen });
 });

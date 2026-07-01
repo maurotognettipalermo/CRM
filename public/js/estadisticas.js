@@ -75,6 +75,21 @@ const Estadisticas = (() => {
     return `<span class="portal-cel-color" style="background:${esc(color)}"></span>`;
   }
 
+  // Celda de nombre del portal con badge "📋 Contrato" y nota para mayoristas.
+  function nombrePortalHTML(p) {
+    let html = esc(p.portal);
+    if (p.es_mayorista) {
+      if (!p.tiene_contrato) {
+        html += ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;border:1px solid #fbbf24" title="Sin contrato registrado para este año">⚠️ Sin contrato</span>';
+        html += '<br><small style="color:#b45309;font-size:11px">Sin contrato registrado para este año</small>';
+      } else {
+        html += ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe" title="Importe según contrato de mayorista, no según reservas">📋 Contrato</span>';
+        html += '<br><small style="color:#6b7280;font-size:11px">Importe según contrato de mayorista</small>';
+      }
+    }
+    return html;
+  }
+
   // Barra de progreso (ancho = % del total; color del portal).
   function barra(pct, color) {
     const ancho = Math.max(0, Math.min(100, pct));
@@ -104,7 +119,7 @@ const Estadisticas = (() => {
       return `
         <tr>
           <td class="est-col-logo">${celdaPortal(p)}</td>
-          <td>${esc(p.portal)}</td>
+          <td>${nombrePortalHTML(p)}</td>
           <td class="num">${num(p.total_reservas)}</td>
           <td class="num">${num(p.noches_totales)}</td>
           <td class="num">${euro(p.ingresos_cobrados)}</td>
