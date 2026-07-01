@@ -72,7 +72,7 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `planning.js` | — | vista N días, drag&drop; calculadora de precios replica el cálculo de tarifas en cliente (NO llama a `/api/tarifas/calcular`) |
 | `alojamientos.js` | — | `abrirFicha(id)` |
 | `reservas.js` | — | `abrirFicha(id)`; ficha incluye EXTRAS y PAGOS |
-| `contratos.js` | — | `filtrarPorPropietario(id, nombre)` |
+| `contratos.js` | — | `filtrarPorPropietario(id, nombre)`. Buscador libre (texto) por alojamiento+propietario inyectado en init; contador "X contratos / X de Y" junto al buscador |
 | `mantenimiento.js` | — | `abrirDetalle(id)`, `nuevaTareaPara(aptoId)` |
 | `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime |
 | `personal.js` | `Personal` | `init/cargar`; sub-pestañas inyectadas en runtime |
@@ -96,6 +96,7 @@ Variables: `--nav:#1a1a2e` · `--green:#10b981` · `--blue:#3b82f6` · `--red:#e
 
 - **apartamentos**: ya NO tiene `propietario_id` (migrado a N:M). `tipo_clasificacion` A/A+/A++/B/B+/C. `portal_id` FK portales. `estado_limpieza` CHECK 'limpio'|'sucio'.
 - **apartamento_propietarios**: N:M con histórico. "Principal" = mayor porcentaje (empate → fecha_inicio más antigua). Activos deben sumar 100%.
+- **portales**: `mayorista_id INTEGER REFERENCES mayoristas(id) ON DELETE SET NULL` — vinculación explícita (no por nombre). `comision_porcentaje REAL DEFAULT 0` — % que se descuenta del bruto en estadísticas. GET incluye `mayorista_nombre` (LEFT JOIN). POST/PUT aceptan ambos campos.
 - **reservas**: `portal` es TEXT (nombre, NO FK a portales). `cliente_id` FK nullable. `contrato_origen_id` marca reservas auto de contratos. `apartamento_id` NULL = Sin asignar.
 - **ajustes**: clave/valor. Flag `limpieza_datos_prueba_v1` — **NO borrar** (volvería a borrar datos reales si reaparece). Claves `smtp_*` de correo.
 - **Patrón snapshot**: `apartamento_gastos`, `reserva_extras`, `factura_lineas`, `mantenimiento_tareas.cliente_*` copian nombre/precio al insertar. El catálogo puede cambiar sin afectar registros previos.
@@ -183,7 +184,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | POST | /api/reservas/:id/pagos/generar-plan | Plan 20/80: borra no pagados + crea 2 cuotas. 409 si precio=0 |
 | GET/POST/PUT/DELETE | /api/reservas/:id/extras[/:extra_id] | POST `{catalogo_extra_id, cantidad}`: snapshot; importe×noches si tipo='noche'. GET→`{extras, total_extras}` |
 | GET/POST/PUT/DELETE | /api/catalogo-extras[/:id] | DELETE→409 si usado en reservas |
-| GET/POST/PUT/DELETE | /api/portales[/:id] | `prefijo` (uppercase, vacío→null) para auto-numerar reservas |
+| GET/POST/PUT/DELETE | /api/portales[/:id] | `prefijo` (uppercase, vacío→null) para auto-numerar reservas. GET incluye `mayorista_id`+`mayorista_nombre`. POST/PUT aceptan `mayorista_id` y `comision_porcentaje` |
 | POST | /api/portales/:id/imagen | Multipart campo **`imagen`**; jpg/png/webp/svg |
 | POST | /api/importar | Excel/CSV `archivo`; devuelve resumen |
 | POST | /api/auth/login | **Pública**. `{username,password}` → `{ok,token,userId,username,nombre,rol}` |
@@ -268,7 +269,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/POST | /api/leads/:id/propuestas | POST `{plantilla_id, apartamento_id, precio_propuesto, foto_ids[], email_destino, asunto, mensaje}` |
 | POST | /api/leads/:id/propuestas/:prop_id/enviar | Envía email; enviada=1 + lead→'propuesta_enviada' |
 | GET | /api/dashboard | `proximos_checkin, reservas_en_curso, proximos_checkout` (máx 50 c/u) + `pagos_pendientes` |
-| GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas) |
+| GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas). Si portal tiene `mayorista_id`: usa `importe_total` del contrato anual como ingreso (sin comisión). Si no: `ingresos_netos = ingresos_brutos × (1 − comision_porcentaje/100)`. Resumen usa `ingresos_netos` |
 | GET | /api/estadisticas/apartamentos | `?anio=[&apartamento_id=]`. Sin id: resumen. Con id: detalle + reservas |
 | GET | /api/estadisticas/ocupacion | `?anio=`. `por_mes[12]` + `por_tih` + resumen |
 | GET | /api/estadisticas/propietarios | `?anio=`. Cashflow precio_cerrado por propietario |
