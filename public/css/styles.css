@@ -1325,7 +1325,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 320px));
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 .est-card {
   background: #ffffff;
@@ -1362,16 +1362,79 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 }
 
 /* Tabla de ingresos por portal */
-.est-tabla th.num, .est-tabla td.num { text-align: right; white-space: nowrap; }
+.est-tabla tbody td { padding: 15px 14px; }
+.est-tabla th.num,
+.est-tabla td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .est-tabla .est-col-logo { width: 44px; }
-.est-tabla .est-col-pct { width: 150px; }
-.est-fila-total td { font-weight: 700; color: var(--text); border-top: 2px solid var(--border); }
+.est-tabla .est-col-pct { width: 160px; padding-left: 20px; }
+
+/* Texto secundario dentro de la celda Portal ("Importe según mayorista", etc.) */
+.est-tabla td small {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 3px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+/* Fila de totales: fondo diferenciado, borde superior grueso, neto en grande */
+.est-fila-total td {
+  font-weight: 700;
+  color: var(--text);
+  border-top: 2px solid #1a1a2e;
+  background: #f8f9fa;
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+/* Neto total: 2ª celda desde el final (antes de % del total) */
+.est-fila-total td:nth-last-child(2) { font-size: 16px; }
+/* "100%" en la celda de % del total: separado con padding y tono más oscuro */
+.est-fila-total .est-col-pct {
+  color: var(--nav);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+/* Badge "📋 Contrato" y "⚠️ Sin contrato": ya llevan inline-style desde JS.
+   Clases de apoyo para cuando el JS las use en futuras refactorizaciones. */
+.badge-contrato {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #eff6ff;
+  color: #3b82f6;
+  border: 1px solid #bfdbfe;
+}
+.badge-sin-contrato {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fbbf24;
+}
+/* Badge de comisión (porcentaje naranja): clase para uso futuro desde JS */
+.badge-comision {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
 
 /* Barra de % del total */
 .est-pct { display: flex; flex-direction: column; gap: 4px; }
 .est-pct-num { font-size: 12px; font-weight: 600; color: var(--muted); }
-.est-barra { display: block; height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
-.est-barra-fill { display: block; height: 100%; border-radius: 999px; }
+.est-barra { display: block; height: 8px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.est-barra-fill { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
 
 .est-vacio { color: var(--muted); font-size: 14px; padding: 32px 0; text-align: center; }
 
