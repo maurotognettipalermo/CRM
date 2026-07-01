@@ -138,6 +138,12 @@ const Contratos = (() => {
   }
 
   function renderTabla(lista) {
+    const contador = document.getElementById('cnt-contador');
+    if (contador) {
+      contador.textContent = lista.length === todos.length
+        ? `${lista.length} contrato${lista.length !== 1 ? 's' : ''}`
+        : `${lista.length} de ${todos.length}`;
+    }
     const tbody = document.querySelector('#tabla-contratos tbody');
     tbody.innerHTML = '';
     if (!lista.length) {
@@ -1118,7 +1124,7 @@ const Contratos = (() => {
     sel.innerHTML = ANIOS.map((a) => `<option value="${a}"${a === filtroAnio ? ' selected' : ''}>${a}</option>`).join('');
   }
 
-  // ---- Buscador libre (alojamiento + propietario) inyectado por JS ----
+  // ---- Buscador libre (alojamiento + propietario) + contador inyectados por JS ----
   function inyectarBuscador() {
     const cont = document.querySelector('#vista-contratos .cnt-controles');
     if (!cont || document.getElementById('cnt-filtro-buscar')) return;
@@ -1128,6 +1134,10 @@ const Contratos = (() => {
     inp.className = 'cnt-input-buscar';
     inp.placeholder = 'Buscar por alojamiento o propietario…';
     cont.appendChild(inp);
+    const span = document.createElement('span');
+    span.id = 'cnt-contador';
+    span.className = 'cnt-contador';
+    cont.appendChild(span);
   }
 
   // Método público: navegar/filtrar Contratos por un propietario (lo usa Estadísticas).

@@ -858,6 +858,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 }
 .cnt-input-buscar:focus { border-color: var(--nav); }
 .cnt-input-buscar::-webkit-search-cancel-button { cursor: pointer; }
+.cnt-contador { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
 /* Columna observaciones: truncar texto largo */
 .obs-celda {
