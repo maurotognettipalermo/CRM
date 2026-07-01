@@ -12,6 +12,7 @@ const Contratos = (() => {
   let filtroTipo = '';       // '' | 'precio_cerrado' | 'comision'
   let filtroPropId = '';     // '' = todos | id del propietario (string)
   let filtroPropNombre = ''; // nombre del propietario filtrado (para el select)
+  let filtroTexto = '';      // búsqueda libre por alojamiento o propietario
   let fichaActual = null;    // contrato abierto en el panel
   let aptoSelId = null;      // apartamento seleccionado en el modal
   let cuotasModal = [];      // cuotas en edición en el modal
@@ -108,10 +109,17 @@ const Contratos = (() => {
   }
 
   function filtrar() {
-    return todos.filter((c) =>
-      (!filtroTipo || c.tipo === filtroTipo) &&
-      (!filtroPropId || String(c.propietario_id) === filtroPropId)
-    );
+    const q = filtroTexto.toLowerCase().trim();
+    return todos.filter((c) => {
+      if (filtroTipo && c.tipo !== filtroTipo) return false;
+      if (filtroPropId && String(c.propietario_id) !== filtroPropId) return false;
+      if (q) {
+        const enApto = (c.apartamento_nombre || '').toLowerCase().includes(q);
+        const enProp = nombrePropietario(c).toLowerCase().includes(q);
+        if (!enApto && !enProp) return false;
+      }
+      return true;
+    });
   }
 
   function celdaCuotas(c) {
@@ -1111,6 +1119,18 @@ const Contratos = (() => {
     sel.innerHTML = ANIOS.map((a) => `<option value="${a}"${a === filtroAnio ? ' selected' : ''}>${a}</option>`).join('');
   }
 
+  // ---- Buscador libre (alojamiento + propietario) inyectado por JS ----
+  function inyectarBuscador() {
+    const cont = document.querySelector('#vista-contratos .cnt-controles');
+    if (!cont || document.getElementById('cnt-filtro-buscar')) return;
+    const inp = document.createElement('input');
+    inp.id = 'cnt-filtro-buscar';
+    inp.type = 'search';
+    inp.className = 'cnt-input-buscar';
+    inp.placeholder = 'Buscar por alojamiento o propietario…';
+    cont.appendChild(inp);
+  }
+
   // ---- Filtro de propietario (select inyectado por JS; index.html no se toca) ----
   function inyectarFiltroPropietario() {
     const cont = document.querySelector('#vista-contratos .cnt-controles');
@@ -1159,6 +1179,7 @@ const Contratos = (() => {
   function init() {
     crearPanel();
     poblarAnios();
+    inyectarBuscador();
     inyectarFiltroPropietario();
     document.getElementById('btn-nuevo-contrato').addEventListener('click', () => formulario(null));
     document.getElementById('cnt-filtro-anio').addEventListener('change', (e) => {
@@ -1173,6 +1194,10 @@ const Contratos = (() => {
     document.getElementById('cnt-filtro-propietario').addEventListener('change', (e) => {
       filtroPropId = e.target.value;
       filtroPropNombre = e.target.selectedOptions[0] ? e.target.selectedOptions[0].textContent : '';
+      renderTabla(filtrar());
+    });
+    document.getElementById('cnt-filtro-buscar').addEventListener('input', (e) => {
+      filtroTexto = e.target.value;
       renderTabla(filtrar());
     });
   }
