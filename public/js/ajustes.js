@@ -837,13 +837,19 @@ const Ajustes = (() => {
     return r.json();
   }
 
-  function formularioPortal(portal) {
+  async function formularioPortal(portal) {
     const esNuevo = !portal;
     portal = portal || {};
     const activoChecked = portal.activo === undefined ? true : !!portal.activo;
     const color = portal.color || '#3b82f6';
     let archivoLogo = null;                 // File pendiente de subir (se sube al guardar)
     const imagenUrlActual = portal.imagen_url || null;
+
+    let mayoristas = [];
+    try { mayoristas = await API.get('/api/mayoristas'); } catch (e) { /* sin mayoristas no se bloquea */ }
+    const opsMayoristas = ['<option value="">— Ninguno —</option>',
+      ...mayoristas.map((m) => `<option value="${m.id}"${portal.mayorista_id == m.id ? ' selected' : ''}>${esc(m.nombre)}</option>`),
+    ].join('');
 
     abrirModal(`
       <h3>${esNuevo ? 'Nuevo' : 'Editar'} portal</h3>
@@ -852,6 +858,11 @@ const Ajustes = (() => {
         <label>Prefijo</label>
         <input id="p-prefijo" value="${esc(portal.prefijo || '')}" placeholder="ej: CA, B, H">
         <div style="font-size:12px;color:var(--muted);margin-top:4px">Se usa para generar automáticamente los números de reserva (ej: CA-0001)</div>
+      </div>
+      <div class="campo">
+        <label>Mayorista vinculado</label>
+        <select id="p-mayorista">${opsMayoristas}</select>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Si este portal corresponde a un mayorista con contrato de precio cerrado, el importe en Estadísticas usará el contrato en lugar de las reservas.</div>
       </div>
       <div class="campo"><label>Estado</label>
         <label class="toggle-campo"><input type="checkbox" id="p-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
@@ -913,14 +924,15 @@ const Ajustes = (() => {
       const activo = document.getElementById('p-activo').checked ? 1 : 0;
       const colorVal = document.getElementById('p-color').value;
       const prefijo = document.getElementById('p-prefijo').value.trim();
+      const mayorista_id = document.getElementById('p-mayorista').value || null;
       if (!nombre) return toast('El nombre es obligatorio', 'error');
       try {
         let id = portal.id;
         if (esNuevo) {
-          const res = await API.post('/api/portales', { nombre, prefijo });
+          const res = await API.post('/api/portales', { nombre, prefijo, mayorista_id });
           id = res.id;
         }
-        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo });
+        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo, mayorista_id });
         if (archivoLogo) await subirImagenPortal(id, archivoLogo);
         API.invalidarPortales();
         cerrarModal();

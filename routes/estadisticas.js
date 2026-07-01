@@ -14,18 +14,19 @@ function anioParam(req) {
 // GET /api/estadisticas/portales?anio=2026
 // Ingresos agregados por portal de venta durante el año indicado (por fecha de entrada).
 // Se excluyen las reservas canceladas. Ordena por ingresos brutos desc.
-// Para portales que coinciden con un mayorista (case-insensitive), el ingreso se toma del
-// contrato de ese mayorista en el año (mayorista_contratos), no de las reservas.
+// Si el portal tiene mayorista_id vinculado, el ingreso se toma del importe_total del
+// contrato de ese mayorista en el año (no de las reservas).
 router.get('/portales', (req, res) => {
   const anio = anioParam(req);
 
-  // Una fila por portal. LEFT JOIN con `portales` (por nombre) para color/logo.
+  // Una fila por portal. LEFT JOIN con `portales` (por nombre) para color/logo/mayorista_id.
   // El portal vacío o NULL se agrupa como 'Sin portal' (sin color ni logo).
   const portales = db.prepare(`
     SELECT
       COALESCE(NULLIF(TRIM(r.portal), ''), 'Sin portal')              AS portal,
       p.color                                                          AS color,
       p.imagen_url                                                     AS imagen_url,
+      p.mayorista_id                                                   AS mayorista_id,
       COUNT(*)                                                         AS total_reservas,
       COALESCE(SUM(r.precio_total), 0)                                 AS ingresos_brutos,
       COALESCE(SUM(r.pagado), 0)                                       AS ingresos_cobrados,
@@ -35,42 +36,28 @@ router.get('/portales', (req, res) => {
     LEFT JOIN portales p ON p.nombre = r.portal
     WHERE strftime('%Y', r.entrada) = ?
       AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
-    GROUP BY COALESCE(NULLIF(TRIM(r.portal), ''), 'Sin portal'), p.color, p.imagen_url
+    GROUP BY COALESCE(NULLIF(TRIM(r.portal), ''), 'Sin portal'), p.color, p.imagen_url, p.mayorista_id
     ORDER BY ingresos_brutos DESC
   `).all(anio);
 
-  // Mapa de mayoristas activos: nombre_lower -> { id, nombre }
-  const mayoristas = db.prepare('SELECT id, nombre FROM mayoristas WHERE activo = 1').all();
-  const mayoristasMap = {};
-  for (const m of mayoristas) {
-    mayoristasMap[m.nombre.toLowerCase().trim()] = m;
-  }
-
-  // Consulta del contrato anual de un mayorista (máx 1 por UNIQUE(mayorista_id, anio)).
+  // Consulta del importe_total del contrato anual de un mayorista.
   const stmtContrato = db.prepare(`
-    SELECT
-      mc.importe_total,
-      COALESCE(SUM(CASE WHEN mp.pagado = 1 THEN mp.importe ELSE 0 END), 0) AS cobrado,
-      COALESCE(SUM(CASE WHEN mp.pagado = 0 THEN mp.importe ELSE 0 END), 0) AS pendiente
-    FROM mayorista_contratos mc
-    LEFT JOIN mayorista_pagos mp ON mp.contrato_id = mc.id
-    WHERE mc.mayorista_id = ? AND mc.anio = ? AND mc.estado <> 'cancelado'
-    GROUP BY mc.id
+    SELECT importe_total
+    FROM mayorista_contratos
+    WHERE mayorista_id = ? AND anio = ? AND estado <> 'cancelado'
   `);
 
-  // Para portales mayorista, sustituir ingresos por el contrato del año.
+  // Para portales con mayorista_id vinculado, sustituir ingresos por el importe comprometido.
   const anioInt = parseInt(anio, 10);
   for (const p of portales) {
-    const key = (p.portal || '').toLowerCase().trim();
-    const mayorista = mayoristasMap[key];
-    if (mayorista) {
+    if (p.mayorista_id) {
       p.es_mayorista = true;
-      const contrato = stmtContrato.get(mayorista.id, anioInt);
+      const contrato = stmtContrato.get(p.mayorista_id, anioInt);
       if (contrato) {
-        p.tiene_contrato = true;
+        p.tiene_contrato    = true;
         p.ingresos_brutos   = contrato.importe_total;
-        p.ingresos_cobrados = contrato.cobrado;
-        p.pendiente_cobro   = contrato.pendiente;
+        p.ingresos_cobrados = contrato.importe_total;
+        p.pendiente_cobro   = 0;
       } else {
         p.tiene_contrato    = false;
         p.ingresos_brutos   = 0;

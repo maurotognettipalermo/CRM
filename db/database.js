@@ -87,7 +87,8 @@ const PORTALES_DEFECTO = [
 const COLUMNAS_PORTALES = {
   color: "TEXT DEFAULT '#3b82f6'",
   imagen_url: 'TEXT',
-  prefijo: 'TEXT',  // prefijo de auto-numeración de reservas (ej. "CA", "H", "B")
+  prefijo: 'TEXT',            // prefijo de auto-numeración de reservas (ej. "CA", "H", "B")
+  mayorista_id: 'INTEGER REFERENCES mayoristas(id) ON DELETE SET NULL',
 };
 
 // Columnas extra de las tablas de contratos (forward-compat: se añaden si faltan).

@@ -22,9 +22,14 @@ const upload = multer({
 // con ?todos=1 devuelve también los inactivos (para la pantalla de gestión en Ajustes).
 router.get('/', (req, res) => {
   const todos = req.query.todos === '1' || req.query.todos === 'true';
-  const sql = todos
-    ? 'SELECT * FROM portales ORDER BY orden, nombre'
-    : 'SELECT * FROM portales WHERE activo = 1 ORDER BY orden, nombre';
+  const filtro = todos ? '' : 'WHERE p.activo = 1';
+  const sql = `
+    SELECT p.*, m.nombre AS mayorista_nombre
+    FROM portales p
+    LEFT JOIN mayoristas m ON m.id = p.mayorista_id
+    ${filtro}
+    ORDER BY p.orden, p.nombre
+  `;
   res.json(db.prepare(sql).all());
 });
 
@@ -37,8 +42,10 @@ router.post('/', (req, res) => {
   const maxOrden = db.prepare('SELECT COALESCE(MAX(orden), 0) AS m FROM portales').get().m;
   const prefijo = req.body && req.body.prefijo != null && String(req.body.prefijo).trim()
     ? String(req.body.prefijo).trim().toUpperCase() : null;
-  const info = db.prepare('INSERT INTO portales (nombre, activo, orden, prefijo) VALUES (?, 1, ?, ?)')
-    .run(nombre, maxOrden + 1, prefijo);
+  const mayorista_id = (req.body && req.body.mayorista_id != null && req.body.mayorista_id !== '')
+    ? Number(req.body.mayorista_id) : null;
+  const info = db.prepare('INSERT INTO portales (nombre, activo, orden, prefijo, mayorista_id) VALUES (?, 1, ?, ?, ?)')
+    .run(nombre, maxOrden + 1, prefijo, mayorista_id);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -65,8 +72,11 @@ router.put('/:id', (req, res) => {
   const prefijo = 'prefijo' in b
     ? (String(b.prefijo || '').trim() ? String(b.prefijo).trim().toUpperCase() : null)
     : actual.prefijo;
-  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ?, prefijo = ? WHERE id = ?')
-    .run(nombre, activo, orden, color, prefijo, id);
+  const mayorista_id = 'mayorista_id' in b
+    ? (b.mayorista_id != null && b.mayorista_id !== '' ? Number(b.mayorista_id) : null)
+    : actual.mayorista_id;
+  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ?, prefijo = ?, mayorista_id = ? WHERE id = ?')
+    .run(nombre, activo, orden, color, prefijo, mayorista_id, id);
   res.json({ ok: true });
 });
 
