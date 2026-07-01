@@ -905,6 +905,7 @@ const Estadisticas = (() => {
         </div>
         <div class="panel-cabecera-acciones">
           <button id="may-d-nuevo" class="btn-sec">＋ Nuevo contrato</button>
+          <button id="may-d-editar-plan" class="btn-sec">✏️ Editar plan</button>
           <button id="may-d-editar" class="btn-sec">✏️ Editar</button>
           <button id="may-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -946,6 +947,7 @@ const Estadisticas = (() => {
     document.getElementById('may-d-badge').innerHTML = badgeEstadoContrato(contrato.estado);
     document.getElementById('may-d-editar').onclick = () => modalMayorista(may);
     document.getElementById('may-d-nuevo').onclick = () => modalNuevoContrato({ id: may.id, nombre: may.nombre });
+    document.getElementById('may-d-editar-plan').onclick = () => modalEditarContrato(contrato, may);
     renderCuerpoContrato(contrato, may);
     abrirPanel();
   }
@@ -1342,6 +1344,90 @@ const Estadisticas = (() => {
       toast('Contrato creado', 'ok');
       recargarMayoristas();
     } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Crear contrato'; } // 409 año duplicado
+  }
+
+  // ---- Modal: editar contrato existente (plan de pagos precargado) ----
+  function modalEditarContrato(contrato, may) {
+    const tieneCobradog = (contrato.pagos || []).some((p) => p.pagado);
+    cPagos = (contrato.pagos || []).map((p) => ({ fecha: p.fecha_prevista, importe: p.importe }));
+    const avisoCobradog = tieneCobradog
+      ? `<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#92400e">
+           ⚠️ Los pagos ya cobrados también se pueden editar, pero no se recomienda modificar fecha/importe una vez cobrados.
+         </div>`
+      : '';
+    abrirModal(`
+      <h3>✏️ Editar plan de pagos</h3>
+      <div class="campo"><label>Mayorista</label><input value="${esc(may.nombre)}" disabled></div>
+      ${avisoCobradog}
+      <div class="fila-campos">
+        <div class="campo"><label>Año *</label><input type="number" id="mc-anio" value="${contrato.anio}"></div>
+        <div class="campo"><label>Importe total (€) *</label><input type="number" min="0" step="0.01" id="mc-importe" value="${contrato.importe_total}" placeholder="0,00"></div>
+      </div>
+      <div class="campo"><label>Descripción</label><input id="mc-desc" value="${esc(contrato.descripcion || '')}"></div>
+      <div class="mc-plan-cab">
+        <span class="may-d-titulo-sec" style="margin:0">Plan de pagos</span>
+        <div>
+          <button class="btn-sec" id="mc-add">＋ Añadir pago</button>
+          <button class="btn-sec" id="mc-distribuir">Distribuir automáticamente</button>
+        </div>
+      </div>
+      <div id="mc-pagos" class="mc-pagos"></div>
+      <div id="mc-contador" class="mc-contador mc-mal"></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="mc-cancelar">Cancelar</button>
+        <button class="btn-pri" id="mc-guardar">Guardar cambios</button>
+      </div>`);
+    document.querySelector('.modal')?.classList.add('modal-ancho');
+    pintarPagosModal();
+
+    document.getElementById('mc-importe').addEventListener('input', actualizarContadorModal);
+    document.getElementById('mc-add').addEventListener('click', () => {
+      cPagos.push({ fecha: hoyISO(), importe: '' });
+      pintarPagosModal();
+    });
+    document.getElementById('mc-distribuir').addEventListener('click', () => {
+      const total = Number(document.getElementById('mc-importe').value) || 0;
+      if (!(total > 0)) return toast('Indica primero el importe total', 'error');
+      if (!cPagos.length) {
+        const d = new Date(); const d2 = new Date(); d2.setMonth(d2.getMonth() + 6);
+        cPagos = [{ fecha: d.toISOString().slice(0, 10), importe: '' }, { fecha: d2.toISOString().slice(0, 10), importe: '' }];
+      }
+      const n = cPagos.length;
+      const base = Math.floor((total / n) * 100) / 100;
+      cPagos.forEach((p, i) => { p.importe = i === n - 1 ? Math.round((total - base * (n - 1)) * 100) / 100 : base; });
+      pintarPagosModal();
+    });
+    document.getElementById('mc-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('mc-guardar').addEventListener('click', () => editarContrato(contrato.id));
+  }
+
+  async function editarContrato(contratoId) {
+    const anioC = parseInt(document.getElementById('mc-anio').value, 10);
+    const importe = Number(document.getElementById('mc-importe').value) || 0;
+    if (!anioC) return toast('El año es obligatorio', 'error');
+    if (!(importe > 0)) return toast('El importe total debe ser mayor que 0', 'error');
+    if (!cPagos.length) return toast('Añade al menos un pago', 'error');
+    for (const p of cPagos) {
+      if (!p.fecha) return toast('Todos los pagos necesitan fecha', 'error');
+      if (!(Number(p.importe) > 0)) return toast('Todos los pagos necesitan un importe mayor que 0', 'error');
+    }
+    if (Math.abs(totalPagosModal() - importe) >= 0.01) {
+      return toast('La suma de los pagos no cuadra con el importe total', 'error');
+    }
+    const body = {
+      anio: anioC,
+      descripcion: document.getElementById('mc-desc').value.trim(),
+      importe_total: importe,
+      pagos: cPagos.map((p, i) => ({ numero_pago: i + 1, fecha_prevista: p.fecha, importe: Number(p.importe) })),
+    };
+    const btn = document.getElementById('mc-guardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await API.put('/api/mayoristas/contratos/' + contratoId, body);
+      cerrarModal();
+      toast('Contrato actualizado', 'ok');
+      await recargarPanel();
+    } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Guardar cambios'; }
   }
 
   // ---- Render del contenido de la sección activa ----
