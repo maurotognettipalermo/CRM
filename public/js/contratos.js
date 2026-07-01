@@ -101,7 +101,6 @@ const Contratos = (() => {
         lista.map((c) => API.get('/api/contratos/' + c.id).catch(() => null))
       );
       todos = lista.map((c, i) => ({ ...c, cuotas: (detalles[i] && detalles[i].cuotas) || [] }));
-      poblarPropietarios();
       renderTabla(filtrar());
     } catch (e) {
       toast(e.message, 'error');
@@ -1131,34 +1130,6 @@ const Contratos = (() => {
     cont.appendChild(inp);
   }
 
-  // ---- Filtro de propietario (select inyectado por JS; index.html no se toca) ----
-  function inyectarFiltroPropietario() {
-    const cont = document.querySelector('#vista-contratos .cnt-controles');
-    if (!cont || document.getElementById('cnt-filtro-propietario')) return;
-    const sel = document.createElement('select');
-    sel.id = 'cnt-filtro-propietario';
-    sel.className = 'select-filtro';
-    sel.innerHTML = '<option value="">Todos los propietarios</option>';
-    cont.appendChild(sel);
-  }
-
-  // Opciones = propietarios únicos de los contratos cargados (sin llamada extra). Si hay un
-  // propietario filtrado sin contratos este año, se añade igualmente para mostrarlo seleccionado.
-  function poblarPropietarios() {
-    const sel = document.getElementById('cnt-filtro-propietario');
-    if (!sel) return;
-    const mapa = new Map();
-    for (const c of todos) {
-      if (c.propietario_id != null) mapa.set(String(c.propietario_id), nombrePropietario(c));
-    }
-    if (filtroPropId && !mapa.has(filtroPropId)) {
-      mapa.set(filtroPropId, filtroPropNombre || ('Propietario #' + filtroPropId));
-    }
-    const ops = Array.from(mapa.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
-    sel.innerHTML = '<option value="">Todos los propietarios</option>' +
-      ops.map(([id, nom]) => `<option value="${id}"${id === filtroPropId ? ' selected' : ''}>${esc(nom)}</option>`).join('');
-  }
-
   // Método público: navegar/filtrar Contratos por un propietario (lo usa Estadísticas).
   function filtrarPorPropietario(propId, nombre) {
     filtroPropId = (propId === null || propId === undefined) ? '' : String(propId);
@@ -1180,7 +1151,6 @@ const Contratos = (() => {
     crearPanel();
     poblarAnios();
     inyectarBuscador();
-    inyectarFiltroPropietario();
     document.getElementById('btn-nuevo-contrato').addEventListener('click', () => formulario(null));
     document.getElementById('cnt-filtro-anio').addEventListener('change', (e) => {
       filtroAnio = Number(e.target.value);
@@ -1189,11 +1159,6 @@ const Contratos = (() => {
     });
     document.getElementById('cnt-filtro-tipo').addEventListener('change', (e) => {
       filtroTipo = e.target.value;
-      renderTabla(filtrar());
-    });
-    document.getElementById('cnt-filtro-propietario').addEventListener('change', (e) => {
-      filtroPropId = e.target.value;
-      filtroPropNombre = e.target.selectedOptions[0] ? e.target.selectedOptions[0].textContent : '';
       renderTabla(filtrar());
     });
     document.getElementById('cnt-filtro-buscar').addEventListener('input', (e) => {
