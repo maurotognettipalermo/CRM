@@ -89,6 +89,7 @@ const COLUMNAS_PORTALES = {
   imagen_url: 'TEXT',
   prefijo: 'TEXT',            // prefijo de auto-numeración de reservas (ej. "CA", "H", "B")
   mayorista_id: 'INTEGER REFERENCES mayoristas(id) ON DELETE SET NULL',
+  comision_porcentaje: 'REAL DEFAULT 0',
 };
 
 // Columnas extra de las tablas de contratos (forward-compat: se añaden si faltan).

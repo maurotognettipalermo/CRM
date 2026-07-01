@@ -44,8 +44,10 @@ router.post('/', (req, res) => {
     ? String(req.body.prefijo).trim().toUpperCase() : null;
   const mayorista_id = (req.body && req.body.mayorista_id != null && req.body.mayorista_id !== '')
     ? Number(req.body.mayorista_id) : null;
-  const info = db.prepare('INSERT INTO portales (nombre, activo, orden, prefijo, mayorista_id) VALUES (?, 1, ?, ?, ?)')
-    .run(nombre, maxOrden + 1, prefijo, mayorista_id);
+  const comision = (req.body && req.body.comision_porcentaje != null && req.body.comision_porcentaje !== '')
+    ? Number(req.body.comision_porcentaje) : 0;
+  const info = db.prepare('INSERT INTO portales (nombre, activo, orden, prefijo, mayorista_id, comision_porcentaje) VALUES (?, 1, ?, ?, ?, ?)')
+    .run(nombre, maxOrden + 1, prefijo, mayorista_id, comision);
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
@@ -75,8 +77,11 @@ router.put('/:id', (req, res) => {
   const mayorista_id = 'mayorista_id' in b
     ? (b.mayorista_id != null && b.mayorista_id !== '' ? Number(b.mayorista_id) : null)
     : actual.mayorista_id;
-  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ?, prefijo = ?, mayorista_id = ? WHERE id = ?')
-    .run(nombre, activo, orden, color, prefijo, mayorista_id, id);
+  const comision = 'comision_porcentaje' in b
+    ? (b.comision_porcentaje != null && b.comision_porcentaje !== '' ? Number(b.comision_porcentaje) : 0)
+    : (actual.comision_porcentaje || 0);
+  db.prepare('UPDATE portales SET nombre = ?, activo = ?, orden = ?, color = ?, prefijo = ?, mayorista_id = ?, comision_porcentaje = ? WHERE id = ?')
+    .run(nombre, activo, orden, color, prefijo, mayorista_id, comision, id);
   res.json({ ok: true });
 });
 

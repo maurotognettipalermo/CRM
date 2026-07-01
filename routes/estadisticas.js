@@ -27,6 +27,7 @@ router.get('/portales', (req, res) => {
       p.color                                                          AS color,
       p.imagen_url                                                     AS imagen_url,
       p.mayorista_id                                                   AS mayorista_id,
+      COALESCE(p.comision_porcentaje, 0)                               AS comision_porcentaje,
       COUNT(*)                                                         AS total_reservas,
       COALESCE(SUM(r.precio_total), 0)                                 AS ingresos_brutos,
       COALESCE(SUM(r.pagado), 0)                                       AS ingresos_cobrados,
@@ -36,7 +37,7 @@ router.get('/portales', (req, res) => {
     LEFT JOIN portales p ON p.nombre = r.portal
     WHERE strftime('%Y', r.entrada) = ?
       AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
-    GROUP BY COALESCE(NULLIF(TRIM(r.portal), ''), 'Sin portal'), p.color, p.imagen_url, p.mayorista_id
+    GROUP BY COALESCE(NULLIF(TRIM(r.portal), ''), 'Sin portal'), p.color, p.imagen_url, p.mayorista_id, p.comision_porcentaje
     ORDER BY ingresos_brutos DESC
   `).all(anio);
 
@@ -56,27 +57,30 @@ router.get('/portales', (req, res) => {
       if (contrato) {
         p.tiene_contrato    = true;
         p.ingresos_brutos   = contrato.importe_total;
+        p.ingresos_netos    = contrato.importe_total; // precio cerrado ya es neto, sin comisión adicional
         p.ingresos_cobrados = contrato.importe_total;
         p.pendiente_cobro   = 0;
       } else {
         p.tiene_contrato    = false;
         p.ingresos_brutos   = 0;
+        p.ingresos_netos    = 0;
         p.ingresos_cobrados = 0;
         p.pendiente_cobro   = 0;
       }
     } else {
       p.es_mayorista = false;
+      const comision = Number(p.comision_porcentaje) || 0;
+      p.ingresos_netos = Number(p.ingresos_brutos) * (1 - comision / 100);
     }
   }
 
-  // Re-ordenar tras los ajustes y recalcular resumen en JS.
-  portales.sort((a, b) => (Number(b.ingresos_brutos) || 0) - (Number(a.ingresos_brutos) || 0));
+  // Re-ordenar por ingresos_netos y recalcular resumen en JS.
+  portales.sort((a, b) => (Number(b.ingresos_netos) || 0) - (Number(a.ingresos_netos) || 0));
 
   const resumen = {
-    total_reservas:     portales.reduce((s, p) => s + (Number(p.total_reservas) || 0), 0),
-    ingresos_brutos:    portales.reduce((s, p) => s + (Number(p.ingresos_brutos) || 0), 0),
-    ingresos_cobrados:  portales.reduce((s, p) => s + (Number(p.ingresos_cobrados) || 0), 0),
-    pendiente_cobro:    portales.reduce((s, p) => s + (Number(p.pendiente_cobro) || 0), 0),
+    total_reservas:  portales.reduce((s, p) => s + (Number(p.total_reservas) || 0), 0),
+    ingresos_brutos: portales.reduce((s, p) => s + (Number(p.ingresos_brutos) || 0), 0),
+    ingresos_netos:  portales.reduce((s, p) => s + (Number(p.ingresos_netos) || 0), 0),
   };
 
   res.json({ portales, resumen });

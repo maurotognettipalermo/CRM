@@ -106,23 +106,28 @@ const Estadisticas = (() => {
     const cards = `
       <div class="est-cards">
         ${tarjetaResumen({ icono: '📋', color: '#3b82f6', valor: num(resumen.total_reservas), label: 'Total reservas' })}
-        ${tarjetaResumen({ icono: '💰', color: '#10b981', valor: euro(resumen.ingresos_cobrados), label: 'Ingresos netos' })}
+        ${tarjetaResumen({ icono: '💰', color: '#10b981', valor: euro(resumen.ingresos_netos), label: 'Ingresos netos' })}
       </div>`;
 
     if (!portales.length) {
       return cards + `<div class="est-vacio">Sin reservas registradas para ${anio}</div>`;
     }
 
-    const totalCobrados = Number(resumen.ingresos_cobrados) || 0;
+    const totalNetos = Number(resumen.ingresos_netos) || 0;
     const filas = portales.map((p) => {
-      const pct = totalCobrados > 0 ? (Number(p.ingresos_cobrados) / totalCobrados) * 100 : 0;
+      const pct = totalNetos > 0 ? (Number(p.ingresos_netos) / totalNetos) * 100 : 0;
+      const comisionStr = p.es_mayorista
+        ? '<span style="color:#6b7280">—</span>'
+        : (Number(p.comision_porcentaje) > 0 ? `${p.comision_porcentaje}%` : '<span style="color:#6b7280">—</span>');
       return `
         <tr>
           <td class="est-col-logo">${celdaPortal(p)}</td>
           <td>${nombrePortalHTML(p)}</td>
           <td class="num">${num(p.total_reservas)}</td>
           <td class="num">${num(p.noches_totales)}</td>
-          <td class="num">${euro(p.ingresos_cobrados)}</td>
+          <td class="num">${euro(p.ingresos_brutos)}</td>
+          <td class="num">${comisionStr}</td>
+          <td class="num">${euro(p.ingresos_netos)}</td>
           <td class="est-col-pct">${barra(pct, p.color)}</td>
         </tr>`;
     }).join('');
@@ -133,7 +138,9 @@ const Estadisticas = (() => {
         <td>Total</td>
         <td class="num">${num(resumen.total_reservas)}</td>
         <td class="num">${num(portales.reduce((s, p) => s + (Number(p.noches_totales) || 0), 0))}</td>
-        <td class="num">${euro(resumen.ingresos_cobrados)}</td>
+        <td class="num">${euro(resumen.ingresos_brutos)}</td>
+        <td></td>
+        <td class="num">${euro(resumen.ingresos_netos)}</td>
         <td class="est-col-pct">100%</td>
       </tr>`;
 
@@ -146,7 +153,9 @@ const Estadisticas = (() => {
               <th>Portal</th>
               <th class="num">Reservas</th>
               <th class="num">Noches</th>
-              <th class="num">Ingresos netos</th>
+              <th class="num">Bruto</th>
+              <th class="num">Comisión</th>
+              <th class="num">Neto</th>
               <th class="est-col-pct">% del total</th>
             </tr>
           </thead>

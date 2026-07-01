@@ -864,6 +864,11 @@ const Ajustes = (() => {
         <select id="p-mayorista">${opsMayoristas}</select>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">Si este portal corresponde a un mayorista con contrato de precio cerrado, el importe en Estadísticas usará el contrato en lugar de las reservas.</div>
       </div>
+      <div class="campo">
+        <label>Comisión del portal (%)</label>
+        <input type="number" id="p-comision" min="0" max="100" step="0.1" value="${portal.comision_porcentaje || 0}" placeholder="0">
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Porcentaje que se descuenta del ingreso bruto de este portal (ej: comisión de Booking.com)</div>
+      </div>
       <div class="campo"><label>Estado</label>
         <label class="toggle-campo"><input type="checkbox" id="p-activo"${activoChecked ? ' checked' : ''}><span>Activo</span></label>
       </div>
@@ -925,14 +930,15 @@ const Ajustes = (() => {
       const colorVal = document.getElementById('p-color').value;
       const prefijo = document.getElementById('p-prefijo').value.trim();
       const mayorista_id = document.getElementById('p-mayorista').value || null;
+      const comision_porcentaje = parseFloat(document.getElementById('p-comision').value) || 0;
       if (!nombre) return toast('El nombre es obligatorio', 'error');
       try {
         let id = portal.id;
         if (esNuevo) {
-          const res = await API.post('/api/portales', { nombre, prefijo, mayorista_id });
+          const res = await API.post('/api/portales', { nombre, prefijo, mayorista_id, comision_porcentaje });
           id = res.id;
         }
-        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo, mayorista_id });
+        await API.put('/api/portales/' + id, { nombre, color: colorVal, activo, prefijo, mayorista_id, comision_porcentaje });
         if (archivoLogo) await subirImagenPortal(id, archivoLogo);
         API.invalidarPortales();
         cerrarModal();
