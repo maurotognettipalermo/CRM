@@ -70,7 +70,7 @@ const Facturas = (() => {
     for (const f of lista) {
       const logo = f.emisor_logo_url ? `<img class="fac-logo-mini" src="${esc(f.emisor_logo_url)}" alt="" onerror="this.style.display='none'"> ` : '';
       const accVer = `<button class="btn-mini" data-ver="${f.id}" data-numero="${esc(f.numero)}" title="Ver PDF">👁</button>`;
-      const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada') ? `<button class="btn-mini" data-pagar="${f.id}" title="Marcar pagada">✓</button>` : '';
+      const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada' && f.tipo !== 'proforma') ? `<button class="btn-mini" data-pagar="${f.id}" title="Registrar pago">✓</button>` : '';
       const accAnular = (f.estado !== 'anulada') ? `<button class="btn-mini" data-anular="${f.id}" title="Anular">⊘</button>` : '';
       const accBorrar = (f.estado === 'borrador') ? `<button class="btn-mini" data-borrar="${f.id}" title="Eliminar">🗑️</button>` : '';
       const tr = document.createElement('tr');
@@ -91,14 +91,15 @@ const Facturas = (() => {
     tbody.querySelectorAll('tr[data-ficha]').forEach((tr) =>
       tr.addEventListener('click', (e) => { if (e.target.closest('button')) return; abrirFicha(tr.dataset.ficha); }));
     tbody.querySelectorAll('[data-ver]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); descargarPDF(b.dataset.ver, b.dataset.numero); }));
-    tbody.querySelectorAll('[data-pagar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); marcarPagada(b.dataset.pagar); }));
+    tbody.querySelectorAll('[data-pagar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); registrarPagoDesdeLista(b.dataset.pagar); }));
     tbody.querySelectorAll('[data-anular]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); anular(b.dataset.anular); }));
     tbody.querySelectorAll('[data-borrar]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); borrar(b.dataset.borrar); }));
   }
 
-  async function marcarPagada(id) {
-    try { await API.put('/api/facturas/' + id, { estado: 'pagada' }); await cargar(); toast('Factura marcada como pagada', 'ok'); }
-    catch (e) { toast(e.message, 'error'); }
+  // Abre la ficha (carga los pagos incluidos) y a continuación el modal de registrar pago.
+  async function registrarPagoDesdeLista(id) {
+    await abrirFicha(id);
+    modalPagoFactura(null);
   }
   async function anular(id) {
     if (!confirm('¿Anular esta factura? No se podrá deshacer.')) return;
@@ -370,6 +371,10 @@ const Facturas = (() => {
     if (btnConv) btnConv.addEventListener('click', () => convertirProforma(fichaActual.id));
     const lnkConv = document.getElementById('fac-ver-convertida');
     if (lnkConv) lnkConv.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(lnkConv.dataset.id); });
+    if (fichaActual.tipo !== 'proforma') {
+      await recargarPagosFactura(fichaActual.id);
+      pintarPagosFactura();
+    }
     abrirPanel();
   }
 
@@ -457,7 +462,138 @@ const Facturas = (() => {
         ${ivaRow}
         ${retRow}
         <div class="fac-tot-row fac-tot-total"><span>TOTAL</span><span>${euro(f.total)}</span></div>
+      </div>
+      <div id="fac-pagos-cont"></div>`;
+  }
+
+  // ==================== Pagos de factura (parciales) ====================
+  const METODOS_PAGO_FAC = { caja: '💵 Caja', tpv: '💳 TPV', transferencia: '🏦 Transferencia' };
+  let pagosFactura = { pagos: [], total_pagado: 0, total_pendiente: 0, total_factura: 0 }; // pagos de la ficha abierta
+
+  function metodoBadgeFac(m) {
+    if (!m) return '<span class="pago-metodo-badge">—</span>';
+    return `<span class="pago-metodo-badge">${METODOS_PAGO_FAC[m] || esc(m)}</span>`;
+  }
+
+  // Recarga los pagos de la factura indicada y los deja en pagosFactura.
+  async function recargarPagosFactura(facturaId) {
+    try { pagosFactura = await API.get('/api/facturas/' + facturaId + '/pagos'); }
+    catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Construye el HTML de la sección "Pagos registrados" a partir de pagosFactura.
+  function htmlPagosFactura(f) {
+    const total = Number(pagosFactura.total_factura) || Number(f.total) || 0;
+    const cobrado = Number(pagosFactura.total_pagado) || 0;
+    const pct = total > 0 ? Math.min(100, Math.round((cobrado / total) * 100)) : 0;
+    const puedeRegistrar = f.estado !== 'pagada' && f.estado !== 'anulada';
+
+    const filas = (pagosFactura.pagos || []).map((p) => `
+      <tr>
+        <td>${fechaES(p.fecha_pago)}</td>
+        <td class="num">${euro(p.importe)}</td>
+        <td>${metodoBadgeFac(p.metodo_pago)}</td>
+        <td>${esc(p.notas) || '—'}</td>
+        <td class="pago-acciones">
+          <button class="btn-icono pago-fac-editar" data-id="${p.id}" title="Editar">✏️</button>
+          <button class="btn-icono pago-fac-borrar" data-id="${p.id}" title="Eliminar">🗑️</button>
+        </td>
+      </tr>`).join('');
+    const cuerpoTabla = filas || '<tr><td colspan="5" class="pago-vacio">Sin pagos registrados.</td></tr>';
+
+    return `
+      <div class="rsv-seccion-titulo pago-cabecera">
+        <span>Pagos registrados</span>
+        <span class="pago-resumen">${euro(cobrado)} / ${euro(total)}</span>
+      </div>
+      <div class="pago-barra"><div class="pago-barra-fill" style="width:${pct}%"></div></div>
+      <table class="pago-tabla">
+        <thead><tr><th>Fecha</th><th class="num">Importe</th><th>Método</th><th>Notas</th><th></th></tr></thead>
+        <tbody>${cuerpoTabla}</tbody>
+      </table>
+      <div class="pago-botones">
+        ${puedeRegistrar ? '<button class="btn-sec" id="pago-fac-add">＋ Registrar pago</button>' : ''}
       </div>`;
+  }
+
+  // Modal para registrar o editar un pago parcial de la factura abierta en el panel.
+  function modalPagoFactura(id) {
+    const p = id ? (pagosFactura.pagos || []).find((x) => x.id == id) : null;
+    const pendiente = Number(pagosFactura.total_pendiente) || 0;
+    const importeInicial = p ? p.importe : (pendiente > 0 ? pendiente : '');
+    const optMet = '<option value="">— Sin especificar —</option>' +
+      Object.entries(METODOS_PAGO_FAC)
+        .map(([v, t]) => `<option value="${v}"${p && p.metodo_pago === v ? ' selected' : ''}>${t}</option>`)
+        .join('');
+
+    abrirModal(`
+      <h3>${id ? 'Editar' : 'Registrar'} pago</h3>
+      <div class="fila-campos">
+        <div class="campo"><label>Importe (€) *</label><input type="number" step="0.01" id="pf-importe" value="${importeInicial}"></div>
+        <div class="campo"><label>Fecha de pago *</label><input type="date" id="pf-fecha" value="${p && p.fecha_pago ? esc(p.fecha_pago) : hoyISO()}"></div>
+      </div>
+      <div class="campo"><label>Método de pago</label><select id="pf-metodo">${optMet}</select></div>
+      <div class="campo"><label>Notas</label><textarea id="pf-notas">${esc(p ? p.notas : '')}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="pf-cancelar">Cancelar</button>
+        <button class="btn-pri" id="pf-guardar">Guardar</button>
+      </div>`);
+
+    document.getElementById('pf-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('pf-guardar').addEventListener('click', async () => {
+      const importeVal = fval('pf-importe');
+      if (importeVal === '' || isNaN(parseFloat(importeVal)) || parseFloat(importeVal) <= 0) {
+        return toast('Introduce un importe válido', 'error');
+      }
+      const fecha = fval('pf-fecha');
+      if (!fecha) return toast('La fecha de pago es obligatoria', 'error');
+      const body = {
+        importe: parseFloat(importeVal),
+        fecha_pago: fecha,
+        metodo_pago: fval('pf-metodo') || null,
+        notas: fval('pf-notas') || null,
+      };
+      const facturaId = fichaActual.id;
+      try {
+        if (id) await API.put('/api/facturas/' + facturaId + '/pagos/' + id, body);
+        else await API.post('/api/facturas/' + facturaId + '/pagos', body);
+        cerrarModal();
+        await cargar();
+        await abrirFicha(facturaId);
+        toast(id ? 'Pago actualizado' : 'Pago registrado', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // Elimina un pago parcial de la factura abierta.
+  async function borrarPagoFactura(id) {
+    if (!confirm('¿Eliminar este pago?')) return;
+    const facturaId = fichaActual.id;
+    try {
+      await API.del('/api/facturas/' + facturaId + '/pagos/' + id);
+      await cargar();
+      await abrirFicha(facturaId);
+      toast('Pago eliminado', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // Repinta solo la sección de pagos dentro de la ficha ya abierta.
+  function pintarPagosFactura() {
+    const cont = document.getElementById('fac-pagos-cont');
+    if (!cont || !fichaActual) return;
+    cont.innerHTML = htmlPagosFactura(fichaActual);
+    connectarPagosFactura();
+  }
+
+  // Conecta los botones de la sección de pagos recién pintada.
+  function connectarPagosFactura() {
+    const cont = document.getElementById('fac-pagos-cont');
+    if (!cont) return;
+    cont.querySelector('#pago-fac-add')?.addEventListener('click', () => modalPagoFactura(null));
+    cont.querySelectorAll('.pago-fac-editar').forEach((b) =>
+      b.addEventListener('click', () => modalPagoFactura(b.dataset.id)));
+    cont.querySelectorAll('.pago-fac-borrar').forEach((b) =>
+      b.addEventListener('click', () => borrarPagoFactura(b.dataset.id)));
   }
 
   // ==================== Wizard de nueva factura ====================
