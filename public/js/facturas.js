@@ -26,7 +26,9 @@ const Facturas = (() => {
   function tipoTexto(t) {
     return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre', proforma: 'Proforma' }[t] || t;
   }
-  function estadoTexto(e) { return (e || '').charAt(0).toUpperCase() + (e || '').slice(1); }
+  function estadoTexto(e) {
+    return { borrador: 'Borrador', emitida: 'Emitida', parcialmente_pagada: 'Parcialmente pagada', pagada: 'Pagada', anulada: 'Anulada' }[e] || e;
+  }
   function badgeTipo(t) { return `<span class="badge-fac-tipo bf-${t === 'huésped' ? 'huesped' : t}">${tipoTexto(t)}</span>`; }
   // Badge del tipo en la tabla: las proformas llevan badge propio (azul grisáceo / verde si convertida).
   const BADGE_PRO = 'display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.02em';
@@ -183,7 +185,7 @@ const Facturas = (() => {
   }
 
   // ==================== Edición de factura (solo administradores) ====================
-  const ESTADOS_FAC = [['borrador', 'Borrador'], ['emitida', 'Emitida'], ['pagada', 'Pagada'], ['anulada', 'Anulada']];
+  const ESTADOS_FAC = [['borrador', 'Borrador'], ['emitida', 'Emitida'], ['parcialmente_pagada', 'Parcialmente pagada'], ['pagada', 'Pagada'], ['anulada', 'Anulada']];
   let edLineas = []; // estado de las líneas en el modal de edición
 
   function esAdmin() { return (((typeof Auth !== 'undefined' && Auth.sesion && Auth.sesion()) || {}).rol) === 'administrador'; }

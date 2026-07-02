@@ -2148,6 +2148,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .bf-huesped     { background: #f0fdf4; color: #059669; }
 .be-borrador { background: #f3f4f6; color: #6b7280; }
 .be-emitida  { background: #eff6ff; color: #2563eb; }
+.be-parcialmente_pagada { background: #fffbeb; color: #b45309; }
 .be-pagada   { background: #f0fdf4; color: #059669; }
 .be-anulada  { background: #fef2f2; color: var(--red); }
 
