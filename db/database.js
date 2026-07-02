@@ -207,6 +207,10 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   // Facturas de comisión asignadas a la venta (comprador/vendedor), para control de cobro.
   factura_comprador_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL',
   factura_vendedor_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL',
+  // Importes informativos de la comisión de la venta (sin FK), para comparar con las facturas.
+  comision_total: 'REAL',
+  comision_comprador: 'REAL',
+  comision_vendedor: 'REAL',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

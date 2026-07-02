@@ -443,9 +443,10 @@ const PROP_CAMPOS = [
   'fecha_venta', 'fecha_escritura', 'precio_venta_final',
   'comprador_nombre', 'comprador_telefono', 'comprador_email',
   'factura_comprador_id', 'factura_vendedor_id',
+  'comision_total', 'comision_comprador', 'comision_vendedor',
 ];
 const PROP_INT = ['dormitorios', 'banos', 'num_fotos', 'propietario_venta_id', 'factura_comprador_id', 'factura_vendedor_id'];
-const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final'];
+const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final', 'comision_total', 'comision_comprador', 'comision_vendedor'];
 
 function normalizaPropCampo(campo, valor) {
   if (PROP_INT.includes(campo)) return aEntero(valor);

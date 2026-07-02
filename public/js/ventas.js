@@ -68,6 +68,27 @@ const Ventas = (() => {
     if (!e) return '';
     return `<span class="badge-fac-estado be-${e}">${textoFacEstado(e)}</span>`;
   }
+  // Aviso si comprador + vendedor no cuadra con el total de comisión (margen 0.01 por redondeo).
+  function comisionAvisoHTML(totalV, compV, vendV) {
+    const total = totalV === '' || totalV === null || totalV === undefined ? null : parseFloat(totalV);
+    if (total === null || isNaN(total)) return '';
+    const comp = parseFloat(compV) || 0;
+    const vend = parseFloat(vendV) || 0;
+    const suma = comp + vend;
+    const diff = suma - total;
+    if (Math.abs(diff) <= 0.01) return '';
+    return `<div class="pago-aviso pago-aviso-warn">⚠️ Comprador + vendedor (${euro(suma)}) no coincide con el total (${euro(total)}) — diferencia de ${euro(Math.abs(diff))}</div>`;
+  }
+  // Aviso si el importe de la factura ya asignada a un lado no coincide con su comisión planificada.
+  function avisoFacturaVsComisionHTML(facturaId, facturaTotal, comisionV) {
+    if (!facturaId) return '';
+    if (comisionV === '' || comisionV === null || comisionV === undefined) return '';
+    const comision = parseFloat(comisionV);
+    if (isNaN(comision)) return '';
+    const factura = Number(facturaTotal) || 0;
+    if (Math.abs(factura - comision) <= 0.01) return '';
+    return `<div class="pago-aviso pago-aviso-warn">⚠️ La factura asignada (${euro(factura)}) no coincide con la comisión planificada (${euro(comision)})</div>`;
+  }
   function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
   function visitasRealizadas(p) {
     if (!Array.isArray(p.visitas)) return p._visitas_realizadas || 0;
@@ -447,10 +468,20 @@ const Ventas = (() => {
           ${tel ? `<div class="vta-d-linea">${tel}</div>` : ''}
           ${email ? `<div class="vta-d-linea">${email}</div>` : ''}
           ${escritura}
+          <div class="vta-d-titulo-sec" style="border:none;color:#047857;margin-top:10px">Comisión de la venta</div>
+          <div class="fila-campos" style="margin-top:4px">
+            <div class="campo"><label>Total</label><input type="number" step="0.01" id="vta-com-total" value="${d.comision_total ?? ''}"></div>
+            <div class="campo"><label>Comprador</label><input type="number" step="0.01" id="vta-com-comprador" value="${d.comision_comprador ?? ''}"></div>
+            <div class="campo"><label>Vendedor</label><input type="number" step="0.01" id="vta-com-vendedor" value="${d.comision_vendedor ?? ''}"></div>
+          </div>
+          <div id="vta-com-aviso">${comisionAvisoHTML(d.comision_total, d.comision_comprador, d.comision_vendedor)}</div>
+          <div class="vta-d-guardar-wrap"><button class="btn-sec" id="vta-com-guardar" style="padding:2px 8px">Guardar</button></div>
           <div class="vta-d-titulo-sec" style="border:none;color:#047857;margin-top:10px">Comisión comprador</div>
           ${comisionHTML('comprador', d.factura_comprador_id, d.fc_numero, d.fc_estado, d.fc_total)}
+          <div id="vta-com-aviso-comprador">${avisoFacturaVsComisionHTML(d.factura_comprador_id, d.fc_total, d.comision_comprador)}</div>
           <div class="vta-d-titulo-sec" style="border:none;color:#047857;margin-top:10px">Comisión vendedor</div>
           ${comisionHTML('vendedor', d.factura_vendedor_id, d.fv_numero, d.fv_estado, d.fv_total)}
+          <div id="vta-com-aviso-vendedor">${avisoFacturaVsComisionHTML(d.factura_vendedor_id, d.fv_total, d.comision_vendedor)}</div>
         </div>`;
     }
 
@@ -489,6 +520,35 @@ const Ventas = (() => {
         fichaActual.notas = val('vta-d-notas');
       } catch (e) { toast(e.message, 'error'); }
       finally { btn.disabled = false; btn.textContent = 'Guardar'; }
+    });
+
+    const inputsCom = ['vta-com-total', 'vta-com-comprador', 'vta-com-vendedor']
+      .map((id) => document.getElementById(id)).filter(Boolean);
+    const recalcularAvisoComision = () => {
+      const aviso = document.getElementById('vta-com-aviso');
+      if (aviso) aviso.innerHTML = comisionAvisoHTML(val('vta-com-total'), val('vta-com-comprador'), val('vta-com-vendedor'));
+      const avisoComp = document.getElementById('vta-com-aviso-comprador');
+      if (avisoComp) avisoComp.innerHTML = avisoFacturaVsComisionHTML(d.factura_comprador_id, d.fc_total, val('vta-com-comprador'));
+      const avisoVend = document.getElementById('vta-com-aviso-vendedor');
+      if (avisoVend) avisoVend.innerHTML = avisoFacturaVsComisionHTML(d.factura_vendedor_id, d.fv_total, val('vta-com-vendedor'));
+    };
+    inputsCom.forEach((el) => el.addEventListener('input', recalcularAvisoComision));
+
+    const btnCom = document.getElementById('vta-com-guardar');
+    if (btnCom) btnCom.addEventListener('click', async () => {
+      btnCom.disabled = true; btnCom.textContent = 'Guardando…';
+      try {
+        await API.put('/api/ventas/propiedades/' + d.id, {
+          comision_total: val('vta-com-total'),
+          comision_comprador: val('vta-com-comprador'),
+          comision_vendedor: val('vta-com-vendedor'),
+        });
+        toast('Comisión guardada', 'ok');
+        fichaActual.comision_total = val('vta-com-total');
+        fichaActual.comision_comprador = val('vta-com-comprador');
+        fichaActual.comision_vendedor = val('vta-com-vendedor');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btnCom.disabled = false; btnCom.textContent = 'Guardar'; }
     });
   }
 
