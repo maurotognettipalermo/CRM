@@ -2494,7 +2494,7 @@ const Ventas = (() => {
         <table class="tabla" id="tabla-vendidos">
           <thead><tr>
             <th>Ref.</th><th>Apartamento</th><th>Precio anuncio</th><th>Precio venta</th>
-            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisión</th><th></th>
+            <th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisión</th><th></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -2506,10 +2506,10 @@ const Ventas = (() => {
 
   async function cargarVendidos() {
     const tbody = document.querySelector('#tabla-vendidos tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="vta-cargando">Cargando vendidos…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">Cargando vendidos…</td></tr>';
     try { vendidos = await API.get('/api/ventas/propiedades?estado=Vendida'); }
     catch (e) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="vta-cargando">No se pudieron cargar las propiedades vendidas.</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">No se pudieron cargar las propiedades vendidas.</td></tr>';
       return toast(e.message, 'error');
     }
     renderVendidos();
@@ -2544,15 +2544,14 @@ const Ventas = (() => {
     if (res) res.innerHTML = `Volumen total: <strong>${euro(volumen)}</strong>`;
 
     if (!delAnio.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="vta-vacio">Sin propiedades vendidas en ' + vendAnio + '.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Sin propiedades vendidas en ' + vendAnio + '.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="vta-vacio">Ninguna coincide con la búsqueda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Ninguna coincide con la búsqueda.</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map((p) => {
-      const dif = difVenta(p.precio, p.precio_venta_final);
       const escritura = p.fecha_escritura
         ? fechaES(p.fecha_escritura)
         : '<span class="vta-bdg" style="background:#fffbeb;color:#b45309">Pendiente</span>';
@@ -2586,7 +2585,6 @@ const Ventas = (() => {
           <td>${esc(p.apartamento_nombre) || '—'}</td>
           <td class="vta-precio">${euro(p.precio)}</td>
           <td class="vta-precio">${euro(p.precio_venta_final)}</td>
-          <td style="color:${dif.color};font-weight:600">${dif.texto}</td>
           <td>${esc(p.comprador_nombre) || '—'}</td>
           <td>${fechaES(p.fecha_venta)}</td>
           <td>${escritura}</td>
