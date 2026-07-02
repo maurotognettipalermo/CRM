@@ -2494,7 +2494,7 @@ const Ventas = (() => {
         <table class="tabla" id="tabla-vendidos">
           <thead><tr>
             <th>Ref.</th><th>Dirección</th><th>Precio anuncio</th><th>Precio venta</th>
-            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisiones</th><th></th>
+            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisión</th><th></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -2558,9 +2558,29 @@ const Ventas = (() => {
         ? fechaES(p.fecha_escritura)
         : '<span class="vta-bdg" style="background:#fffbeb;color:#b45309">Pendiente</span>';
       const sinFactura = '<span class="badge-fac-estado" style="background:#f3f4f6;color:#9ca3af">Sin factura</span>';
-      const comisiones = `
+      const badgesComision = `
         <span title="Comprador">${p.fc_estado ? badgeFacEstado(p.fc_estado) : sinFactura}</span>
         <span title="Vendedor">${p.fv_estado ? badgeFacEstado(p.fv_estado) : sinFactura}</span>`;
+
+      // total: comision_total si está rellenada; si no, se estima con las facturas ya asignadas.
+      const cobrado = (Number(p.fc_pagado) || 0) + (Number(p.fv_pagado) || 0);
+      let total = null, estimado = false;
+      if (p.comision_total !== null && p.comision_total !== undefined && p.comision_total !== '') {
+        total = Number(p.comision_total);
+      } else if (p.factura_comprador_id || p.factura_vendedor_id) {
+        total = (Number(p.fc_total) || 0) + (Number(p.fv_total) || 0);
+        estimado = true;
+      }
+      let progresoComision = '<div class="vta-muted" style="font-size:12px;margin-top:2px">—</div>';
+      if (total !== null) {
+        const colorCobrado = total > 0 && cobrado >= total - 0.01 ? 'var(--green)' : cobrado > 0 ? '#b45309' : '#9ca3af';
+        const pct = total > 0 ? Math.min(100, Math.round((cobrado / total) * 100)) : 0;
+        const tituloTotal = estimado ? ' title="Estimado a partir de las facturas asignadas"' : '';
+        progresoComision = `
+          <div style="font-size:12px;font-weight:600;margin-top:2px;color:${colorCobrado}">${euro(cobrado)} <span${tituloTotal} style="color:var(--muted);font-weight:400">/ ${euro(total)}${estimado ? ' *' : ''}</span></div>
+          <div class="pago-barra" style="margin:2px 0 0;width:90px"><div class="pago-barra-fill" style="width:${pct}%"></div></div>`;
+      }
+      const comisiones = badgesComision + progresoComision;
       return `
         <tr data-ficha="${p.id}">
           <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>

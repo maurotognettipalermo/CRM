@@ -459,7 +459,9 @@ router.get('/propiedades', (req, res) => {
   let sql = `
     SELECT p.*,
            fc.numero AS fc_numero, fc.estado AS fc_estado, fc.total AS fc_total,
-           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total
+           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total,
+           (SELECT COALESCE(SUM(importe), 0) FROM factura_pagos WHERE factura_id = p.factura_comprador_id) AS fc_pagado,
+           (SELECT COALESCE(SUM(importe), 0) FROM factura_pagos WHERE factura_id = p.factura_vendedor_id) AS fv_pagado
     FROM propiedades_venta p
     LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
     LEFT JOIN facturas fv ON fv.id = p.factura_vendedor_id
@@ -483,7 +485,9 @@ router.get('/propiedades/:id', (req, res) => {
            pv.nombre AS pv_nombre, pv.apellidos AS pv_apellidos, pv.telefono AS pv_telefono,
            pv.email AS pv_email, pv.dni AS pv_dni,
            fc.numero AS fc_numero, fc.estado AS fc_estado, fc.total AS fc_total,
-           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total
+           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total,
+           (SELECT COALESCE(SUM(importe), 0) FROM factura_pagos WHERE factura_id = p.factura_comprador_id) AS fc_pagado,
+           (SELECT COALESCE(SUM(importe), 0) FROM factura_pagos WHERE factura_id = p.factura_vendedor_id) AS fv_pagado
     FROM propiedades_venta p
     LEFT JOIN propietarios_venta pv ON pv.id = p.propietario_venta_id
     LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
