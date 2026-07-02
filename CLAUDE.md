@@ -74,6 +74,11 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `reservas.js` | — | `abrirFicha(id)`; ficha incluye EXTRAS y PAGOS |
 | `contratos.js` | — | `filtrarPorPropietario(id, nombre)`. Buscador libre (texto) por alojamiento+propietario inyectado en init; contador "X contratos / X de Y" junto al buscador |
 | `mantenimiento.js` | — | `abrirDetalle(id)`, `nuevaTareaPara(aptoId)` |
+| `dashboard.js` | `Dashboard` | Pantalla de inicio: 4 tarjetas (pagos pendientes, próximos check-in, reservas en curso, próximos check-out). Refresco automático cada 5 min |
+| `facturas.js` | `Facturas` | Lista con filtros + ficha en panel lateral + wizard de 2 pasos para emitir (propietario/autofactura/gastos/huésped/mayorista/proforma) |
+| `limpieza.js` | `Limpieza` | Tareas del día (cards, mobile-first) + sub-pestaña Reportes |
+| `propietarios.js` | `Propietarios` | Lista + ficha en panel lateral con edición inline + modal alta/edición por pestañas + importación Excel |
+| `tarifas.js` | `Tarifas` | Sub-pestañas: temporadas (calendario anual), modificadores por `tipo_clasificacion`, descuentos |
 | `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime |
 | `personal.js` | `Personal` | `init/cargar`; sub-pestañas inyectadas en runtime |
 | `leads.js` | `Leads` | `init/cargar/abrirFicha` |
