@@ -45,6 +45,7 @@ const Ventas = (() => {
   let autProps = [];           // propiedades de venta (typeahead inmueble)
   let autvConstruido = false;  // sub-pestaña Autorización ya construida
   let autvRazones = [];        // razones sociales (select)
+  let facturasCache = null;    // caché de /api/facturas para el modal de asignar comisión
 
   // ==================== Helpers ====================
   function euro(n) {
@@ -59,6 +60,13 @@ const Ventas = (() => {
       Vendida: 'vta-bdg-vend', Retirada: 'vta-bdg-ret',
     };
     return `<span class="vta-bdg ${map[e] || 'vta-bdg-ret'}">${esc(e || '—')}</span>`;
+  }
+  function textoFacEstado(e) {
+    return { borrador: 'Borrador', emitida: 'Emitida', parcialmente_pagada: 'Parcialmente pagada', pagada: 'Pagada', anulada: 'Anulada' }[e] || e || '—';
+  }
+  function badgeFacEstado(e) {
+    if (!e) return '';
+    return `<span class="badge-fac-estado be-${e}">${textoFacEstado(e)}</span>`;
   }
   function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
   function visitasRealizadas(p) {
@@ -416,6 +424,17 @@ const Ventas = (() => {
         ? `<div class="vta-d-linea">📜 Escriturada el ${fechaES(d.fecha_escritura)}</div>`
         : `<div class="vta-d-linea" style="color:#f59e0b;font-weight:600">⏳ Pendiente de escriturar
              <button class="btn-sec" id="vta-add-escritura" style="margin-left:8px;padding:2px 8px">＋ Añadir fecha</button></div>`;
+
+      const comisionHTML = (lado, facturaId, numero, estadoFac, total) => facturaId
+        ? `<div class="vta-d-linea">
+             ${esc(numero)} ${badgeFacEstado(estadoFac)} ${euro(total)}
+             <button class="btn-mini" data-quitar-comision="${lado}" style="margin-left:8px">🗑️ Quitar</button>
+           </div>`
+        : `<div class="vta-d-linea vta-muted">
+             Sin factura asignada
+             <button class="btn-sec" data-asignar-comision="${lado}" style="margin-left:8px;padding:2px 8px">＋ Asignar factura</button>
+           </div>`;
+
       ventaSec = `
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-bottom:20px">
           <div class="vta-d-titulo-sec" style="border:none;color:#047857">💰 Datos de venta</div>
@@ -428,6 +447,10 @@ const Ventas = (() => {
           ${tel ? `<div class="vta-d-linea">${tel}</div>` : ''}
           ${email ? `<div class="vta-d-linea">${email}</div>` : ''}
           ${escritura}
+          <div class="vta-d-titulo-sec" style="border:none;color:#047857;margin-top:10px">Comisión comprador</div>
+          ${comisionHTML('comprador', d.factura_comprador_id, d.fc_numero, d.fc_estado, d.fc_total)}
+          <div class="vta-d-titulo-sec" style="border:none;color:#047857;margin-top:10px">Comisión vendedor</div>
+          ${comisionHTML('vendedor', d.factura_vendedor_id, d.fv_numero, d.fv_estado, d.fv_total)}
         </div>`;
     }
 
@@ -435,6 +458,21 @@ const Ventas = (() => {
 
     const btnEscritura = document.getElementById('vta-add-escritura');
     if (btnEscritura) btnEscritura.addEventListener('click', () => modalAnadirEscritura(d));
+
+    document.getElementById('vta-d-cuerpo').querySelectorAll('[data-quitar-comision]').forEach((b) => b.addEventListener('click', async () => {
+      const lado = b.dataset.quitarComision;
+      if (!confirm('¿Quitar la factura de comisión asignada?')) return;
+      try {
+        await API.put('/api/ventas/propiedades/' + d.id, {
+          [lado === 'comprador' ? 'factura_comprador_id' : 'factura_vendedor_id']: null,
+        });
+        await recargarFicha();
+        toast('Factura desasignada', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    }));
+
+    document.getElementById('vta-d-cuerpo').querySelectorAll('[data-asignar-comision]').forEach((b) =>
+      b.addEventListener('click', () => modalAsignarFactura(d.id, b.dataset.asignarComision)));
 
     const btnVerPrv = document.getElementById('vta-d-ver-prv');
     if (btnVerPrv) btnVerPrv.addEventListener('click', () => abrirFichaPropvent(d.propietario_venta_id));
@@ -2311,6 +2349,64 @@ const Ventas = (() => {
     });
   }
 
+  // Carga (cacheada) el listado de facturas para el buscador de asignar comisión.
+  async function ensureFacturas() {
+    if (!facturasCache) facturasCache = await API.get('/api/facturas');
+    return facturasCache;
+  }
+
+  // Modal para buscar una factura ya existente y asignarla como comisión de comprador/vendedor.
+  async function modalAsignarFactura(propiedadId, lado) {
+    let facturas;
+    try { facturas = await ensureFacturas(); } catch (e) { return toast(e.message, 'error'); }
+
+    abrirModal(`
+      <h3>＋ Asignar factura (${lado === 'comprador' ? 'comprador' : 'vendedor'})</h3>
+      <div class="campo vta-ta">
+        <label>Buscar por número o receptor</label>
+        <input id="vaf-input" class="input-buscar" autocomplete="off" placeholder="Número o nombre del receptor...">
+        <div id="vaf-res" class="vta-ta-res"></div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vaf-cancelar">Cancelar</button>
+      </div>`);
+
+    const input = document.getElementById('vaf-input');
+    const cont = document.getElementById('vaf-res');
+
+    const pintar = (lista) => {
+      const items = lista.slice(0, 20);
+      if (!items.length) { cont.innerHTML = '<div class="vta-ta-item" style="cursor:default;color:#9ca3af">Sin resultados</div>'; return; }
+      cont.innerHTML = items.map((f) => `
+        <div class="vta-ta-item" data-id="${f.id}">
+          <strong>${esc(f.numero)}</strong> ${badgeFacEstado(f.estado)}
+          <div style="font-size:12px;color:#6b7280">${esc(f.receptor_nombre) || '—'} · ${euro(f.total)}</div>
+        </div>`).join('');
+      cont.querySelectorAll('.vta-ta-item[data-id]').forEach((el) =>
+        el.addEventListener('click', async () => {
+          const facturaId = Number(el.dataset.id);
+          try {
+            await API.put('/api/ventas/propiedades/' + propiedadId, {
+              [lado === 'comprador' ? 'factura_comprador_id' : 'factura_vendedor_id']: facturaId,
+            });
+            cerrarModal();
+            await recargarFicha();
+            toast('Factura asignada', 'ok');
+          } catch (e) { toast(e.message, 'error'); }
+        }));
+    };
+
+    pintar(facturas); // sin texto de búsqueda: muestra las más recientes (ya vienen ordenadas del backend)
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      pintar(q ? facturas.filter((f) =>
+        (f.numero || '').toLowerCase().includes(q) || (f.receptor_nombre || '').toLowerCase().includes(q)) : facturas);
+    });
+
+    document.getElementById('vaf-cancelar').addEventListener('click', cerrarModal);
+  }
+
   // ============================================================
   //                    SUB-PESTAÑA VENDIDOS
   // ============================================================
@@ -2338,7 +2434,7 @@ const Ventas = (() => {
         <table class="tabla" id="tabla-vendidos">
           <thead><tr>
             <th>Ref.</th><th>Dirección</th><th>Precio anuncio</th><th>Precio venta</th>
-            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th></th>
+            <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisiones</th><th></th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -2350,10 +2446,10 @@ const Ventas = (() => {
 
   async function cargarVendidos() {
     const tbody = document.querySelector('#tabla-vendidos tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">Cargando vendidos…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="vta-cargando">Cargando vendidos…</td></tr>';
     try { vendidos = await API.get('/api/ventas/propiedades?estado=Vendida'); }
     catch (e) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="vta-cargando">No se pudieron cargar las propiedades vendidas.</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="vta-cargando">No se pudieron cargar las propiedades vendidas.</td></tr>';
       return toast(e.message, 'error');
     }
     renderVendidos();
@@ -2388,11 +2484,11 @@ const Ventas = (() => {
     if (res) res.innerHTML = `Volumen total: <strong>${euro(volumen)}</strong>`;
 
     if (!delAnio.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Sin propiedades vendidas en ' + vendAnio + '.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="vta-vacio">Sin propiedades vendidas en ' + vendAnio + '.</td></tr>';
       return;
     }
     if (!lista.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="vta-vacio">Ninguna coincide con la búsqueda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="vta-vacio">Ninguna coincide con la búsqueda.</td></tr>';
       return;
     }
     tbody.innerHTML = lista.map((p) => {
@@ -2401,6 +2497,10 @@ const Ventas = (() => {
       const escritura = p.fecha_escritura
         ? fechaES(p.fecha_escritura)
         : '<span class="vta-bdg" style="background:#fffbeb;color:#b45309">Pendiente</span>';
+      const sinFactura = '<span class="badge-fac-estado" style="background:#f3f4f6;color:#9ca3af">Sin factura</span>';
+      const comisiones = `
+        <span title="Comprador">${p.fc_estado ? badgeFacEstado(p.fc_estado) : sinFactura}</span>
+        <span title="Vendedor">${p.fv_estado ? badgeFacEstado(p.fv_estado) : sinFactura}</span>`;
       return `
         <tr data-ficha="${p.id}">
           <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
@@ -2411,6 +2511,7 @@ const Ventas = (() => {
           <td>${esc(p.comprador_nombre) || '—'}</td>
           <td>${fechaES(p.fecha_venta)}</td>
           <td>${escritura}</td>
+          <td>${comisiones}</td>
           <td class="vta-acciones">
             <button class="btn-icono" data-editar="${p.id}" title="Editar">✏️</button>
           </td>

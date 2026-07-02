@@ -442,8 +442,9 @@ const PROP_CAMPOS = [
   'descripcion', 'notas',
   'fecha_venta', 'fecha_escritura', 'precio_venta_final',
   'comprador_nombre', 'comprador_telefono', 'comprador_email',
+  'factura_comprador_id', 'factura_vendedor_id',
 ];
-const PROP_INT = ['dormitorios', 'banos', 'num_fotos', 'propietario_venta_id'];
+const PROP_INT = ['dormitorios', 'banos', 'num_fotos', 'propietario_venta_id', 'factura_comprador_id', 'factura_vendedor_id'];
 const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final'];
 
 function normalizaPropCampo(campo, valor) {
@@ -454,16 +455,23 @@ function normalizaPropCampo(campo, valor) {
 
 // GET /api/ventas/propiedades — lista con filtros opcionales.
 router.get('/propiedades', (req, res) => {
-  let sql = 'SELECT * FROM propiedades_venta WHERE 1 = 1';
+  let sql = `
+    SELECT p.*,
+           fc.numero AS fc_numero, fc.estado AS fc_estado, fc.total AS fc_total,
+           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total
+    FROM propiedades_venta p
+    LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
+    LEFT JOIN facturas fv ON fv.id = p.factura_vendedor_id
+    WHERE 1 = 1`;
   const params = [];
   const { estado, tipo, zona, precio_min, precio_max, dormitorios } = req.query;
-  if (estado) { sql += ' AND estado = ?'; params.push(estado); }
-  if (tipo) { sql += ' AND tipo = ?'; params.push(tipo); }
-  if (zona) { sql += ' AND zona LIKE ?'; params.push('%' + zona + '%'); }
-  if (precio_min) { sql += ' AND precio >= ?'; params.push(aReal(precio_min)); }
-  if (precio_max) { sql += ' AND precio <= ?'; params.push(aReal(precio_max)); }
-  if (dormitorios) { sql += ' AND dormitorios >= ?'; params.push(aEntero(dormitorios)); }
-  sql += " ORDER BY (fecha_alta IS NULL), fecha_alta DESC, id DESC";
+  if (estado) { sql += ' AND p.estado = ?'; params.push(estado); }
+  if (tipo) { sql += ' AND p.tipo = ?'; params.push(tipo); }
+  if (zona) { sql += ' AND p.zona LIKE ?'; params.push('%' + zona + '%'); }
+  if (precio_min) { sql += ' AND p.precio >= ?'; params.push(aReal(precio_min)); }
+  if (precio_max) { sql += ' AND p.precio <= ?'; params.push(aReal(precio_max)); }
+  if (dormitorios) { sql += ' AND p.dormitorios >= ?'; params.push(aEntero(dormitorios)); }
+  sql += " ORDER BY (p.fecha_alta IS NULL), p.fecha_alta DESC, p.id DESC";
   res.json(db.prepare(sql).all(...params));
 });
 
@@ -472,9 +480,13 @@ router.get('/propiedades/:id', (req, res) => {
   const prop = db.prepare(`
     SELECT p.*,
            pv.nombre AS pv_nombre, pv.apellidos AS pv_apellidos, pv.telefono AS pv_telefono,
-           pv.email AS pv_email, pv.dni AS pv_dni
+           pv.email AS pv_email, pv.dni AS pv_dni,
+           fc.numero AS fc_numero, fc.estado AS fc_estado, fc.total AS fc_total,
+           fv.numero AS fv_numero, fv.estado AS fv_estado, fv.total AS fv_total
     FROM propiedades_venta p
     LEFT JOIN propietarios_venta pv ON pv.id = p.propietario_venta_id
+    LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
+    LEFT JOIN facturas fv ON fv.id = p.factura_vendedor_id
     WHERE p.id = ?
   `).get(req.params.id);
   if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });

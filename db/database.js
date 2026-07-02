@@ -204,6 +204,9 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   comprador_email: 'TEXT',
   // Vínculo al propietario de ventas (tabla propietarios_venta, creada por schema.sql).
   propietario_venta_id: 'INTEGER REFERENCES propietarios_venta(id) ON DELETE SET NULL',
+  // Facturas de comisión asignadas a la venta (comprador/vendedor), para control de cobro.
+  factura_comprador_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL',
+  factura_vendedor_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.
