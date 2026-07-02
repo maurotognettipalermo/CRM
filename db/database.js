@@ -223,6 +223,7 @@ function init() {
   migrarCatalogoExtras();
   migrarUsuariosRol();
   migrarFacturasTipo();
+  migrarFacturasEstado();
   migrarPropiedadesVenta();
   migrarVisitasPropiedades();
   migrarHorasExtra();
@@ -435,6 +436,35 @@ function migrarFacturasTipo() {
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo:', rotas);
   console.log("Migración: facturas.tipo ahora admite 'mayorista', 'libre' y 'proforma'.");
+}
+
+function migrarFacturasEstado() {
+  const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facturas'").get();
+  if (!def || /parcialmente_pagada/.test(def.sql)) return;
+
+  const sqlNueva = def.sql
+    .replace(/CREATE TABLE\s+"?facturas"?/i, 'CREATE TABLE facturas_nueva')
+    .replace(/CHECK\s*\(\s*estado\s+IN\s*\([^)]*\)\s*\)/i,
+      "CHECK(estado IN ('borrador','emitida','parcialmente_pagada','pagada','anulada'))");
+
+  if (!/facturas_nueva/.test(sqlNueva) || !/parcialmente_pagada/.test(sqlNueva)) {
+    console.error('AVISO: no se pudo reescribir el CHECK de facturas.estado; se omite la migración.');
+    return;
+  }
+
+  const cols = db.prepare('PRAGMA table_info(facturas)').all().map((c) => c.name).join(', ');
+
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(sqlNueva);
+    db.exec(`INSERT INTO facturas_nueva (${cols}) SELECT ${cols} FROM facturas`);
+    db.exec('DROP TABLE facturas');
+    db.exec('ALTER TABLE facturas_nueva RENAME TO facturas');
+  })();
+  db.pragma('foreign_keys = ON');
+  const rotas = db.prepare('PRAGMA foreign_key_check').all();
+  if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.estado:', rotas);
+  console.log("Migración: facturas.estado ahora admite 'parcialmente_pagada'.");
 }
 
 // Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no

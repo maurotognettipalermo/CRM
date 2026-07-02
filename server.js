@@ -38,6 +38,7 @@ app.use('/api/portales', require('./routes/portales'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/estadisticas', require('./routes/estadisticas'));
 app.use('/api/contratos', require('./routes/contratos'));
+app.use('/api/facturas/:id/pagos', require('./routes/factura-pagos'));
 app.use('/api/facturas', require('./routes/facturas'));
 app.use('/api/tarifas', require('./routes/tarifas'));
 app.use('/api/email', require('./routes/email'));

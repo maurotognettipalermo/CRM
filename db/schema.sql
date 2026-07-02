@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS facturas (
   serie TEXT NOT NULL DEFAULT 'F',
   anio INTEGER NOT NULL,
   tipo TEXT NOT NULL CHECK(tipo IN ('huésped','propietario','autofactura','gastos')),
-  estado TEXT DEFAULT 'emitida' CHECK(estado IN ('borrador','emitida','pagada','anulada')),
+  estado TEXT DEFAULT 'emitida' CHECK(estado IN ('borrador','emitida','parcialmente_pagada','pagada','anulada')),
 
   -- Emisor (nuestra empresa o propietario en autofactura)
   razon_social_id INTEGER REFERENCES razones_sociales(id) ON DELETE SET NULL,
@@ -314,6 +314,17 @@ CREATE TABLE IF NOT EXISTS factura_contador (
   anio INTEGER PRIMARY KEY,
   ultimo_numero INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS factura_pagos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  factura_id INTEGER NOT NULL REFERENCES facturas(id) ON DELETE CASCADE,
+  importe REAL NOT NULL,
+  fecha_pago TEXT NOT NULL,
+  metodo_pago TEXT,
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_factura_pagos_factura ON factura_pagos(factura_id);
 
 CREATE INDEX IF NOT EXISTS idx_facturas_anio ON facturas(anio);
 CREATE INDEX IF NOT EXISTS idx_facturas_tipo ON facturas(tipo);

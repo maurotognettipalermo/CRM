@@ -15,7 +15,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
 const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre', 'proforma'];
-const ESTADOS = ['borrador', 'emitida', 'pagada', 'anulada'];
+const ESTADOS = ['borrador', 'emitida', 'parcialmente_pagada', 'pagada', 'anulada'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
