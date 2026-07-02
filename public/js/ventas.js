@@ -2563,17 +2563,25 @@ const Ventas = (() => {
       // total: comision_total si está rellenada; si no, se estima con las facturas ya asignadas.
       const cobrado = (Number(p.fc_pagado) || 0) + (Number(p.fv_pagado) || 0);
       let total = null, estimado = false;
+      const comisionCompVend = ['comision_comprador', 'comision_vendedor']
+        .map((c) => p[c]).filter((v) => v !== null && v !== undefined && v !== '');
+      let tituloEstimado = '';
       if (p.comision_total !== null && p.comision_total !== undefined && p.comision_total !== '') {
         total = Number(p.comision_total);
       } else if (p.factura_comprador_id || p.factura_vendedor_id) {
         total = (Number(p.fc_total) || 0) + (Number(p.fv_total) || 0);
         estimado = true;
+        tituloEstimado = 'Estimado a partir de las facturas asignadas';
+      } else if (comisionCompVend.length) {
+        total = comisionCompVend.reduce((s, v) => s + (Number(v) || 0), 0);
+        estimado = true;
+        tituloEstimado = 'Estimado a partir del reparto comprador/vendedor';
       }
       let progresoComision = '<div class="vta-muted" style="font-size:12px;margin-top:2px">—</div>';
       if (total !== null) {
         const colorCobrado = total > 0 && cobrado >= total - 0.01 ? 'var(--green)' : cobrado > 0 ? '#b45309' : '#9ca3af';
         const pct = total > 0 ? Math.min(100, Math.round((cobrado / total) * 100)) : 0;
-        const tituloTotal = estimado ? ' title="Estimado a partir de las facturas asignadas"' : '';
+        const tituloTotal = estimado ? ` title="${esc(tituloEstimado)}"` : '';
         progresoComision = `
           <div style="font-size:12px;font-weight:600;margin-top:2px;color:${colorCobrado}">${euro(cobrado)} <span${tituloTotal} style="color:var(--muted);font-weight:400">/ ${euro(total)}${estimado ? ' *' : ''}</span></div>
           <div class="pago-barra" style="margin:2px 0 0;width:90px"><div class="pago-barra-fill" style="width:${pct}%"></div></div>`;
