@@ -2493,7 +2493,7 @@ const Ventas = (() => {
       <div class="tabla-scroll">
         <table class="tabla" id="tabla-vendidos">
           <thead><tr>
-            <th>Ref.</th><th>Dirección</th><th>Precio anuncio</th><th>Precio venta</th>
+            <th>Ref.</th><th>Apartamento</th><th>Precio anuncio</th><th>Precio venta</th>
             <th>Diferencia</th><th>Comprador</th><th>Fecha venta</th><th>Escritura</th><th>Comisión</th><th></th>
           </tr></thead>
           <tbody></tbody>
@@ -2534,7 +2534,7 @@ const Ventas = (() => {
     const q = vendBusqueda.trim().toLowerCase();
     const lista = delAnio.filter((p) => {
       if (!q) return true;
-      return `${p.referencia || ''} ${p.calle || ''} ${p.comprador_nombre || ''}`.toLowerCase().includes(q);
+      return `${p.referencia || ''} ${p.apartamento_nombre || ''} ${p.calle || ''} ${p.comprador_nombre || ''}`.toLowerCase().includes(q);
     });
 
     const cont = document.getElementById('vnd-contador');
@@ -2552,7 +2552,6 @@ const Ventas = (() => {
       return;
     }
     tbody.innerHTML = lista.map((p) => {
-      const dir = [p.calle, p.numero].filter(Boolean).join(' ') || '—';
       const dif = difVenta(p.precio, p.precio_venta_final);
       const escritura = p.fecha_escritura
         ? fechaES(p.fecha_escritura)
@@ -2584,7 +2583,7 @@ const Ventas = (() => {
       return `
         <tr data-ficha="${p.id}">
           <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
-          <td>${esc(dir)}</td>
+          <td>${esc(p.apartamento_nombre) || '—'}</td>
           <td class="vta-precio">${euro(p.precio)}</td>
           <td class="vta-precio">${euro(p.precio_venta_final)}</td>
           <td style="color:${dif.color};font-weight:600">${dif.texto}</td>
