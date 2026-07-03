@@ -9,7 +9,8 @@ const Planning = (() => {
   const MIN_DIAS = 7;     // nunca mostramos menos de una semana
 
   let fechaInicio = hoy(); // primer día visible (Date a medianoche local)
-  let nDias = 30;          // nº de columnas de día (recalculado según ancho)
+  let fechaFin = null;     // null = modo automático (ancho de pantalla); con valor = rango fijo elegido por el usuario
+  let nDias = 30;          // nº de columnas de día (recalculado según ancho, o fijo si hay fechaFin)
   let arrastrando = null;  // { reservaId }
   let resizeTimer = null;
   let portalesMap = {};    // { nombre: { color, imagen_url } } para colorear las barras
@@ -89,6 +90,13 @@ const Planning = (() => {
     return Math.max(MIN_DIAS, n || MIN_DIAS);
   }
 
+  // nº de columnas a usar: si hay un rango personalizado (fechaFin), su longitud fija;
+  // si no, el cálculo automático de siempre según el ancho disponible.
+  function nDiasActual() {
+    if (fechaFin) return diffDias(iso(fechaInicio), iso(fechaFin)) + 1;
+    return calcularDias();
+  }
+
   // Construye la lista de columnas de día y la tabla de offsets en píxeles de
   // cada día, usada para posicionar las barras. El nombre del mes va como label
   // encima del día 1 (no es una columna del grid).
@@ -124,7 +132,7 @@ const Planning = (() => {
 
   // ---- Carga y render ----
   async function cargar() {
-    nDias = calcularDias();
+    nDias = nDiasActual();
     const desde = iso(fechaInicio);
     const hasta = iso(addDias(fechaInicio, nDias - 1)); // último día visible (inclusive)
 
@@ -762,6 +770,10 @@ const Planning = (() => {
   function sincronizarInput() {
     const input = document.getElementById('fecha-inicio');
     if (input) input.value = iso(fechaInicio);
+    const inputFin = document.getElementById('fecha-fin');
+    if (inputFin) inputFin.value = fechaFin ? iso(fechaFin) : '';
+    const btnLimpiar = document.getElementById('fecha-fin-limpiar');
+    if (btnLimpiar) btnLimpiar.classList.toggle('oculto', !fechaFin);
   }
 
   function init() {
@@ -774,18 +786,42 @@ const Planning = (() => {
       cargar();
     });
 
+    const inputFin = document.getElementById('fecha-fin');
+    inputFin.addEventListener('change', () => {
+      if (!inputFin.value) return;
+      const [y, m, d] = inputFin.value.split('-').map(Number);
+      const nueva = new Date(y, m - 1, d);
+      if (nueva < fechaInicio) {
+        toast('La fecha fin no puede ser anterior a la fecha inicio', 'error');
+        sincronizarInput();
+        return;
+      }
+      fechaFin = nueva;
+      sincronizarInput();
+      cargar();
+    });
+    document.getElementById('fecha-fin-limpiar').addEventListener('click', () => {
+      fechaFin = null;
+      sincronizarInput();
+      cargar();
+    });
+
     document.getElementById('nav-anterior').addEventListener('click', () => {
       fechaInicio = addDias(fechaInicio, -7);
+      if (fechaFin) fechaFin = addDias(fechaFin, -7);
       sincronizarInput();
       cargar();
     });
     document.getElementById('nav-siguiente').addEventListener('click', () => {
       fechaInicio = addDias(fechaInicio, 7);
+      if (fechaFin) fechaFin = addDias(fechaFin, 7);
       sincronizarInput();
       cargar();
     });
     document.getElementById('nav-hoy').addEventListener('click', () => {
+      const longitud = fechaFin ? diffDias(iso(fechaInicio), iso(fechaFin)) : null;
       fechaInicio = hoy();
+      if (fechaFin) fechaFin = addDias(fechaInicio, longitud);
       sincronizarInput();
       cargar();
     });
@@ -800,11 +836,14 @@ const Planning = (() => {
     }).catch(() => { /* se mantiene el rojo oscuro por defecto */ });
 
     // Recalcular el nº de días visibles cuando cambia el ancho del contenedor.
-    nDias = calcularDias();
+    // Con un rango personalizado activo (fechaFin), el nº de columnas lo manda el rango
+    // elegido, no el ancho de pantalla: no se recalcula por resize, el usuario hace scroll.
+    nDias = nDiasActual();
     const scroll = document.querySelector('#vista-planning .planning-scroll');
     const onResize = () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
+        if (fechaFin) return;
         if (calcularDias() !== nDias) cargar();
       }, 150);
     };
