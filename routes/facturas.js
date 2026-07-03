@@ -735,6 +735,20 @@ router.put('/:id', (req, res) => {
         factura.id, txt(l.descripcion) || '', l.cantidad != null ? num(l.cantidad) : 1,
         round2(l.precio_unitario), round2(l.importe), l.orden != null ? l.orden : i));
     }
+    // Marcar 'pagada' a mano no debe dejar la suma de factura_pagos en 0: si el estado
+    // pasa a pagada y los pagos existentes no cubren el total, se completa la diferencia
+    // con un pago "manual" para que fc_pagado/fv_pagado y "Pagos registrados" no contradigan al badge.
+    if (f.estado === 'pagada' && factura.estado !== 'pagada') {
+      const suma = db.prepare('SELECT COALESCE(SUM(importe), 0) AS s FROM factura_pagos WHERE factura_id = ?')
+        .get(factura.id).s;
+      const diferencia = round2(f.total - suma);
+      if (diferencia > 0.01) {
+        db.prepare(`
+          INSERT INTO factura_pagos (factura_id, importe, fecha_pago, metodo_pago, notas)
+          VALUES (?, ?, ?, NULL, ?)
+        `).run(factura.id, diferencia, new Date().toISOString().slice(0, 10), 'Marcada como pagada manualmente');
+      }
+    }
   });
   try { tx(); } catch (e) { return res.status(500).json({ error: e.message }); }
   registrarActividad(db, req.usuario.id, req.usuario.nombre, 'editar', 'factura', factura.id, `Editada ${factura.numero}`);
