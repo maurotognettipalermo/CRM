@@ -210,7 +210,7 @@ const Facturas = (() => {
       <h3>✏️ Editar factura ${esc(f.numero)}</h3>
       <div ${sec}>Datos generales</div>
       <div class="fila-campos">
-        <div class="campo"><label>Número de factura</label><input value="${esc(f.numero)}" disabled></div>
+        <div class="campo"><label>Número de factura</label><input id="fe-numero" value="${esc(f.numero)}"></div>
         <div class="campo"><label>Estado</label><select id="fe-estado">${optEstado}</select></div>
       </div>
       <div class="fila-campos">
@@ -322,6 +322,7 @@ const Facturas = (() => {
 
   async function guardarEdicion(id) {
     const body = {
+      numero: fval('fe-numero'),
       fecha_emision: fval('fe-femision'),
       fecha_vencimiento: fval('fe-fvenc'),
       estado: fval('fe-estado'),

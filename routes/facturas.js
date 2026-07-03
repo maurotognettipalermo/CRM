@@ -683,10 +683,16 @@ router.put('/:id', (req, res) => {
   if (b.estado !== undefined && b.estado !== null && b.estado !== '' && !ESTADOS.includes(b.estado)) {
     return res.status(400).json({ error: 'Estado no válido' });
   }
+  if (b.numero !== undefined && txt(b.numero) !== factura.numero) {
+    const nuevoNumero = txt(b.numero);
+    if (!nuevoNumero) return res.status(400).json({ error: 'El número de factura no puede quedar vacío' });
+    const dup = db.prepare('SELECT id FROM facturas WHERE numero = ? AND id <> ?').get(nuevoNumero, factura.id);
+    if (dup) return res.status(409).json({ error: 'Ya existe otra factura con ese número' });
+  }
   const lineasNuevas = Array.isArray(b.lineas) ? b.lineas : null;
 
   // Campos de texto/fecha/estado editables (los no enviados conservan su valor).
-  const STR = ['emisor_nombre', 'emisor_cif', 'emisor_direccion', 'receptor_nombre',
+  const STR = ['numero', 'emisor_nombre', 'emisor_cif', 'emisor_direccion', 'receptor_nombre',
     'receptor_cif', 'receptor_direccion', 'receptor_email', 'fecha_emision', 'fecha_vencimiento', 'notas', 'estado'];
   const f = {};
   for (const k of STR) f[k] = (b[k] !== undefined) ? txt(b[k]) : factura[k];
@@ -718,7 +724,7 @@ router.put('/:id', (req, res) => {
   if (!f.fecha_emision) f.fecha_emision = factura.fecha_emision;
   if (!f.estado) f.estado = factura.estado;
 
-  const COLS_UPD = ['emisor_nombre', 'emisor_cif', 'emisor_direccion',
+  const COLS_UPD = ['numero', 'emisor_nombre', 'emisor_cif', 'emisor_direccion',
     'receptor_nombre', 'receptor_cif', 'receptor_direccion', 'receptor_email',
     'base_imponible', 'porcentaje_iva', 'importe_iva', 'porcentaje_retencion', 'importe_retencion', 'total',
     'fecha_emision', 'fecha_vencimiento', 'notas', 'estado'];
