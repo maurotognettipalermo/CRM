@@ -234,6 +234,7 @@ function init() {
   migrarCatalogoExtras();
   migrarUsuariosRol();
   migrarFacturasTipo();
+  migrarFacturasAbono();
   migrarFacturasEstado();
   migrarFacturaContadorSerie();
   migrarPropiedadesVenta();
@@ -448,6 +449,44 @@ function migrarFacturasTipo() {
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo:', rotas);
   console.log("Migración: facturas.tipo ahora admite 'mayorista', 'libre' y 'proforma'.");
+}
+
+// Amplía facturas.tipo con 'abono' (facturas rectificativas) y añade factura_abonada_id
+// (en un abono: la factura original que rectifica; NULL en el resto). Mismo patrón de
+// recreación de tabla que migrarFacturasTipo/migrarFacturasEstado, ya que SQLite no permite
+// alterar un CHECK con ALTER TABLE. Idempotente: si el CHECK actual ya incluye 'abono', no
+// hace nada.
+function migrarFacturasAbono() {
+  const def = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facturas'").get();
+  if (!def || /'abono'/.test(def.sql)) return;
+
+  let sqlNueva = def.sql
+    .replace(/CREATE TABLE\s+"?facturas"?/i, 'CREATE TABLE facturas_nueva')
+    .replace(/CHECK\s*\(\s*tipo\s+IN\s*\([^)]*\)\s*\)/i,
+      "CHECK(tipo IN ('huésped','propietario','autofactura','gastos','mayorista','libre','proforma','abono'))");
+
+  if (!/facturas_nueva/.test(sqlNueva) || !/'abono'/.test(sqlNueva)) {
+    console.error('AVISO: no se pudo reescribir el CHECK de facturas.tipo; se omite la migración.');
+    return;
+  }
+
+  // factura_abonada_id es columna nueva (no existe en la tabla actual): se añade al final
+  // de la definición, fuera del INSERT SELECT de columnas comunes (queda NULL al copiar).
+  sqlNueva = sqlNueva.replace(/\)\s*$/, ', factura_abonada_id INTEGER REFERENCES facturas(id) ON DELETE SET NULL)');
+
+  const cols = db.prepare('PRAGMA table_info(facturas)').all().map((c) => c.name).join(', ');
+
+  db.pragma('foreign_keys = OFF');
+  db.transaction(() => {
+    db.exec(sqlNueva);
+    db.exec(`INSERT INTO facturas_nueva (${cols}) SELECT ${cols} FROM facturas`);
+    db.exec('DROP TABLE facturas');
+    db.exec('ALTER TABLE facturas_nueva RENAME TO facturas');
+  })();
+  db.pragma('foreign_keys = ON');
+  const rotas = db.prepare('PRAGMA foreign_key_check').all();
+  if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.tipo/abono:', rotas);
+  console.log("Migración: facturas.tipo ahora admite 'abono'; añadida factura_abonada_id.");
 }
 
 function migrarFacturasEstado() {

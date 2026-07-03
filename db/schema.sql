@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS facturas (
   numero TEXT UNIQUE NOT NULL,        -- F-2026-001
   serie TEXT NOT NULL DEFAULT 'F',
   anio INTEGER NOT NULL,
-  tipo TEXT NOT NULL CHECK(tipo IN ('huésped','propietario','autofactura','gastos')),
+  tipo TEXT NOT NULL CHECK(tipo IN ('huésped','propietario','autofactura','gastos','abono')),
   estado TEXT DEFAULT 'emitida' CHECK(estado IN ('borrador','emitida','parcialmente_pagada','pagada','anulada')),
 
   -- Emisor (nuestra empresa o propietario en autofactura)
@@ -290,6 +290,7 @@ CREATE TABLE IF NOT EXISTS facturas (
   apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
   propietario_id INTEGER REFERENCES propietarios(id) ON DELETE SET NULL,
   reserva_id INTEGER REFERENCES reservas(id) ON DELETE SET NULL,
+  factura_abonada_id INTEGER REFERENCES facturas(id) ON DELETE SET NULL, -- en un abono: factura original que rectifica
 
   -- Metadata
   fecha_emision TEXT NOT NULL DEFAULT (date('now')),

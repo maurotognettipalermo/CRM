@@ -110,6 +110,28 @@ const Facturas = (() => {
       toast('Factura anulada', 'ok');
     } catch (e) { toast(e.message, 'error'); }
   }
+  function modalAbono(f) {
+    abrirModal(`
+      <h3>↩️ Emitir abono</h3>
+      <p>Se generará una factura rectificativa (abono) por el importe total de ${esc(f.numero)}, con numeración independiente.</p>
+      <div class="campo"><label>Motivo (opcional)</label><textarea id="abono-motivo" rows="2"></textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="abono-cancelar">Cancelar</button>
+        <button class="btn-pri" id="abono-confirmar">Confirmar</button>
+      </div>`);
+    document.getElementById('abono-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('abono-confirmar').addEventListener('click', async () => {
+      const motivo = fval('abono-motivo').trim();
+      try {
+        const r = await API.post('/api/facturas/' + f.id + '/abono', motivo ? { motivo } : {});
+        cerrarModal();
+        await cargar();
+        await abrirFicha(f.id);
+        toast(`Abono ${r.numero} creado`, 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
   async function borrar(id) {
     if (!confirm('¿Eliminar esta factura en borrador?')) return;
     try { await API.del('/api/facturas/' + id); await cargar(); toast('Factura eliminada', 'ok'); }
@@ -157,6 +179,7 @@ const Facturas = (() => {
         <div class="panel-cabecera-acciones">
           <button id="fac-editar" class="btn-sec oculto">✏️ Editar</button>
           <button id="fac-pdf" class="btn-sec">Descargar PDF</button>
+          <button id="fac-abono" class="btn-sec oculto">↩️ Emitir abono</button>
           <button id="fac-anular" class="btn-sec">Anular</button>
           <button id="fac-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -168,6 +191,7 @@ const Facturas = (() => {
     panel.querySelector('#fac-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#fac-pdf').addEventListener('click', () => { if (fichaActual) descargarPDF(fichaActual.id, fichaActual.numero); });
     panel.querySelector('#fac-anular').addEventListener('click', () => { if (fichaActual) anular(fichaActual.id); });
+    panel.querySelector('#fac-abono').addEventListener('click', () => { if (fichaActual) modalAbono(fichaActual); });
     panel.querySelector('#fac-editar').addEventListener('click', () => { if (fichaActual) abrirEditar(fichaActual); });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -367,11 +391,17 @@ const Facturas = (() => {
     document.getElementById('fac-badges').innerHTML = badgeTipo(fichaActual.tipo) + ' ' + badgeEstado(fichaActual.estado);
     document.getElementById('fac-anular').classList.toggle('oculto', fichaActual.estado === 'anulada');
     document.getElementById('fac-editar').classList.toggle('oculto', !esAdmin());
+    const puedeAbonar = !['proforma', 'abono'].includes(fichaActual.tipo)
+      && ['emitida', 'parcialmente_pagada', 'pagada'].includes(fichaActual.estado);
+    document.getElementById('fac-abono').classList.toggle('oculto', !puedeAbonar);
     document.getElementById('fac-cuerpo').innerHTML = fichaHTML(fichaActual);
     const btnConv = document.getElementById('fac-convertir-pro');
     if (btnConv) btnConv.addEventListener('click', () => convertirProforma(fichaActual.id));
     const lnkConv = document.getElementById('fac-ver-convertida');
     if (lnkConv) lnkConv.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(lnkConv.dataset.id); });
+    const lnkOrigen = document.getElementById('fac-ver-origen');
+    if (lnkOrigen) lnkOrigen.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(lnkOrigen.dataset.id); });
+    document.querySelectorAll('.fac-ver-abono').forEach((el) => el.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(el.dataset.id); }));
     if (fichaActual.tipo !== 'proforma') {
       await recargarPagosFactura(fichaActual.id);
       pintarPagosFactura();
@@ -427,8 +457,22 @@ const Facturas = (() => {
         : (esAdmin() ? `<button class="btn-pri" id="fac-convertir-pro" style="margin-bottom:12px">🔄 Convertir a factura</button>` : '')}
     ` : '';
 
+    // Vínculo con la factura que este abono rectifica.
+    const abonaABanner = (f.tipo === 'abono' && f.abona_a) ? `
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 12px;border-radius:8px;margin-bottom:12px">
+        ↩️ Abono de la factura <a href="#" id="fac-ver-origen" data-id="${f.abona_a.id}" style="color:#1e40af;font-weight:700;text-decoration:underline">${esc(f.abona_a.numero)}</a>
+      </div>` : '';
+
+    // Abonos (parciales o totales) hechos sobre esta factura.
+    const abonosBanner = (f.abonos && f.abonos.length) ? `
+      <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 12px;border-radius:8px;margin-bottom:12px">
+        ${f.abonos.map((a) => `↩️ Abonada por: <a href="#" class="fac-ver-abono" data-id="${a.id}" style="color:#991b1b;font-weight:700;text-decoration:underline">${esc(a.numero)}</a> (${euro(a.total)}, ${fechaES(a.fecha_emision)})`).join('<br>')}
+      </div>` : '';
+
     return `
       ${proformaBanner}
+      ${abonaABanner}
+      ${abonosBanner}
       <div class="rsv-grid">
         <div>
           <div class="ficha-seccion-titulo">Emisor</div>

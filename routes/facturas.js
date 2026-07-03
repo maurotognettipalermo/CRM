@@ -14,7 +14,7 @@ const router = express.Router();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
-const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre', 'proforma'];
+const TIPOS = ['huésped', 'propietario', 'autofactura', 'gastos', 'mayorista', 'libre', 'proforma', 'abono'];
 const ESTADOS = ['borrador', 'emitida', 'parcialmente_pagada', 'pagada', 'anulada'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -27,7 +27,7 @@ const COLS = [
   'base_imponible', 'porcentaje_iva', 'importe_iva', 'porcentaje_retencion', 'importe_retencion', 'total',
   'contrato_id', 'apartamento_id', 'propietario_id', 'reserva_id',
   'fecha_emision', 'fecha_vencimiento', 'notas', 'created_by',
-  'proforma_convertida', 'factura_origen_id',
+  'proforma_convertida', 'factura_origen_id', 'factura_abonada_id',
 ];
 
 // --- Helpers ---
@@ -72,7 +72,7 @@ function nuevaFactura() {
     base_imponible: 0, porcentaje_iva: 0, importe_iva: 0, porcentaje_retencion: 0, importe_retencion: 0, total: 0,
     contrato_id: null, apartamento_id: null, propietario_id: null, reserva_id: null,
     fecha_emision: hoyISO(), fecha_vencimiento: null, notas: null, created_by: null,
-    proforma_convertida: 0, factura_origen_id: null,
+    proforma_convertida: 0, factura_origen_id: null, factura_abonada_id: null,
   };
 }
 
@@ -139,7 +139,8 @@ function siguienteNumeroProforma(anio) {
 
 // Inserta factura + líneas en una transacción, fijando el número correlativo.
 const insertarFactura = db.transaction((f, lineas) => {
-  if (f.tipo !== 'proforma') f.serie = serieParaRazonSocial(f.razon_social_id);
+  if (f.tipo === 'abono') f.serie = serieParaRazonSocial(f.razon_social_id) + '-A';
+  else if (f.tipo !== 'proforma') f.serie = serieParaRazonSocial(f.razon_social_id);
   f.numero = f.tipo === 'proforma' ? siguienteNumeroProforma(f.anio) : siguienteNumeroFactura(f.anio, f.serie);
   const ph = COLS.map((c) => '@' + c).join(', ');
   const info = db.prepare(`INSERT INTO facturas (${COLS.join(', ')}) VALUES (${ph})`).run(f);
@@ -584,6 +585,12 @@ router.get('/:id', (req, res) => {
   if (factura.tipo === 'proforma') {
     factura.convertida_en = db.prepare('SELECT id, numero FROM facturas WHERE factura_origen_id = ?').get(factura.id) || null;
   }
+  // Abono: adjunta la factura original que rectifica.
+  if (factura.factura_abonada_id) {
+    factura.abona_a = db.prepare('SELECT id, numero FROM facturas WHERE id = ?').get(factura.factura_abonada_id) || null;
+  }
+  // Cualquier factura puede tener uno o varios abonos (parciales) sobre ella.
+  factura.abonos = db.prepare('SELECT id, numero, total, fecha_emision FROM facturas WHERE factura_abonada_id = ?').all(factura.id);
   res.json(factura);
 });
 
@@ -674,6 +681,70 @@ router.post('/:id/convertir-proforma', (req, res) => {
 
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (proforma ${prof.numero})`);
   res.status(201).json({ ok: true, factura_id: r.id, numero_factura: r.numero });
+});
+
+// POST /api/facturas/:id/abono — genera un abono (nota de crédito) de una factura existente.
+// Copia sus líneas en negativo (o las que traiga el body, para un abono parcial), vinculado
+// vía factura_abonada_id. La serie con sufijo "-A" ya la fija insertarFactura para tipo 'abono'.
+router.post('/:id/abono', (req, res) => {
+  const origen = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
+  if (!origen) return res.status(404).json({ error: 'Factura no encontrada' });
+  if (origen.tipo === 'proforma') {
+    return res.status(400).json({ error: 'No se puede abonar una proforma; conviértela en factura primero' });
+  }
+  if (origen.tipo === 'abono') return res.status(400).json({ error: 'No se puede abonar un abono' });
+  if (origen.estado === 'anulada') return res.status(409).json({ error: 'La factura ya está anulada' });
+  if (origen.estado === 'borrador') {
+    return res.status(400).json({ error: 'No se puede abonar un borrador; primero hay que emitirlo' });
+  }
+
+  const b = req.body || {};
+  let lineas;
+  if (Array.isArray(b.lineas)) {
+    lineas = b.lineas.map((l, i) => ({
+      descripcion: String(l.descripcion || '').trim(),
+      cantidad: l.cantidad != null ? num(l.cantidad) : 1,
+      precio_unitario: round2(l.precio_unitario),
+      importe: round2(l.importe),
+      orden: l.orden != null ? l.orden : i,
+    }));
+  } else {
+    lineas = db.prepare('SELECT * FROM factura_lineas WHERE factura_id = ? ORDER BY orden, id').all(origen.id)
+      .map((l, i) => ({
+        descripcion: l.descripcion, cantidad: l.cantidad,
+        precio_unitario: round2(-l.precio_unitario), importe: round2(-l.importe),
+        orden: l.orden != null ? l.orden : i,
+      }));
+  }
+
+  const f = nuevaFactura();
+  Object.assign(f, {
+    tipo: 'abono', estado: 'emitida',
+    anio: parseInt(hoyISO().slice(0, 4), 10), fecha_emision: hoyISO(),
+    razon_social_id: origen.razon_social_id,
+    emisor_nombre: origen.emisor_nombre, emisor_cif: origen.emisor_cif,
+    emisor_direccion: origen.emisor_direccion, emisor_logo_url: origen.emisor_logo_url,
+    receptor_nombre: origen.receptor_nombre, receptor_cif: origen.receptor_cif,
+    receptor_direccion: origen.receptor_direccion, receptor_email: origen.receptor_email,
+    contrato_id: origen.contrato_id, apartamento_id: origen.apartamento_id,
+    propietario_id: origen.propietario_id, reserva_id: origen.reserva_id,
+    porcentaje_iva: origen.porcentaje_iva, porcentaje_retencion: origen.porcentaje_retencion,
+    base_imponible: lineas.reduce((s, l) => s + l.importe, 0),
+    notas: b.motivo ? `Abono de la factura ${origen.numero}. ${b.motivo}` : `Abono de la factura ${origen.numero}`,
+    created_by: (req.usuario && req.usuario.username) || null,
+    factura_abonada_id: origen.id,
+  });
+  calcularImportes(f);
+
+  let r;
+  try {
+    r = insertarFactura(f, lineas);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (abono de ${origen.numero})`);
+  res.status(201).json({ id: r.id, numero: r.numero });
 });
 
 // PUT /api/facturas/:id — edición completa (solo administradores): emisor, receptor,
