@@ -8,6 +8,8 @@ const Ventas = (() => {
   let busqueda = '';
   let subSel = [];             // File pendiente en el modal de importar
 
+  function esAdmin() { return (((typeof Auth !== 'undefined' && Auth.sesion && Auth.sesion()) || {}).rol) === 'administrador'; }
+
   // Filtros de la sub-pestaña Propiedades.
   const ESTADOS = ['Disponible', 'Reservada', 'Vendida', 'Retirada'];
   // Las Vendidas viven en la sub-pestaña "Vendidos"; no se filtran ni listan aquí.
@@ -442,7 +444,7 @@ const Ventas = (() => {
       const tel = d.comprador_telefono ? `📞 <a class="vta-link" href="tel:${esc(d.comprador_telefono)}">${esc(d.comprador_telefono)}</a>` : '';
       const email = d.comprador_email ? `✉️ <a class="vta-link" href="mailto:${esc(d.comprador_email)}">${esc(d.comprador_email)}</a>` : '';
       const escritura = d.fecha_escritura
-        ? `<div class="vta-d-linea">📜 Escriturada el ${fechaES(d.fecha_escritura)}</div>`
+        ? `<div class="vta-d-linea">📜 Escriturada el ${fechaES(d.fecha_escritura)}${esAdmin() ? ` <button class="btn-icono" id="vta-add-escritura" title="Editar fecha de escrituración">✏️</button>` : ''}</div>`
         : `<div class="vta-d-linea" style="color:#f59e0b;font-weight:600">⏳ Pendiente de escriturar
              <button class="btn-sec" id="vta-add-escritura" style="margin-left:8px;padding:2px 8px">＋ Añadir fecha</button></div>`;
 
@@ -2389,10 +2391,11 @@ const Ventas = (() => {
 
   // Mini-modal para añadir la fecha de escrituración desde la ficha de una vendida.
   function modalAnadirEscritura(d) {
+    const editando = !!d.fecha_escritura;
     abrirModal(`
-      <h3>📜 Añadir fecha de escrituración</h3>
+      <h3>📜 ${editando ? 'Editar' : 'Añadir'} fecha de escrituración</h3>
       <div class="vta-pv-resumen"><div>🏠 <strong>${esc(d.referencia)}</strong></div></div>
-      <div class="campo"><label>Fecha de escrituración</label><input type="date" id="vesc-fecha" value="${hoyStr()}"></div>
+      <div class="campo"><label>Fecha de escrituración</label><input type="date" id="vesc-fecha" value="${editando ? d.fecha_escritura : hoyStr()}"></div>
       <div class="modal-acciones">
         <button class="btn-sec" id="vesc-cancelar">Cancelar</button>
         <button class="btn-pri" id="vesc-guardar">Guardar</button>
