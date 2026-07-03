@@ -211,6 +211,9 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   comision_total: 'REAL',
   comision_comprador: 'REAL',
   comision_vendedor: 'REAL',
+  // Nº de puerta, independiente de calle/numero/planta (p. ej. "3A", "Bajo B") — para
+  // documentos de Arras/Autorización que necesitan el nº de puerta real, no el de la calle.
+  numero_puerta: 'TEXT',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

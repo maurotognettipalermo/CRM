@@ -574,7 +574,10 @@ const Ventas = (() => {
       <div class="fila-campos">
         <div class="campo"><label>Calle</label><input id="vf-calle" value="${esc(p.calle)}"></div>
         <div class="campo"><label>Número</label><input id="vf-numero" value="${esc(p.numero)}"></div>
+      </div>
+      <div class="fila-campos">
         <div class="campo"><label>Planta</label><input id="vf-planta" value="${esc(p.planta)}"></div>
+        <div class="campo"><label>Nº de puerta</label><input id="vf-numero_puerta" value="${esc(p.numero_puerta)}"></div>
       </div>
       <div class="fila-campos">
         <div class="campo"><label>Zona</label><input id="vf-zona" value="${esc(p.zona)}"></div>
@@ -666,7 +669,7 @@ const Ventas = (() => {
 
   const CAMPOS_FORM = [
     'apartamento_nombre',
-    'referencia', 'tipo', 'calle', 'numero', 'planta', 'zona', 'localidad', 'precio', 'estado',
+    'referencia', 'tipo', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad', 'precio', 'estado',
     'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje',
     'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
     'descripcion', 'notas',
@@ -3121,7 +3124,7 @@ const Ventas = (() => {
       (p) => {
         iIn.value = p.calle || p.referencia || '';
         setVal('aut-i-planta', p.planta || '');
-        setVal('aut-i-puerta', p.numero || '');
+        setVal('aut-i-puerta', p.numero_puerta || '');
         if (p.precio != null) { setVal('aut-e-precio', p.precio); calcResto(); calcComision(); }
         iRes.classList.add('oculto');
       }));
@@ -3165,7 +3168,7 @@ const Ventas = (() => {
     // Inmueble.
     setVal('aut-i-edificio', p.calle || p.zona || p.referencia || '');
     setVal('aut-i-planta', p.planta || '');
-    setVal('aut-i-puerta', p.numero || '');
+    setVal('aut-i-puerta', p.numero_puerta || '');
     if (p.precio != null) setVal('aut-e-precio', p.precio);
     calcResto();
 
@@ -3392,7 +3395,7 @@ const Ventas = (() => {
         rIn.value = p.referencia || '';
         setVal('autv-edificio', p.calle || p.zona || p.referencia || '');
         setVal('autv-planta', p.planta || '');
-        setVal('autv-puerta', p.numero || '');
+        setVal('autv-puerta', p.numero_puerta || '');
         if (p.precio != null) setVal('autv-precio', p.precio);
         const card = document.getElementById('autv-card');
         if (card) {

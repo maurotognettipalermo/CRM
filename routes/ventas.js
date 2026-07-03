@@ -434,7 +434,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
 // ============================================================
 const PROP_CAMPOS = [
   'apartamento_nombre',
-  'referencia', 'codigo_idealista', 'tipo', 'calle', 'numero', 'planta', 'zona', 'localidad',
+  'referencia', 'codigo_idealista', 'tipo', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad',
   'precio', 'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica',
   'garaje', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
   'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
