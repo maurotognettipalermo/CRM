@@ -69,7 +69,7 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `api.js` | `API` | `.get/post/put/del/subirArchivo`, `toast()`, `abrirModal/cerrarModal`, `initDatePickers()` (flatpickr + MutationObserver auto-init), `getPortales()` (caché memoria), helpers `fechaES/tihTexto` |
 | `auth.js` | `Auth` | sesión localStorage, login/logout |
 | `app.js` | — | gate login, `activarTab()`, sidebar colapsable (grupos Alquiler/Administración/Equipo), control de acceso por rol, `ROL_RESTRINGIDO` para limpieza/mantenimiento |
-| `planning.js` | — | vista N días, drag&drop; calculadora de precios replica el cálculo de tarifas en cliente (NO llama a `/api/tarifas/calcular`) |
+| `planning.js` | — | vista N días, drag&drop; calculadora de precios replica el cálculo de tarifas en cliente (NO llama a `/api/tarifas/calcular`). Rango fijo opcional (`fecha-fin` + ✕): con rango activo, nº de columnas lo manda la longitud del rango (no el ancho de pantalla) — scroll horizontal, resize no recalcula, ◀/▶/Hoy desplazan el rango completo |
 | `alojamientos.js` | — | `abrirFicha(id)` |
 | `reservas.js` | — | `abrirFicha(id)`; ficha incluye EXTRAS y PAGOS |
 | `contratos.js` | — | `filtrarPorPropietario(id, nombre)`. Buscador libre (texto) por alojamiento+propietario inyectado en init; contador "X contratos / X de Y" junto al buscador |
@@ -105,10 +105,12 @@ Variables: `--nav:#1a1a2e` · `--green:#10b981` · `--blue:#3b82f6` · `--red:#e
 - **reservas**: `portal` es TEXT (nombre, NO FK a portales). `cliente_id` FK nullable. `contrato_origen_id` marca reservas auto de contratos. `apartamento_id` NULL = Sin asignar.
 - **ajustes**: clave/valor. Flag `limpieza_datos_prueba_v1` — **NO borrar** (volvería a borrar datos reales si reaparece). Claves `smtp_*` de correo.
 - **Patrón snapshot**: `apartamento_gastos`, `reserva_extras`, `factura_lineas`, `mantenimiento_tareas.cliente_*` copian nombre/precio al insertar. El catálogo puede cambiar sin afectar registros previos.
-- **facturas**: numeración correlativa F-{anio}-NNN vía `factura_contador` en transacción. IVA: propietario/autofactura→del contrato; gastos→21% si incluye IVA; huésped/mayorista→10%.
+- **facturas**: numeración correlativa `{serie}-{anio}-NNN` vía `factura_contador` (PK compuesta `anio+serie`, en transacción). `serie` sale de `razones_sociales.serie` (propia por razón social, fallback `'F'` si no tiene asignada); proformas siempre `PRO`. IVA: propietario/autofactura→del contrato; gastos→21% si incluye IVA; huésped/mayorista→10%. Tipo `abono` (nota de crédito): `factura_abonada_id` apunta a la factura que rectifica, líneas en negativo, numeración con sufijo `{serie}-A` (contador propio, independiente del normal); `POST /:id/abono` no admite abonar proforma/abono/anulada/borrador. `numero` editable por PUT (solo admin) validando único.
+- **razones_sociales**: `serie` (TEXT, nullable) — prefijo de numeración de facturas propio; único case-insensitive/trim, validado en POST/PUT (409 si choca).
 - **pagos_propietario**: CRUD en `routes/apartamentos.js`. El endpoint `generar-factura` llama `crearAutofacturaPago` exportado por `routes/facturas.js` (dependencia cruzada entre routers).
 - **contrato_fechas_propietario**: `generarBloqueosContrato()` en `routes/contratos.js` — idempotente, regenera en el planning reservas "Bloqueado"/"De propietario" al POST/PUT contrato o POST/DELETE fechas-propietario.
 - **visitas_venta**: campo `propiedad_id` directo es legado (compat = 1ª propiedad). Propiedades reales en N:M `visitas_propiedades`.
+- **propiedades_venta**: `numero_puerta` (TEXT) independiente de `numero` (nº de calle) — usar `numero_puerta` para autorrellenar "puerta" en Arras/Autorización, `numero` sigue siendo el de la calle. `fecha_escritura`: editable/borrable (PUT con `null`) solo admin desde la ficha de Vendidos.
 - **usuarios**: password_hash = sha256 (sin bcrypt). Roles: administrador/usuario/limpieza/mantenimiento. Admin por defecto: `admin` / `admin1234`.
 - **fichajes**: estado del día derivado de la secuencia de eventos (sin tabla de estado separada).
 - **extras_items**: `stock_total NULL = ilimitado`. `disponible` = stock − Σpréstamos + Σdevoluciones, calculado en API.
@@ -285,8 +287,9 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/POST | /api/contratos/:id/fechas-propietario | POST `{fecha_inicio, fecha_fin, motivo}` → regenera bloqueos |
 | DELETE | /api/contratos/:id/fechas-propietario/:fp_id | Elimina + regenera bloqueos |
 | PUT | /api/contratos/:id/cuotas/:cuota_id | Marcar/desmarcar pago; sin fecha→hoy |
-| GET/POST/DELETE | /api/facturas[/:id] | POST numera F-{anio}-NNN en transacción. Tipo `mayorista`: fija numero_factura en los pagos |
-| PUT | /api/facturas/:id | Admin: todos los campos + `lineas` reemplaza. No-admin: solo `estado/fecha_vencimiento/notas` (403 si más) |
+| GET/POST/DELETE | /api/facturas[/:id] | POST numera `{serie}-{anio}-NNN` (serie de la razón social) en transacción. Tipo `mayorista`: fija numero_factura en los pagos. GET/:id incluye `abona_a`/`abonos[]` |
+| PUT | /api/facturas/:id | Admin: todos los campos (incl. `numero`, validado único) + `lineas` reemplaza. No-admin: solo `estado/fecha_vencimiento/notas` (403 si más) |
+| POST | /api/facturas/:id/abono | Genera abono (líneas en negativo, o `lineas` propias del body). 400/409 si origen es proforma/abono/anulada/borrador |
 | GET/POST/PUT/DELETE | /api/tarifas/temporadas[/:id] | `?anio=`. POST/PUT validan solape (409) |
 | POST | /api/tarifas/temporadas/copiar | `{anio_origen, anio_destino}`. 409 si destino ya tiene; 29-feb→28 si no bisiesto |
 | GET/PUT | /api/tarifas/modificadores[/:id] | PUT solo porcentaje; tipo A bloqueado (400) |
