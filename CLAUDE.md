@@ -316,3 +316,7 @@ Invoke-RestMethod -Uri http://localhost:3000/api/reservas -Method POST -Body $bo
 
 `backup.bat` → `backups\AAAA-MM-DD_HH-MM-SS\` con los **3 archivos** (`crm.db`, `crm.db-wal`, `crm.db-shm`).
 Restaurar: parar servidor → copiar los 3 archivos a `db\`.
+
+## Deploy remoto (`deploy/`)
+
+Scripts para desplegar en servidor remoto (Hetzner) vía Caddy (reverse proxy/TLS) + PM2 (proceso Node): `Caddyfile`, `deploy.sh`, `ecosystem.config.js`, `setup-servidor.sh`, `backup-remoto.sh`. Uso principal sigue siendo LAN local sin internet; esto es un modo de despliegue alternativo.
