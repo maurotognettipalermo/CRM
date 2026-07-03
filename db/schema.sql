@@ -309,10 +309,13 @@ CREATE TABLE IF NOT EXISTS factura_lineas (
   orden INTEGER DEFAULT 0
 );
 
--- Contador de numeración de facturas por año (numeración correlativa sin huecos).
+-- Contador de numeración de facturas por año + serie (numeración correlativa sin huecos,
+-- independiente por cada serie de razón social).
 CREATE TABLE IF NOT EXISTS factura_contador (
-  anio INTEGER PRIMARY KEY,
-  ultimo_numero INTEGER DEFAULT 0
+  anio INTEGER NOT NULL,
+  serie TEXT NOT NULL DEFAULT 'F',
+  ultimo_numero INTEGER DEFAULT 0,
+  PRIMARY KEY (anio, serie)
 );
 
 CREATE TABLE IF NOT EXISTS factura_pagos (

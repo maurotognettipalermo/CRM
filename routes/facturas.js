@@ -105,12 +105,24 @@ function direccionRazon(rs) {
   return [rs.direccion, rs.numero, rs.codigo_postal, rs.ciudad].filter(Boolean).join(', ') || null;
 }
 
-// Numeración correlativa por año (dentro de la transacción del INSERT).
+// Numeración correlativa por año + serie (dentro de la transacción del INSERT). Cada serie
+// lleva su propio contador, para que dos razones sociales con series distintas no choquen.
 function siguienteNumeroFactura(anio, serie) {
-  db.prepare('INSERT OR IGNORE INTO factura_contador (anio, ultimo_numero) VALUES (?, 0)').run(anio);
-  db.prepare('UPDATE factura_contador SET ultimo_numero = ultimo_numero + 1 WHERE anio = ?').run(anio);
-  const n = db.prepare('SELECT ultimo_numero FROM factura_contador WHERE anio = ?').get(anio).ultimo_numero;
-  return `${serie || 'F'}-${anio}-${String(n).padStart(3, '0')}`;
+  const s = serie || 'F';
+  db.prepare('INSERT OR IGNORE INTO factura_contador (anio, serie, ultimo_numero) VALUES (?, ?, 0)').run(anio, s);
+  db.prepare('UPDATE factura_contador SET ultimo_numero = ultimo_numero + 1 WHERE anio = ? AND serie = ?').run(anio, s);
+  const n = db.prepare('SELECT ultimo_numero FROM factura_contador WHERE anio = ? AND serie = ?').get(anio, s).ultimo_numero;
+  return `${s}-${anio}-${String(n).padStart(3, '0')}`;
+}
+
+// Serie a usar para una factura según la razón social emisora: si tiene una serie propia
+// asignada (Ajustes > Razones sociales), esa; si no (o sin razón social), 'F' de siempre —
+// así una razón social sin serie configurada sigue compartiendo la numeración legada.
+function serieParaRazonSocial(razonSocialId) {
+  if (razonSocialId == null) return 'F';
+  const rs = db.prepare('SELECT serie FROM razones_sociales WHERE id = ?').get(razonSocialId);
+  const serie = rs && rs.serie ? String(rs.serie).trim() : '';
+  return serie || 'F';
 }
 
 // Numeración propia de proformas (PRO-AAAA-NNN), independiente del contador de facturas.
@@ -127,6 +139,7 @@ function siguienteNumeroProforma(anio) {
 
 // Inserta factura + líneas en una transacción, fijando el número correlativo.
 const insertarFactura = db.transaction((f, lineas) => {
+  if (f.tipo !== 'proforma') f.serie = serieParaRazonSocial(f.razon_social_id);
   f.numero = f.tipo === 'proforma' ? siguienteNumeroProforma(f.anio) : siguienteNumeroFactura(f.anio, f.serie);
   const ph = COLS.map((c) => '@' + c).join(', ');
   const info = db.prepare(`INSERT INTO facturas (${COLS.join(', ')}) VALUES (${ph})`).run(f);

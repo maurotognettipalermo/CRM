@@ -10,7 +10,9 @@ const Ajustes = (() => {
   // ---- Campos de razón social (mismo orden que la captura) ----
   const RS_GENERAL = [
     ['razon_social', 'Razón Social'], ['nombre_comercial', 'Nombre comercial'],
-    ['cif_nif', 'Nº documento CIF/NIF'], ['direccion', 'Dirección'],
+    ['cif_nif', 'Nº documento CIF/NIF'],
+    ['serie', 'Serie de numeración de facturas (prefijo único, ej. "A")'],
+    ['direccion', 'Dirección'],
     ['persona_contacto', 'Persona de contacto'], ['numero', 'Número'],
     ['email_contacto', 'Email de contacto'], ['puerta', 'Puerta'],
     ['telefono', 'Teléfono sin prefijo'], ['codigo_postal', 'Código postal'],

@@ -138,6 +138,7 @@ const COLUMNAS_RAZONES = {
   firma_url: 'TEXT',                     // imagen de firma/sello para el PDF del contrato
   representante_nombre: 'TEXT',          // nombre del representante legal (firmante de los contratos)
   representante_dni: 'TEXT',             // DNI del representante (distinto del CIF de la empresa)
+  serie: 'TEXT',                         // prefijo de numeración de facturas propio de esta razón social
 };
 
 // Columnas extra de la tabla catalogo_extras.
@@ -234,6 +235,7 @@ function init() {
   migrarUsuariosRol();
   migrarFacturasTipo();
   migrarFacturasEstado();
+  migrarFacturaContadorSerie();
   migrarPropiedadesVenta();
   migrarVisitasPropiedades();
   migrarHorasExtra();
@@ -475,6 +477,33 @@ function migrarFacturasEstado() {
   const rotas = db.prepare('PRAGMA foreign_key_check').all();
   if (rotas.length) console.error('AVISO: claves foráneas rotas tras migrar facturas.estado:', rotas);
   console.log("Migración: facturas.estado ahora admite 'parcialmente_pagada'.");
+}
+
+// Añade la columna `serie` a factura_contador y la mete en la PRIMARY KEY (antes solo
+// `anio`), para llevar el correlativo por separado por cada serie de razón social. SQLite no
+// permite alterar una PRIMARY KEY con ALTER TABLE, así que se recrea la tabla. Los contadores
+// existentes se migran bajo serie 'F' (la única serie que se ha usado hasta ahora), para que
+// una razón social sin serie propia asignada siga la numeración legada sin repetir números.
+// Idempotente: si la tabla actual ya tiene la columna `serie`, no hace nada.
+function migrarFacturaContadorSerie() {
+  const cols = db.prepare('PRAGMA table_info(factura_contador)').all().map((c) => c.name);
+  if (!cols.length || cols.includes('serie')) return;
+
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE factura_contador_nueva (
+        anio INTEGER NOT NULL,
+        serie TEXT NOT NULL DEFAULT 'F',
+        ultimo_numero INTEGER DEFAULT 0,
+        PRIMARY KEY (anio, serie)
+      )
+    `);
+    db.exec(`INSERT INTO factura_contador_nueva (anio, serie, ultimo_numero)
+      SELECT anio, 'F', ultimo_numero FROM factura_contador`);
+    db.exec('DROP TABLE factura_contador');
+    db.exec('ALTER TABLE factura_contador_nueva RENAME TO factura_contador');
+  })();
+  console.log("Migración: factura_contador ahora lleva el correlativo por (anio, serie).");
 }
 
 // Amplía el CHECK de usuarios.rol para permitir 'limpieza' y 'mantenimiento'. SQLite no

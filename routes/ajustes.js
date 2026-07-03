@@ -42,7 +42,7 @@ const RS_CAMPOS = [
   'iva', 'estado_provincia', 'codigo_cnae', 'pais', 'iva_intracomunitario',
   'tipo_direccion', 'tipo_documento_in', 'numero_documento_in',
   'nombre_banco', 'iban', 'direccion_banco', 'codigo_swift', 'numero_cuenta_ccc',
-  'representante_nombre', 'representante_dni',
+  'representante_nombre', 'representante_dni', 'serie',
 ];
 
 function recoger(body) {
@@ -70,6 +70,13 @@ router.get('/razon-social-predeterminada', (req, res) => {
 
 router.post('/razones-sociales', (req, res) => {
   const d = recoger(req.body || {});
+  if (d.serie) {
+    d.serie = String(d.serie).trim() || null;
+    if (d.serie) {
+      const dup = db.prepare('SELECT id FROM razones_sociales WHERE UPPER(TRIM(serie)) = UPPER(TRIM(?))').get(d.serie);
+      if (dup) return res.status(409).json({ error: `Ya hay otra razón social usando la serie "${d.serie}"` });
+    }
+  }
   const cols = RS_CAMPOS.join(', ');
   const ph = RS_CAMPOS.map((c) => '@' + c).join(', ');
   const info = db.prepare(`INSERT INTO razones_sociales (${cols}) VALUES (${ph})`).run(d);
@@ -79,6 +86,13 @@ router.post('/razones-sociales', (req, res) => {
 
 router.put('/razones-sociales/:id', (req, res) => {
   const d = recoger(req.body || {});
+  if (d.serie) {
+    d.serie = String(d.serie).trim() || null;
+    if (d.serie) {
+      const dup = db.prepare('SELECT id FROM razones_sociales WHERE UPPER(TRIM(serie)) = UPPER(TRIM(?)) AND id <> ?').get(d.serie, req.params.id);
+      if (dup) return res.status(409).json({ error: `Ya hay otra razón social usando la serie "${d.serie}"` });
+    }
+  }
   const set = RS_CAMPOS.map((c) => `${c}=@${c}`).join(', ');
   const info = db.prepare(`UPDATE razones_sociales SET ${set} WHERE id=@id`).run({ ...d, id: req.params.id });
   if (info.changes === 0) return res.status(404).json({ error: 'Razón social no encontrada' });
