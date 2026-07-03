@@ -735,10 +735,13 @@ router.put('/:id', (req, res) => {
         factura.id, txt(l.descripcion) || '', l.cantidad != null ? num(l.cantidad) : 1,
         round2(l.precio_unitario), round2(l.importe), l.orden != null ? l.orden : i));
     }
-    // Marcar 'pagada' a mano no debe dejar la suma de factura_pagos en 0: si el estado
-    // pasa a pagada y los pagos existentes no cubren el total, se completa la diferencia
-    // con un pago "manual" para que fc_pagado/fv_pagado y "Pagos registrados" no contradigan al badge.
-    if (f.estado === 'pagada' && factura.estado !== 'pagada') {
+    // Marcar 'pagada' a mano no debe dejar la suma de factura_pagos en 0: si el body trae
+    // estado pagada y los pagos existentes no cubren el total, se completa la diferencia con
+    // un pago "manual" para que fc_pagado/fv_pagado y "Pagos registrados" no contradigan al
+    // badge. Se comprueba en cada guardado (no solo en la transición), porque el formulario
+    // de edición manda el estado actual aunque no se haya tocado el desplegable; la propia
+    // comparación suma-vs-total ya evita duplicar si el pago ya estaba cubierto.
+    if (f.estado === 'pagada') {
       const suma = db.prepare('SELECT COALESCE(SUM(importe), 0) AS s FROM factura_pagos WHERE factura_id = ?')
         .get(factura.id).s;
       const diferencia = round2(f.total - suma);
