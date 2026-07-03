@@ -2400,10 +2400,22 @@ const Ventas = (() => {
       <div class="vta-pv-resumen"><div>🏠 <strong>${esc(d.referencia)}</strong></div></div>
       <div class="campo"><label>Fecha de escrituración</label><input type="date" id="vesc-fecha" value="${editando ? d.fecha_escritura : hoyStr()}"></div>
       <div class="modal-acciones">
+        ${editando ? `<button class="btn-sec" id="vesc-quitar" style="margin-right:auto">🗑️ Quitar fecha</button>` : ''}
         <button class="btn-sec" id="vesc-cancelar">Cancelar</button>
         <button class="btn-pri" id="vesc-guardar">Guardar</button>
       </div>`);
     document.getElementById('vesc-cancelar').addEventListener('click', cerrarModal);
+    const btnQuitar = document.getElementById('vesc-quitar');
+    if (btnQuitar) btnQuitar.addEventListener('click', async () => {
+      if (!confirm('¿Quitar la fecha de escrituración? La propiedad volverá a quedar pendiente de escriturar.')) return;
+      try {
+        await API.put('/api/ventas/propiedades/' + d.id, { fecha_escritura: null });
+        cerrarModal();
+        toast('Fecha de escrituración eliminada', 'ok');
+        await abrirFicha(d.id);
+        if (vendConstruido) cargarVendidos();
+      } catch (e) { toast(e.message, 'error'); }
+    });
     document.getElementById('vesc-guardar').addEventListener('click', async () => {
       try {
         await API.put('/api/ventas/propiedades/' + d.id, { fecha_escritura: val('vesc-fecha') });
