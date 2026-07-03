@@ -2146,6 +2146,7 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .bf-autofactura { background: #f5f3ff; color: #7c3aed; }
 .bf-gastos      { background: #fff7ed; color: #c2410c; }
 .bf-huesped     { background: #f0fdf4; color: #059669; }
+.bf-abono       { background: #fdf2f8; color: #be185d; }
 .be-borrador { background: #f3f4f6; color: #6b7280; }
 .be-emitida  { background: #eff6ff; color: #2563eb; }
 .be-parcialmente_pagada { background: #fffbeb; color: #b45309; }

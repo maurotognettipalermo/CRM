@@ -24,7 +24,7 @@ const Facturas = (() => {
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
   function hoyISO() { return new Date().toISOString().slice(0, 10); }
   function tipoTexto(t) {
-    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre', proforma: 'Proforma' }[t] || t;
+    return { propietario: 'Propietario', autofactura: 'Autofactura', gastos: 'Gastos', 'huésped': 'Huésped', mayorista: 'Mayorista', libre: 'Libre', proforma: 'Proforma', abono: 'Abono' }[t] || t;
   }
   function estadoTexto(e) {
     return { borrador: 'Borrador', emitida: 'Emitida', parcialmente_pagada: 'Parcialmente pagada', pagada: 'Pagada', anulada: 'Anulada' }[e] || e;
