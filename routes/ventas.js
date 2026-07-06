@@ -5,6 +5,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const {
+  Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType,
+} = require('docx');
 const db = require('../db/database');
 const { importarPropiedades } = require('../services/importPropiedades');
 const { registrarActividad } = require('../services/actividadService');
@@ -305,6 +308,132 @@ router.post('/autorizacion-pdf', (req, res) => {
   doc.end();
 });
 
+// POST /api/ventas/autorizacion-docx — mismo contrato de arras que /autorizacion-pdf, en Word.
+router.post('/autorizacion-docx', async (req, res) => {
+  const b = req.body || {};
+  const s = (v) => (v === undefined || v === null) ? '' : String(v);
+
+  const nombreVend = s(b.nombre_vendedor);
+  const docVend = s(b.documento_identidad_vendedor) || 'DNI';
+  const dniVend = s(b.dni_vendedor);
+  const dirVend = s(b.direccion_vendedor);
+  const ciuVend = s(b.ciudad_vendedor);
+  const provVend = s(b.provincia_vendedor);
+  const nombreComp = s(b.nombre_comprador);
+  const docComp = s(b.documento_identidad_comprador) || 'DNI';
+  const dniComp = s(b.dni_comprador);
+  const dirComp = s(b.direccion_comprador);
+  const ciuComp = s(b.ciudad_comprador);
+  const provComp = s(b.provincia_comprador);
+  const edificio = s(b.edificio);
+  const planta = s(b.planta);
+  const numPuerta = s(b.numero_puerta);
+  const numParking = s(b.numero_parking);
+  const numTrastero = s(b.numero_trastero);
+  const precioVenta = formatearEuros(b.precio_venta);
+  const senal = formatearEuros(b.senal);
+  const restoPago = formatearEuros(b.resto_pago);
+  const fechaEscritura = fechaDDMM(b.fecha_escritura);
+  const importeComision = formatearEuros(b.importe_comision);
+  const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
+
+  // --- Primitivas docx (tamaños en medios puntos: 20 = 10pt, 28 = 14pt) ---
+  const R = (t, bold) => new TextRun({ text: t, bold: !!bold, size: 20, font: 'Helvetica' });
+  const P = (segs, align) => new Paragraph({
+    alignment: align || AlignmentType.JUSTIFIED,
+    spacing: { after: 140, line: 276 },
+    children: segs.map((seg) => R(seg.t, seg.b)),
+  });
+  const Pt = (t, align) => P([{ t }], align);
+  const titulo = (t, size) => new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: { after: 200, before: 120 },
+    children: [new TextRun({ text: t, bold: true, size: size || 28, font: 'Helvetica' })],
+  });
+
+  const k = [];
+  k.push(titulo('AUTORIZACIÓN DE VENTA'));
+
+  k.push(P([
+    { t: 'De una parte ' }, { t: nombreVend, b: true }, { t: ' con ' }, { t: `${docVend} ${dniVend}`, b: true },
+    { t: ', domiciliado en ' }, { t: dirVend, b: true }, { t: ' de ' }, { t: `${ciuVend} ${provVend}`, b: true },
+    { t: '; en adelante parte vendedora, y por otra parte ' }, { t: nombreComp, b: true }, { t: ' con ' },
+    { t: `${docComp} ${dniComp}`, b: true }, { t: ', con domicilio en ' }, { t: `${dirComp} ${ciuComp} ${provComp}`, b: true },
+    { t: '; en adelante parte compradora.' },
+  ]));
+
+  k.push(Pt('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.'));
+
+  const segInmueble = [
+    { t: 'La parte vendedora vende a la parte compradora, el apartamento ' },
+    { t: `${edificio} ${planta} ${numPuerta}`, b: true },
+  ];
+  if (numParking) segInmueble.push({ t: ' y la plaza de parking ' }, { t: numParking, b: true }, { t: ' situada en el mismo edificio' });
+  if (numTrastero) segInmueble.push({ t: ' y el trastero ' }, { t: numTrastero, b: true }, { t: ' situado en el mismo edificio' });
+  segInmueble.push({ t: ', dentro de la Urbanización Marina D\'or de Oropesa del Mar.' });
+  k.push(P(segInmueble));
+
+  k.push(P([
+    { t: 'El importe total de esta operación será de: ' }, { t: precioVenta, b: true },
+    { t: '. Dicho monto se pagará:' },
+  ]));
+
+  k.push(P([
+    { t: senal, b: true },
+    { t: ' que serán custodiadas en la cta. de la sra. Analia Palermo Cornet con n.° de cuenta ES74 0081 1276 2900 0108 0515, sirviendo este contrato de eficaz recibo.' },
+  ]));
+
+  k.push(P([
+    { t: 'Los ' }, { t: restoPago, b: true }, { t: ' restantes el día de la escrituración ante notario, que será antes del día ' },
+    { t: fechaEscritura, b: true }, { t: '.' },
+  ]));
+
+  k.push(Pt('Se deja expresa constancia que el día de la escritura la susodicha finca estará libre de cargas, gravámenes e inquilinos, al corriente en el pago de contribuciones, arbitrios, impuestos, servicios y suministros, debiendo el vendedor presentar la documentación que acredite lo anteriormente expuesto.'));
+
+  k.push(Pt('En el caso que la parte vendedora se volviera atrás deberán devolver el doble de la cantidad entregada a cuenta y si fuese por la parte compradora perderían la cantidad entregada.'));
+
+  k.push(Pt('Los gastos que origine dicha compraventa correrán a cargo del comprador excepto la plusvalía que la abonará el vendedor.'));
+
+  k.push(P([
+    { t: 'La empresa Analia Palermo Cornet recibirá de la parte vendedora la cantidad de ' },
+    { t: `${importeComision} ${textoIva}`, b: true },
+    { t: ', en concepto de honorarios por la mediación en esta compraventa, conforme el pacto establecido.' },
+  ]));
+
+  const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const ahora = new Date();
+  const fechaTexto = `En Oropesa del Mar, a ${ahora.getDate()} de ${MESES_ES[ahora.getMonth()]} de ${ahora.getFullYear()}`;
+  k.push(new Paragraph({ spacing: { before: 200, after: 400 }, children: [R(fechaTexto)] }));
+
+  // Tres firmas (empresa, vendedor, comprador) en bloques sucesivos.
+  const firmas = [
+    ['Analia Palermo Cornet', '20473042Y'],
+    [nombreVend || '—', dniVend || ''],
+    [nombreComp || '—', dniComp || ''],
+  ];
+  firmas.forEach(([nombre, dni]) => {
+    k.push(new Paragraph({ spacing: { before: 300 }, children: [R(nombre, true)] }));
+    k.push(Pt(dni));
+    k.push(Pt('(Firma)'));
+  });
+
+  const docx = new Document({
+    sections: [{
+      properties: { page: { margin: { top: 1417, bottom: 1417, left: 1417, right: 1417 } } }, // 25mm
+      children: k,
+    }],
+  });
+
+  try {
+    const buf = await Packer.toBuffer(docx);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="arras-autorizacion-venta.docx"');
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/ventas/autorizacion-venta-pdf — mandato de autorización de venta (pdfkit).
 router.post('/autorizacion-venta-pdf', (req, res) => {
   const b = req.body || {};
@@ -427,6 +556,102 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   doc.font('Helvetica-Bold').fontSize(10).text('El Vendedor', xDer, yF + 8, { width: colW, align: 'center' });
 
   doc.end();
+});
+
+// POST /api/ventas/autorizacion-venta-docx — mismo mandato de venta que /autorizacion-venta-pdf, en Word.
+router.post('/autorizacion-venta-docx', async (req, res) => {
+  const b = req.body || {};
+  const s = (v) => (v === undefined || v === null) ? '' : String(v);
+
+  const nombreVend = s(b.nombre_vendedor);
+  const estadoCivil = s(b.estado_civil);
+  const dniVend = s(b.dni_vendedor);
+  const dirVend = s(b.direccion_vendedor);
+  const ciuVend = s(b.ciudad_vendedor);
+  const provVend = s(b.provincia_vendedor);
+  const telVend = s(b.telefono_vendedor);
+  const edificio = s(b.edificio);
+  const planta = s(b.planta);
+  const puerta = s(b.puerta);
+  const precioNum = Number(b.precio_venta) || 0;
+  const porcComision = s(b.porcentaje_comision) || '3';
+  const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
+  const fechaDoc = fechaTextoEspanol(b.fecha_documento);
+
+  // --- Primitivas docx (tamaños en medios puntos: 20 = 10pt, 28 = 14pt) ---
+  const R = (t, bold) => new TextRun({ text: t, bold: !!bold, size: 22, font: 'Helvetica' });
+  const P = (segs, align) => new Paragraph({
+    alignment: align || AlignmentType.JUSTIFIED,
+    spacing: { after: 140, line: 276 },
+    children: segs.map((seg) => R(seg.t, seg.b)),
+  });
+  const Pt = (t, align) => P([{ t }], align);
+  const titulo = (t, size) => new Paragraph({
+    alignment: AlignmentType.CENTER, spacing: { after: 200, before: 120 },
+    children: [new TextRun({ text: t, bold: true, size: size || 28, font: 'Helvetica' })],
+  });
+
+  const k = [];
+  k.push(titulo('AUTORIZACIÓN DE VENTA'));
+
+  k.push(P([
+    { t: 'Don/Dña ' }, { t: nombreVend, b: true }, { t: ' de estado civil ' }, { t: estadoCivil, b: true },
+    { t: ', con D.N.I. nº ' }, { t: dniVend, b: true }, { t: ', con domicilio en ' }, { t: dirVend, b: true },
+    { t: ' (' }, { t: ciuVend, b: true }, { t: ') ' }, { t: provVend, b: true }, { t: ' y teléfono ' }, { t: telVend, b: true }, { t: '.' },
+  ]));
+
+  k.push(P([
+    { t: 'AUTORIZA a la mercantil ' }, { t: razonSocial, b: true },
+    { t: ' para que proceda a la venta de mi propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio ' },
+    { t: edificio, b: true }, { t: ' planta ' }, { t: planta, b: true }, { t: ' puerta ' }, { t: puerta, b: true }, { t: '.' },
+  ]));
+
+  k.push(P([
+    { t: 'El precio para la citada venta es de ' }, { t: formatearEuros(precioNum), b: true },
+    { t: ' (' }, { t: `${numeroATextoEspanol(precioNum)} euros`, b: true }, { t: ')' },
+  ]));
+
+  k.push(P([
+    { t: razonSocial, b: true },
+    { t: ' percibirá del propietario del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al ' },
+    { t: `${porcComision} %`, b: true },
+    { t: ' del precio de la venta mas el IVA correspondiente. La propiedad autoriza expresamente a ' },
+    { t: razonSocial, b: true },
+    { t: ' a percibir sus honorarios en la primera entrega de cantidad dada a cuenta. A tal fin, la propiedad concede plena autorización a ' },
+    { t: razonSocial, b: true },
+    { t: ' para percibir cantidades en concepto de señal de arras, o a cuenta del precio pactado como paso previo para la formalización del contrato privado de compraventa.' },
+  ]));
+
+  k.push(Pt('La duración del presente mandato se pacta en 365 días, a contar desde el día de la fecha prorrogándose por periodos iguales, si no media denuncia expresa por cualquiera de las partes en el plazo de quince días antes de su vencimiento.'));
+
+  k.push(Pt('En el caso de desistimiento o incumplimiento por parte de los compradores de la compra en las condiciones pactadas en el presente documento, estos perderán la cantidad entregada como reserva en concepto de indemnización por daños y perjuicios. Si el desistimiento o incumplimiento fuese por los vendedores, estos deberán devolver a los compradores la cantidad recibida como reserva doblada.'));
+
+  k.push(P([
+    { t: 'Y en prueba de conformidad, firman el presente documento por duplicado y a un solo efecto en Oropesa del Mar, a ' },
+    { t: fechaDoc, b: true }, { t: '.' },
+  ]));
+
+  // Dos firmas (mercantil, vendedor) en bloques sucesivos.
+  k.push(new Paragraph({ spacing: { before: 400 }, children: [R(razonSocial, true)] }));
+  k.push(Pt('(Firma y sello)'));
+  k.push(new Paragraph({ spacing: { before: 300 }, children: [R('El Vendedor', true)] }));
+  k.push(Pt('(Firma)'));
+
+  const docx = new Document({
+    sections: [{
+      properties: { page: { margin: { top: 1247, bottom: 1247, left: 1247, right: 1247 } } }, // 22mm
+      children: k,
+    }],
+  });
+
+  try {
+    const buf = await Packer.toBuffer(docx);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="autorizacion-venta-mandato.docx"');
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ============================================================

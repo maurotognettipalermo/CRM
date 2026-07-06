@@ -3089,6 +3089,7 @@ const Ventas = (() => {
 
         <div class="aut-acciones">
           <button class="btn-pri" id="aut-descargar">📥 Descargar PDF</button>
+          <button class="btn-sec" id="aut-descargar-word">📄 Descargar Word</button>
           <button class="btn-sec" id="aut-imprimir">🖨️ Imprimir</button>
           <button class="btn-sec" id="aut-limpiar">Limpiar formulario</button>
         </div>
@@ -3166,6 +3167,7 @@ const Ventas = (() => {
     if (rsSel) { rsSel.addEventListener('change', pintarLogo); pintarLogo(); }
 
     document.getElementById('aut-descargar').addEventListener('click', () => generarAutorizacion('descargar'));
+    document.getElementById('aut-descargar-word').addEventListener('click', () => generarAutorizacionWord());
     document.getElementById('aut-imprimir').addEventListener('click', () => generarAutorizacion('imprimir'));
     document.getElementById('aut-limpiar').addEventListener('click', limpiarAutorizacion);
 
@@ -3312,6 +3314,29 @@ const Ventas = (() => {
     }
   }
 
+  async function generarAutorizacionWord() {
+    const btn = document.getElementById('aut-descargar-word');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('/api/ventas/autorizacion-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(bodyAutorizacion()),
+      });
+      if (!r.ok) throw new Error('No se pudo generar el Word');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'autorizacion-venta.docx';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   // ==================== Sub-pestaña Autorización (mandato de venta) ====================
   async function construirAutVenta() {
     if (autvConstruido) return;
@@ -3377,6 +3402,7 @@ const Ventas = (() => {
 
         <div class="aut-acciones">
           <button class="btn-pri" id="autv-descargar">📥 Descargar PDF</button>
+          <button class="btn-sec" id="autv-descargar-word">📄 Descargar Word</button>
           <button class="btn-sec" id="autv-limpiar">Limpiar formulario</button>
         </div>
       </div>`;
@@ -3427,6 +3453,7 @@ const Ventas = (() => {
     });
 
     document.getElementById('autv-descargar').addEventListener('click', generarAutVenta);
+    document.getElementById('autv-descargar-word').addEventListener('click', generarAutVentaWord);
     document.getElementById('autv-limpiar').addEventListener('click', limpiarAutVenta);
   }
 
@@ -3441,8 +3468,8 @@ const Ventas = (() => {
     if (card) { card.classList.add('oculto'); card.textContent = ''; }
   }
 
-  async function generarAutVenta() {
-    const body = {
+  function bodyAutVenta() {
+    return {
       nombre_vendedor: val('autv-nombre'),
       estado_civil: val('autv-civil'),
       dni_vendedor: val('autv-dni'),
@@ -3458,19 +3485,45 @@ const Ventas = (() => {
       razon_social: val('autv-razon'),
       fecha_documento: val('autv-fecha'),
     };
+  }
+
+  async function generarAutVenta() {
     const btn = document.getElementById('autv-descargar');
     if (btn) btn.disabled = true;
     try {
       const r = await fetch('/api/ventas/autorizacion-venta-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify(body),
+        body: JSON.stringify(bodyAutVenta()),
       });
       if (!r.ok) throw new Error('No se pudo generar el PDF');
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'autorizacion-venta.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function generarAutVentaWord() {
+    const btn = document.getElementById('autv-descargar-word');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('/api/ventas/autorizacion-venta-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(bodyAutVenta()),
+      });
+      if (!r.ok) throw new Error('No se pudo generar el Word');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'autorizacion-venta.docx';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
