@@ -910,13 +910,19 @@ router.put('/:id/anular', (req, res) => {
   res.json({ ok: true });
 });
 
-// DELETE /api/facturas/:id — solo borradores.
+// DELETE /api/facturas/:id — borradores (cualquiera) o anuladas (solo administrador; borrado
+// definitivo, deja hueco en la numeración correlativa a propósito).
 router.delete('/:id', (req, res) => {
-  const factura = db.prepare('SELECT estado FROM facturas WHERE id = ?').get(req.params.id);
+  const factura = db.prepare('SELECT id, numero, tipo, estado FROM facturas WHERE id = ?').get(req.params.id);
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
-  if (factura.estado !== 'borrador') {
-    return res.status(409).json({ error: 'Solo se pueden eliminar facturas en borrador' });
+  if (factura.estado === 'anulada') {
+    if (!(req.usuario && req.usuario.rol === 'administrador')) {
+      return res.status(403).json({ error: 'Solo un administrador puede eliminar definitivamente un documento anulado' });
+    }
+  } else if (factura.estado !== 'borrador') {
+    return res.status(409).json({ error: 'Solo se pueden eliminar facturas en borrador o ya anuladas — anula esta factura primero si quieres eliminarla definitivamente' });
   }
+  registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'eliminar', 'factura', factura.id, `${factura.numero} (${factura.tipo})`);
   db.prepare('DELETE FROM facturas WHERE id = ?').run(req.params.id); // líneas en CASCADE
   res.json({ ok: true });
 });

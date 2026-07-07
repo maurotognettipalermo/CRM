@@ -72,7 +72,8 @@ const Facturas = (() => {
       const accVer = `<button class="btn-mini" data-ver="${f.id}" data-numero="${esc(f.numero)}" title="Ver PDF">👁</button>`;
       const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada' && f.tipo !== 'proforma') ? `<button class="btn-mini" data-pagar="${f.id}" title="Registrar pago">✓</button>` : '';
       const accAnular = (f.estado !== 'anulada') ? `<button class="btn-mini" data-anular="${f.id}" title="Anular">⊘</button>` : '';
-      const accBorrar = (f.estado === 'borrador') ? `<button class="btn-mini" data-borrar="${f.id}" title="Eliminar">🗑️</button>` : '';
+      const accBorrar = (f.estado === 'borrador' || (f.estado === 'anulada' && esAdmin()))
+        ? `<button class="btn-mini" data-borrar="${f.id}" title="Eliminar">🗑️</button>` : '';
       const tr = document.createElement('tr');
       tr.dataset.ficha = f.id;
       tr.innerHTML = `
@@ -133,9 +134,17 @@ const Facturas = (() => {
   }
 
   async function borrar(id) {
-    if (!confirm('¿Eliminar esta factura en borrador?')) return;
-    try { await API.del('/api/facturas/' + id); await cargar(); toast('Factura eliminada', 'ok'); }
-    catch (e) { toast(e.message, 'error'); }
+    const f = todas.find((x) => String(x.id) === String(id)) || (fichaActual && String(fichaActual.id) === String(id) ? fichaActual : null);
+    const mensaje = (f && f.estado === 'anulada')
+      ? `¿Eliminar DEFINITIVAMENTE ${f.numero}? Esta acción no se puede deshacer y dejará un hueco permanente en la numeración correlativa. Solo hazlo con documentos de prueba o creados por error.`
+      : '¿Eliminar esta factura en borrador?';
+    if (!confirm(mensaje)) return;
+    try {
+      await API.del('/api/facturas/' + id);
+      await cargar();
+      if (fichaActual && String(fichaActual.id) === String(id)) cerrarPanel();
+      toast('Factura eliminada', 'ok');
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   // Descarga via fetch con el token (window.open no envía X-Auth-Token -> 401).
@@ -181,6 +190,7 @@ const Facturas = (() => {
           <button id="fac-pdf" class="btn-sec">Descargar PDF</button>
           <button id="fac-abono" class="btn-sec oculto">↩️ Emitir abono</button>
           <button id="fac-anular" class="btn-sec">Anular</button>
+          <button id="fac-borrar" class="btn-peligro oculto">🗑️ Eliminar definitivamente</button>
           <button id="fac-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
       </header>
@@ -191,6 +201,7 @@ const Facturas = (() => {
     panel.querySelector('#fac-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#fac-pdf').addEventListener('click', () => { if (fichaActual) descargarPDF(fichaActual.id, fichaActual.numero); });
     panel.querySelector('#fac-anular').addEventListener('click', () => { if (fichaActual) anular(fichaActual.id); });
+    panel.querySelector('#fac-borrar').addEventListener('click', () => { if (fichaActual) borrar(fichaActual.id); });
     panel.querySelector('#fac-abono').addEventListener('click', () => { if (fichaActual) modalAbono(fichaActual); });
     panel.querySelector('#fac-editar').addEventListener('click', () => { if (fichaActual) abrirEditar(fichaActual); });
     document.addEventListener('keydown', (e) => {
@@ -391,6 +402,8 @@ const Facturas = (() => {
     document.getElementById('fac-badges').innerHTML = badgeTipo(fichaActual.tipo) + ' ' + badgeEstado(fichaActual.estado);
     document.getElementById('fac-anular').classList.toggle('oculto', fichaActual.estado === 'anulada');
     document.getElementById('fac-editar').classList.toggle('oculto', !esAdmin());
+    const puedeBorrar = fichaActual.estado === 'borrador' || (fichaActual.estado === 'anulada' && esAdmin());
+    document.getElementById('fac-borrar').classList.toggle('oculto', !puedeBorrar);
     const puedeAbonar = !['proforma', 'abono'].includes(fichaActual.tipo)
       && ['emitida', 'parcialmente_pagada', 'pagada'].includes(fichaActual.estado);
     document.getElementById('fac-abono').classList.toggle('oculto', !puedeAbonar);
