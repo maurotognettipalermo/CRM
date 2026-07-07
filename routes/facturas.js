@@ -125,6 +125,15 @@ function serieParaRazonSocial(razonSocialId) {
   return serie || 'F';
 }
 
+// Serie para autofacturas: el emisor legal es el propietario, no la razón social receptora,
+// así que cada propietario (por CIF/NIF) lleva su propia numeración, independiente de la
+// serie de la razón social y del resto de propietarios. 'AF-SINCIF' es un colchón compartido
+// solo para autofacturas legadas por contrato de propietarios sin CIF/NIF en su ficha.
+function serieAutofactura(cif) {
+  const limpio = String(cif || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return limpio ? `AF-${limpio}` : 'AF-SINCIF';
+}
+
 // Numeración propia de proformas (PRO-AAAA-NNN), independiente del contador de facturas.
 // Se deriva del mayor sufijo existente del año (UNIQUE de numero protege ante carreras).
 function siguienteNumeroProforma(anio) {
@@ -140,6 +149,7 @@ function siguienteNumeroProforma(anio) {
 // Inserta factura + líneas en una transacción, fijando el número correlativo.
 const insertarFactura = db.transaction((f, lineas) => {
   if (f.tipo === 'abono') f.serie = serieParaRazonSocial(f.razon_social_id) + '-A';
+  else if (f.tipo === 'autofactura') f.serie = serieAutofactura(f.emisor_cif);
   else if (f.tipo !== 'proforma') f.serie = serieParaRazonSocial(f.razon_social_id);
   f.numero = f.tipo === 'proforma' ? siguienteNumeroProforma(f.anio) : siguienteNumeroFactura(f.anio, f.serie);
   const ph = COLS.map((c) => '@' + c).join(', ');
@@ -384,6 +394,8 @@ function construirAutofacturaLibre(body) {
 
   const emisorNombre = String(body.emisor_nombre || '').trim();
   if (!emisorNombre) return { error: 'El nombre del emisor es obligatorio' };
+  const emisorCif = String(body.emisor_cif || '').trim();
+  if (!emisorCif) return { error: 'El CIF/NIF del propietario es obligatorio para calcular su numeración' };
 
   const lineas = (Array.isArray(body.lineas) ? body.lineas : [])
     .map((l) => {
@@ -406,7 +418,7 @@ function construirAutofacturaLibre(body) {
   f.porcentaje_retencion = num(body.porcentaje_retencion);
   f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
   f.emisor_nombre = emisorNombre;
-  f.emisor_cif = txt(body.emisor_cif) || null;
+  f.emisor_cif = emisorCif;
   f.emisor_direccion = txt(body.emisor_direccion) || null;
   f.emisor_email = txt(body.emisor_email) || null;
   f.receptor_nombre = rs.razon_social || rs.nombre_comercial || '';
