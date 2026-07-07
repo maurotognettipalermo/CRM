@@ -10,6 +10,7 @@ const Facturas = (() => {
   let filtroTipo = '';
   let filtroEstado = '';
   let filtroRazon = ''; // razon_social_id como string, '' = todas (filtro en cliente)
+  let filtroBusqueda = '';
   let fichaActual = null;
 
   // Cachés cargadas bajo demanda para el wizard.
@@ -56,7 +57,20 @@ const Facturas = (() => {
   }
 
   function render() {
-    const lista = filtroRazon ? todas.filter((f) => String(f.razon_social_id) === filtroRazon) : todas;
+    const q = filtroBusqueda.toLowerCase().trim();
+    const lista = todas.filter((f) => {
+      if (filtroRazon && String(f.razon_social_id) !== filtroRazon) return false;
+      if (q) {
+        const enApto = (f.apartamento_nombre || '').toLowerCase().includes(q);
+        const enProp = nombreProp({
+          nombre: f.propietario_nombre, apellidos: f.propietario_apellidos, segundo_apellido: f.propietario_segundo_apellido,
+        }).toLowerCase().includes(q);
+        const enReceptor = (f.receptor_nombre || '').toLowerCase().includes(q);
+        const enEmisor = (f.emisor_nombre || '').toLowerCase().includes(q);
+        if (!enApto && !enProp && !enReceptor && !enEmisor) return false;
+      }
+      return true;
+    });
     const cont = document.getElementById('fac-contador');
     const total = lista.reduce((s, f) => s + (Number(f.total) || 0), 0);
     if (cont) cont.textContent = `Total: ${lista.length} factura${lista.length === 1 ? '' : 's'} — ${euro(total)}`;
@@ -771,6 +785,12 @@ const Facturas = (() => {
           <input id="wiz-prop-buscar" placeholder="Buscar propietario..." autocomplete="off">
           <div class="cnt-ta-dropdown oculto" id="wiz-prop-dd"></div>
         </div>
+        <div class="fac-separador-o">— o busca por apartamento —</div>
+        <div class="campo cnt-typeahead">
+          <label>Apartamento</label>
+          <input id="wiz-apto2-buscar" placeholder="Buscar apartamento..." autocomplete="off">
+          <div class="cnt-ta-dropdown oculto" id="wiz-apto2-dd"></div>
+        </div>
         <div class="campo"><label>Contrato *</label>
           <select id="wiz-contrato" disabled><option value="">— Selecciona un propietario —</option></select>
         </div>
@@ -859,7 +879,7 @@ const Facturas = (() => {
     document.getElementById('wiz-borrador').addEventListener('click', () => guardarWizard('borrador'));
 
     const autofLibre = wiz.tipo === 'autofactura' && wiz.modoAutofactura === 'libre';
-    if (wiz.tipo === 'propietario' || (wiz.tipo === 'autofactura' && !autofLibre)) wirePropietario();
+    if (wiz.tipo === 'propietario' || (wiz.tipo === 'autofactura' && !autofLibre)) { wirePropietario(); wireAptoAutofactura(); }
     else if (wiz.tipo === 'gastos') wireGastos();
     else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma' || autofLibre) wireLibre();
     else wireHuesped();
@@ -968,21 +988,49 @@ const Facturas = (() => {
   }
 
   async function cargarContratosWiz(propId) {
-    const sel = document.getElementById('wiz-contrato');
     let lista = [];
     try { lista = await API.get(`/api/contratos?propietario_id=${propId}&anio=${wiz.anio}`); } catch (e) { /* vacío */ }
-    lista = lista.filter((c) => c.tipo === 'precio_cerrado'); // solo precio cerrado tiene cuotas
+    pintarSelectContratosWiz(lista.filter((c) => c.tipo === 'precio_cerrado')); // solo precio cerrado tiene cuotas
+  }
+
+  // Rellena #wiz-contrato con una lista de contratos ya filtrada (precio_cerrado), venga de
+  // buscar por propietario o por apartamento — incluye el propietario en cada opción para
+  // que se distingan bien cuando hay varios contratos del mismo apartamento.
+  function pintarSelectContratosWiz(lista) {
+    const sel = document.getElementById('wiz-contrato');
     if (!lista.length) {
       sel.innerHTML = '<option value="">— Sin contratos de precio cerrado este año —</option>';
       sel.disabled = true;
     } else {
       sel.innerHTML = '<option value="">— Selecciona contrato —</option>' + lista.map((c) =>
-        `<option value="${c.id}">${esc(c.apartamento_nombre)} · ${fechaES(c.temporada_inicio)}–${fechaES(c.temporada_fin)} · ${euro(c.precio_total)}</option>`).join('');
+        `<option value="${c.id}">${esc(c.apartamento_nombre)} · ${esc(nombreProp({ nombre: c.propietario_nombre, apellidos: c.propietario_apellidos }))} · ${fechaES(c.temporada_inicio)}–${fechaES(c.temporada_fin)} · ${euro(c.precio_total)}</option>`).join('');
       sel.disabled = false;
     }
     wiz.contratoSel = null; wiz.cuotas = []; wiz.cuotaSel = [];
     document.getElementById('wiz-cuotas').innerHTML = '';
     document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+  }
+
+  // Segunda vía para llegar al contrato en Autofactura/Propietario: buscar por apartamento
+  // en vez de por propietario. Sincroniza el campo Propietario con el del primer contrato
+  // encontrado (solo visual — el guardado sigue dependiendo de wiz.contratoSel/cuotaSel).
+  async function wireAptoAutofactura() {
+    await ensureApartamentos();
+    crearTypeahead('wiz-apto2-buscar', 'wiz-apto2-dd',
+      (q) => apartamentosCache.filter((a) => (a.nombre || '').toLowerCase().includes(q.toLowerCase()) || (a.edificio || '').toLowerCase().includes(q.toLowerCase())),
+      (a) => `<span class="cnt-ta-nombre">${esc(a.nombre)}${a.edificio ? ` <span class="cnt-ta-edif">${esc(a.edificio)}</span>` : ''}</span>`,
+      async (a) => {
+        document.getElementById('wiz-apto2-buscar').value = a.nombre;
+        let lista = [];
+        try { lista = await API.get(`/api/contratos?apartamento_id=${a.id}&anio=${wiz.anio}`); } catch (e) { /* vacío */ }
+        lista = lista.filter((c) => c.tipo === 'precio_cerrado');
+        pintarSelectContratosWiz(lista);
+        if (lista.length) {
+          const c = lista[0];
+          wiz.propSel = c.propietario_id;
+          document.getElementById('wiz-prop-buscar').value = nombreProp({ nombre: c.propietario_nombre, apellidos: c.propietario_apellidos });
+        }
+      });
   }
 
   async function cargarCuotasWiz(contratoId) {
@@ -1173,6 +1221,8 @@ const Facturas = (() => {
     }
     ftipo.addEventListener('change', (e) => { filtroTipo = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
     document.getElementById('fac-filtro-estado').addEventListener('change', (e) => { filtroEstado = e.target.value; cargar().catch((err) => toast(err.message, 'error')); });
+    const fbuscar = document.getElementById('fac-filtro-buscar');
+    if (fbuscar) fbuscar.addEventListener('input', (e) => { filtroBusqueda = e.target.value; render(); });
     inyectarFiltroRazon();
   }
 

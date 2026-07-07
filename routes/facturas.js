@@ -504,9 +504,13 @@ router.get('/', (req, res) => {
   const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
 
   res.json(db.prepare(`
-    SELECT f.*, rs.logo_url AS razon_logo_url
+    SELECT f.*, rs.logo_url AS razon_logo_url,
+           a.nombre AS apartamento_nombre,
+           p.nombre AS propietario_nombre, p.apellidos AS propietario_apellidos, p.segundo_apellido AS propietario_segundo_apellido
     FROM facturas f
     LEFT JOIN razones_sociales rs ON rs.id = f.razon_social_id
+    LEFT JOIN apartamentos a ON a.id = f.apartamento_id
+    LEFT JOIN propietarios p ON p.id = f.propietario_id
     ${where}
     ORDER BY f.fecha_emision DESC, f.id DESC
   `).all(...params));
