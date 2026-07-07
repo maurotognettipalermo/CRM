@@ -664,6 +664,7 @@ const Facturas = (() => {
       propSel: null, contratoSel: null, cuotas: [], cuotaSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
+      modoAutofactura: 'contrato',
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
     // Preselección de razón social: la predeterminada si está marcada; en su defecto, la
@@ -711,6 +712,7 @@ const Facturas = (() => {
     document.querySelectorAll('#modal-contenido .fac-tipo-op').forEach((op) =>
       op.addEventListener('click', () => {
         wiz.tipo = op.dataset.tipo;
+        wiz.modoAutofactura = 'contrato';
         document.querySelectorAll('#modal-contenido .fac-tipo-op').forEach((o) => o.classList.toggle('activo', o === op));
       }));
     const sel = document.getElementById('wiz-razon');
@@ -742,8 +744,15 @@ const Facturas = (() => {
 
   function wizardPaso2HTML() {
     let cuerpo = '';
-    if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') {
+    const autofLibre = wiz.tipo === 'autofactura' && wiz.modoAutofactura === 'libre';
+    const selectorAutof = wiz.tipo === 'autofactura' ? `
+      <div class="rsv-cli-pills">
+        <button type="button" class="rsv-pill${wiz.modoAutofactura !== 'libre' ? ' activo' : ''}" id="wiz-autof-modo-contrato">📑 Según contrato</button>
+        <button type="button" class="rsv-pill${wiz.modoAutofactura === 'libre' ? ' activo' : ''}" id="wiz-autof-modo-libre">✏️ Libre</button>
+      </div>` : '';
+    if (wiz.tipo === 'propietario' || (wiz.tipo === 'autofactura' && !autofLibre)) {
       cuerpo = `
+        ${selectorAutof}
         <div class="campo cnt-typeahead">
           <label>Propietario *</label>
           <input id="wiz-prop-buscar" placeholder="Buscar propietario..." autocomplete="off">
@@ -765,11 +774,12 @@ const Facturas = (() => {
         <div id="wiz-gastos"></div>
         <div id="wiz-gastos-resumen" class="fac-resumen oculto"></div>
         ${camposFechasHTML()}`;
-    } else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma') {
+    } else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma' || autofLibre) {
       const ivaOps = [0, 10, 21].map((v) => `<option value="${v}"${wiz.libreIva === v ? ' selected' : ''}>${v}%</option>`).join('');
       const retOps = [0, 19, 24].map((v) => `<option value="${v}"${wiz.libreRet === v ? ' selected' : ''}>${v}%</option>`).join('');
       cuerpo = `
-        <div class="ficha-seccion-titulo">Receptor</div>
+        ${selectorAutof}
+        <div class="ficha-seccion-titulo">${autofLibre ? 'Datos del propietario (emisor)' : 'Receptor'}</div>
         <div class="fila-campos">
           <div class="campo"><label>Nombre receptor *</label><input id="wiz-rec-nombre"></div>
           <div class="campo"><label>CIF/NIF</label><input id="wiz-rec-cif"></div>
@@ -835,10 +845,16 @@ const Facturas = (() => {
     document.getElementById('wiz-emitir').addEventListener('click', () => guardarWizard('emitida'));
     document.getElementById('wiz-borrador').addEventListener('click', () => guardarWizard('borrador'));
 
-    if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') wirePropietario();
+    const autofLibre = wiz.tipo === 'autofactura' && wiz.modoAutofactura === 'libre';
+    if (wiz.tipo === 'propietario' || (wiz.tipo === 'autofactura' && !autofLibre)) wirePropietario();
     else if (wiz.tipo === 'gastos') wireGastos();
-    else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma') wireLibre();
+    else if (wiz.tipo === 'libre' || wiz.tipo === 'proforma' || autofLibre) wireLibre();
     else wireHuesped();
+
+    if (wiz.tipo === 'autofactura') {
+      document.getElementById('wiz-autof-modo-contrato').addEventListener('click', () => { wiz.modoAutofactura = 'contrato'; renderWizard(); });
+      document.getElementById('wiz-autof-modo-libre').addEventListener('click', () => { wiz.modoAutofactura = 'libre'; renderWizard(); });
+    }
   }
 
   // ---- Libre ----
@@ -1052,7 +1068,27 @@ const Facturas = (() => {
     body.fecha_vencimiento = document.getElementById('wiz-venc').value || null;
     body.notas = document.getElementById('wiz-notas').value || '';
 
-    if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') {
+    if (wiz.tipo === 'autofactura' && wiz.modoAutofactura === 'libre') {
+      const nombre = document.getElementById('wiz-rec-nombre').value.trim();
+      if (!nombre) return toast('El nombre del emisor es obligatorio', 'error');
+      const lineas = wiz.libreLineas
+        .map((l) => ({ descripcion: (l.descripcion || '').trim(), cantidad: Number(l.cantidad) || 0, precio_unitario: Number(l.precio_unitario) || 0 }))
+        .filter((l) => l.descripcion || l.precio_unitario);
+      if (!lineas.length) return toast('Añade al menos una línea de factura', 'error');
+      body.modo = 'libre';
+      body.emisor_nombre = nombre;
+      body.emisor_cif = document.getElementById('wiz-rec-cif').value;
+      // Dirección + Ciudad + CP -> "Dirección, CP Ciudad".
+      const dir = document.getElementById('wiz-rec-dir').value.trim();
+      const ciudad = document.getElementById('wiz-rec-ciudad').value.trim();
+      const cp = document.getElementById('wiz-rec-cp').value.trim();
+      const cpCiudad = [cp, ciudad].filter(Boolean).join(' ');
+      body.emisor_direccion = [dir, cpCiudad].filter(Boolean).join(', ');
+      body.emisor_email = document.getElementById('wiz-rec-email').value;
+      body.porcentaje_iva = wiz.libreIva;
+      body.porcentaje_retencion = wiz.libreRet;
+      body.lineas = lineas;
+    } else if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') {
       if (!wiz.contratoSel) return toast('Selecciona un contrato', 'error');
       if (!wiz.cuotaSel.length) return toast('Selecciona al menos una cuota', 'error');
       body.contrato_id = wiz.contratoSel;

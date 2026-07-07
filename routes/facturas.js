@@ -376,6 +376,46 @@ function construirLibre(body) {
   return { f, lineas };
 }
 
+// Autofactura libre: como 'libre' pero emisor/receptor invertidos — el manual es el emisor
+// (el propietario), el receptor es siempre la razón social elegida. Sin contrato/cuotas.
+function construirAutofacturaLibre(body) {
+  const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(body.razon_social_id));
+  if (!rs) return { error: 'Razón social no válida' };
+
+  const emisorNombre = String(body.emisor_nombre || '').trim();
+  if (!emisorNombre) return { error: 'El nombre del emisor es obligatorio' };
+
+  const lineas = (Array.isArray(body.lineas) ? body.lineas : [])
+    .map((l) => {
+      const cantidad = l.cantidad != null && l.cantidad !== '' ? num(l.cantidad) : 1;
+      const precio = round2(l.precio_unitario);
+      return {
+        descripcion: String(l.descripcion || '').trim(),
+        cantidad,
+        precio_unitario: precio,
+        importe: round2(cantidad * precio),
+      };
+    })
+    .filter((l) => l.descripcion || l.importe);
+  if (!lineas.length) return { error: 'Añade al menos una línea de factura' };
+
+  const f = nuevaFactura();
+  f.tipo = 'autofactura';
+  f.razon_social_id = rs.id;
+  f.porcentaje_iva = num(body.porcentaje_iva);
+  f.porcentaje_retencion = num(body.porcentaje_retencion);
+  f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+  f.emisor_nombre = emisorNombre;
+  f.emisor_cif = txt(body.emisor_cif) || null;
+  f.emisor_direccion = txt(body.emisor_direccion) || null;
+  f.emisor_email = txt(body.emisor_email) || null;
+  f.receptor_nombre = rs.razon_social || rs.nombre_comercial || '';
+  f.receptor_cif = rs.cif_nif || null;
+  f.receptor_direccion = direccionRazon(rs);
+  f.receptor_email = rs.email_contacto || null;
+  return { f, lineas };
+}
+
 // Proforma: idéntica a 'libre' (receptor manual, líneas, IVA/retención configurables).
 // Solo cambian el tipo y la numeración (PRO-AAAA-NNN, vía insertarFactura).
 function construirProforma(body) {
@@ -601,6 +641,7 @@ router.post('/', (req, res) => {
 
   let construido;
   if (body.tipo === 'propietario') construido = construirPropietario(body, false);
+  else if (body.tipo === 'autofactura' && body.modo === 'libre') construido = construirAutofacturaLibre(body);
   else if (body.tipo === 'autofactura') construido = construirPropietario(body, true);
   else if (body.tipo === 'gastos') construido = construirGastos(body);
   else if (body.tipo === 'mayorista') construido = construirMayorista(body);
