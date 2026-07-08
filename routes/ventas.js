@@ -230,7 +230,7 @@ router.post('/autorizacion-pdf', (req, res) => {
     doc.y += 50 + 8;
   }
   doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000')
-    .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
+    .text('DOCUMENTO DE ARRAS PENITENCIALES', M, doc.y, { width: contentW, align: 'center' });
   doc.moveDown(0.8);
 
   parrafo([
@@ -351,7 +351,7 @@ router.post('/autorizacion-docx', async (req, res) => {
   });
 
   const k = [];
-  k.push(titulo('AUTORIZACIÓN DE VENTA'));
+  k.push(titulo('DOCUMENTO DE ARRAS PENITENCIALES'));
 
   k.push(P([
     { t: 'De una parte ' }, { t: nombreVend, b: true }, { t: ' con ' }, { t: `${docVend} ${dniVend}`, b: true },
