@@ -134,6 +134,23 @@ function filasFirmas(firmas) {
   return [firmas.slice(0, filaN), firmas.slice(filaN)];
 }
 
+// Párrafo de identificación del vendedor en la Autorización de venta (compartido por
+// /autorizacion-venta-pdf y /autorizacion-venta-docx). Con segundo vendedor, los nombra a
+// ambos y pluraliza "con domicilio"; sin él, el texto queda idéntico al de siempre.
+function segsIdentificacionAutVenta(v) {
+  const seg = (t, b) => ({ t, b: !!b });
+  const segs = [seg('Don/Dña '), seg(v.nombreVend, true), seg(' de estado civil '), seg(v.estadoCivil, true)];
+  if (v.nombreVend2) segs.push(seg(' y Don/Dña '), seg(v.nombreVend2, true), seg(' de estado civil '), seg(v.estadoCivil2, true));
+  segs.push(seg(', con D.N.I. nº '), seg(v.dniVend, true));
+  if (v.nombreVend2) segs.push(seg(' y '), seg(v.dniVend2, true), seg(' respectivamente'));
+  segs.push(
+    seg(v.nombreVend2 ? ', con domicilio ambos en ' : ', con domicilio en '), seg(v.dirVend, true),
+    seg(' ('), seg(v.ciuVend, true), seg(') '), seg(v.provVend, true),
+    seg(' y teléfono '), seg(v.telVend, true), seg('.'),
+  );
+  return segs;
+}
+
 // ============================================================
 // Resumen para el dashboard
 // ============================================================
@@ -488,6 +505,9 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const ciuVend = s(b.ciudad_vendedor);
   const provVend = s(b.provincia_vendedor);
   const telVend = s(b.telefono_vendedor);
+  const nombreVend2 = s(b.nombre_vendedor_2);
+  const estadoCivil2 = s(b.estado_civil_2);
+  const dniVend2 = s(b.dni_vendedor_2);
   const edificio = s(b.edificio);
   const planta = s(b.planta);
   const puerta = s(b.puerta);
@@ -545,15 +565,14 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
     .text('AUTORIZACIÓN DE VENTA', M, doc.y, { width: contentW, align: 'center' });
   doc.moveDown(0.6);
 
-  parrafo([
-    N('Don/Dña '), B(nombreVend), N(' de estado civil '), B(estadoCivil),
-    N(', con D.N.I. nº '), B(dniVend), N(', con domicilio en '), B(dirVend),
-    N(' ('), B(ciuVend), N(') '), B(provVend), N(' y teléfono '), B(telVend), N('.'),
-  ]);
+  parrafo(segsIdentificacionAutVenta({
+    nombreVend, estadoCivil, dniVend, dirVend, ciuVend, provVend, telVend,
+    nombreVend2, estadoCivil2, dniVend2,
+  }));
 
   parrafo([
     N('AUTORIZA a la mercantil '), B(razonSocial),
-    N(' para que proceda a la venta de mi propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio '),
+    N(` para que proceda a la venta de ${nombreVend2 ? 'nuestra' : 'mi'} propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio `),
     B(edificio), N(' planta '), B(planta), N(' puerta '), B(puerta), N('.'),
   ]);
 
@@ -564,7 +583,7 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
 
   parrafo([
     B(razonSocial),
-    N(' percibirá del propietario del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al '),
+    N(` percibirá d${nombreVend2 ? 'e los propietarios' : 'el propietario'} del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al `),
     B(`${porcComision} %`),
     N(' del precio de la venta mas el IVA correspondiente. La propiedad autoriza expresamente a '),
     B(razonSocial),
@@ -582,19 +601,22 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
     B(fechaDoc), N('.'),
   ]);
 
-  // Dos columnas de firma con línea encima (en la misma página que el texto).
+  // Columnas de firma con línea encima (en la misma página que el texto). Dos si un solo
+  // vendedor (igual que siempre), tres si hay un segundo vendedor — ancho recalculado.
   doc.moveDown(2);
   let yF = doc.y;
   // Si no caben, se suben hasta el límite inferior en vez de pasar a otra página.
   const yMax = doc.page.height - M - 40;
   if (yF > yMax) yF = yMax;
-  const colW = (contentW - 30) / 2;
-  const xIzq = M;
-  const xDer = M + colW + 30;
-  doc.moveTo(xIzq, yF).lineTo(xIzq + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
-  doc.moveTo(xDer, yF).lineTo(xDer + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(razonSocial, xIzq, yF + 8, { width: colW, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(10).text('El Vendedor', xDer, yF + 8, { width: colW, align: 'center' });
+  const etiquetasFirma = [razonSocial, nombreVend2 ? 'El Vendedor 1' : 'El Vendedor'];
+  if (nombreVend2) etiquetasFirma.push('El Vendedor 2');
+  const gapFirma = 30;
+  const colW = (contentW - gapFirma * (etiquetasFirma.length - 1)) / etiquetasFirma.length;
+  etiquetasFirma.forEach((label, i) => {
+    const x = M + i * (colW + gapFirma);
+    doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(label, x, yF + 8, { width: colW, align: 'center' });
+  });
 
   doc.end();
 });
@@ -611,6 +633,9 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
   const ciuVend = s(b.ciudad_vendedor);
   const provVend = s(b.provincia_vendedor);
   const telVend = s(b.telefono_vendedor);
+  const nombreVend2 = s(b.nombre_vendedor_2);
+  const estadoCivil2 = s(b.estado_civil_2);
+  const dniVend2 = s(b.dni_vendedor_2);
   const edificio = s(b.edificio);
   const planta = s(b.planta);
   const puerta = s(b.puerta);
@@ -635,15 +660,14 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
   const k = [];
   k.push(titulo('AUTORIZACIÓN DE VENTA'));
 
-  k.push(P([
-    { t: 'Don/Dña ' }, { t: nombreVend, b: true }, { t: ' de estado civil ' }, { t: estadoCivil, b: true },
-    { t: ', con D.N.I. nº ' }, { t: dniVend, b: true }, { t: ', con domicilio en ' }, { t: dirVend, b: true },
-    { t: ' (' }, { t: ciuVend, b: true }, { t: ') ' }, { t: provVend, b: true }, { t: ' y teléfono ' }, { t: telVend, b: true }, { t: '.' },
-  ]));
+  k.push(P(segsIdentificacionAutVenta({
+    nombreVend, estadoCivil, dniVend, dirVend, ciuVend, provVend, telVend,
+    nombreVend2, estadoCivil2, dniVend2,
+  })));
 
   k.push(P([
     { t: 'AUTORIZA a la mercantil ' }, { t: razonSocial, b: true },
-    { t: ' para que proceda a la venta de mi propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio ' },
+    { t: ` para que proceda a la venta de ${nombreVend2 ? 'nuestra' : 'mi'} propiedad sita en Oropesa del Mar (Castellón), urbanización Magic World, edificio ` },
     { t: edificio, b: true }, { t: ' planta ' }, { t: planta, b: true }, { t: ' puerta ' }, { t: puerta, b: true }, { t: '.' },
   ]));
 
@@ -654,7 +678,7 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
 
   k.push(P([
     { t: razonSocial, b: true },
-    { t: ' percibirá del propietario del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al ' },
+    { t: ` percibirá d${nombreVend2 ? 'e los propietarios' : 'el propietario'} del inmueble, en concepto de honorarios, gastos de promoción y publicidad la cantidad correspondiente al ` },
     { t: `${porcComision} %`, b: true },
     { t: ' del precio de la venta mas el IVA correspondiente. La propiedad autoriza expresamente a ' },
     { t: razonSocial, b: true },
@@ -672,11 +696,15 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
     { t: fechaDoc, b: true }, { t: '.' },
   ]));
 
-  // Dos firmas (mercantil, vendedor) en bloques sucesivos.
+  // Firmas (mercantil + uno o dos vendedores) en bloques sucesivos.
   k.push(new Paragraph({ spacing: { before: 400 }, children: [R(razonSocial, true)] }));
   k.push(Pt('(Firma y sello)'));
-  k.push(new Paragraph({ spacing: { before: 300 }, children: [R('El Vendedor', true)] }));
+  k.push(new Paragraph({ spacing: { before: 300 }, children: [R(nombreVend2 ? 'El Vendedor 1' : 'El Vendedor', true)] }));
   k.push(Pt('(Firma)'));
+  if (nombreVend2) {
+    k.push(new Paragraph({ spacing: { before: 300 }, children: [R('El Vendedor 2', true)] }));
+    k.push(Pt('(Firma)'));
+  }
 
   const docx = new Document({
     sections: [{

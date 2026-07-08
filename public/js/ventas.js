@@ -3436,6 +3436,17 @@ const Ventas = (() => {
           <div class="campo"><label>Provincia</label><input id="autv-prov"></div>
         </div>
         <div class="campo"><label>Teléfono</label><input id="autv-tel"></div>
+        <div class="campo">
+          <button type="button" class="btn-mini" id="autv2-toggle">+ Añadir otro propietario</button>
+        </div>
+        <div class="oculto" id="autv2-bloque">
+          <div class="campo"><label>Nombre completo</label><input id="autv2-nombre"></div>
+          <div class="fila-campos">
+            <div class="campo"><label>Estado civil</label><select id="autv2-civil">${civilOpts}</select></div>
+            <div class="campo"><label>DNI</label><input id="autv2-dni"></div>
+          </div>
+          <div class="campo"><button type="button" class="btn-mini" id="autv2-quitar">🗑️ Quitar</button></div>
+        </div>
 
         <div class="aut-sec-tit">Inmueble</div>
         <div class="campo vta-ta">
@@ -3510,6 +3521,21 @@ const Ventas = (() => {
       if (!e.target.closest('.vta-ta')) { vRes.classList.add('oculto'); rRes.classList.add('oculto'); }
     });
 
+    // Segundo propietario/vendedor (matrimonio/copropietarios).
+    const autv2Toggle = document.getElementById('autv2-toggle');
+    const autv2Bloque = document.getElementById('autv2-bloque');
+    autv2Toggle.addEventListener('click', () => {
+      autv2Bloque.classList.remove('oculto');
+      autv2Toggle.parentElement.classList.add('oculto');
+    });
+    document.getElementById('autv2-quitar').addEventListener('click', () => {
+      setVal('autv2-nombre', '');
+      setVal('autv2-dni', '');
+      document.getElementById('autv2-civil').selectedIndex = 0;
+      autv2Bloque.classList.add('oculto');
+      autv2Toggle.parentElement.classList.remove('oculto');
+    });
+
     document.getElementById('autv-descargar').addEventListener('click', generarAutVenta);
     document.getElementById('autv-descargar-word').addEventListener('click', generarAutVentaWord);
     document.getElementById('autv-limpiar').addEventListener('click', limpiarAutVenta);
@@ -3517,16 +3543,22 @@ const Ventas = (() => {
 
   function limpiarAutVenta() {
     ['autv-nombre', 'autv-dni', 'autv-dir', 'autv-ciudad', 'autv-prov', 'autv-tel',
+      'autv2-nombre', 'autv2-dni',
       'autv-ref', 'autv-edificio', 'autv-planta', 'autv-puerta', 'autv-precio'].forEach((id) => setVal(id, ''));
     setVal('autv-comision', '3');
     setVal('autv-fecha', hoyStr());
     const civil = document.getElementById('autv-civil');
     if (civil) civil.selectedIndex = 0;
+    const civil2 = document.getElementById('autv2-civil');
+    if (civil2) civil2.selectedIndex = 0;
+    document.getElementById('autv2-bloque').classList.add('oculto');
+    document.getElementById('autv2-toggle').parentElement.classList.remove('oculto');
     const card = document.getElementById('autv-card');
     if (card) { card.classList.add('oculto'); card.textContent = ''; }
   }
 
   function bodyAutVenta() {
+    const nombreV2 = val('autv2-nombre').trim();
     return {
       nombre_vendedor: val('autv-nombre'),
       estado_civil: val('autv-civil'),
@@ -3535,6 +3567,9 @@ const Ventas = (() => {
       ciudad_vendedor: val('autv-ciudad'),
       provincia_vendedor: val('autv-prov'),
       telefono_vendedor: val('autv-tel'),
+      nombre_vendedor_2: nombreV2,
+      estado_civil_2: nombreV2 ? val('autv2-civil') : '',
+      dni_vendedor_2: nombreV2 ? val('autv2-dni') : '',
       edificio: val('autv-edificio'),
       planta: val('autv-planta'),
       puerta: val('autv-puerta'),
