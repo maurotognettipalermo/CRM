@@ -104,6 +104,36 @@ function hoyISO() {
 }
 function actor(req) { return req.usuario ? (req.usuario.nombre || req.usuario.username) : null; }
 
+// Párrafo de identificación de las partes del documento de Arras (compartido por
+// /autorizacion-pdf y /autorizacion-docx). Con segunda persona en un lado, la nombra junto
+// a la primera y pluraliza "domiciliado(s)"; sin segunda persona, el texto queda idéntico
+// al de siempre. Formato de segmento {t, b} común a parrafo() (pdfkit) y P() (docx).
+function segsIdentificacionArras(v) {
+  const seg = (t, b) => ({ t, b: !!b });
+  const segs = [seg('De una parte '), seg(v.nombreVend, true), seg(' con '), seg(`${v.docVend} ${v.dniVend}`, true)];
+  if (v.nombreVend2) segs.push(seg(' y '), seg(v.nombreVend2, true), seg(' con '), seg(`${v.docVend2} ${v.dniVend2}`, true));
+  segs.push(
+    seg(v.nombreVend2 ? ', ambos domiciliados en ' : ', domiciliado en '), seg(v.dirVend, true),
+    seg(' de '), seg(`${v.ciuVend} ${v.provVend}`, true),
+    seg('; en adelante parte vendedora, y por otra parte '),
+    seg(v.nombreComp, true), seg(' con '), seg(`${v.docComp} ${v.dniComp}`, true),
+  );
+  if (v.nombreComp2) segs.push(seg(' y '), seg(v.nombreComp2, true), seg(' con '), seg(`${v.docComp2} ${v.dniComp2}`, true));
+  segs.push(
+    seg(v.nombreComp2 ? ', ambos con domicilio en ' : ', con domicilio en '), seg(`${v.dirComp} ${v.ciuComp} ${v.provComp}`, true),
+    seg('; en adelante parte compradora.'),
+  );
+  return segs;
+}
+
+// Agrupa las firmas en filas de máximo 3 columnas (repartidas lo más parejo posible entre
+// las filas) para que quepan legibles aunque haya 4 o 5 firmantes.
+function filasFirmas(firmas) {
+  if (firmas.length <= 3) return [firmas];
+  const filaN = Math.ceil(firmas.length / 2);
+  return [firmas.slice(0, filaN), firmas.slice(filaN)];
+}
+
 // ============================================================
 // Resumen para el dashboard
 // ============================================================
@@ -159,12 +189,18 @@ router.post('/autorizacion-pdf', (req, res) => {
   const dirVend = s(b.direccion_vendedor);
   const ciuVend = s(b.ciudad_vendedor);
   const provVend = s(b.provincia_vendedor);
+  const nombreVend2 = s(b.nombre_vendedor_2);
+  const docVend2 = s(b.documento_identidad_vendedor_2) || 'DNI';
+  const dniVend2 = s(b.dni_vendedor_2);
   const nombreComp = s(b.nombre_comprador);
   const docComp = s(b.documento_identidad_comprador) || 'DNI';
   const dniComp = s(b.dni_comprador);
   const dirComp = s(b.direccion_comprador);
   const ciuComp = s(b.ciudad_comprador);
   const provComp = s(b.provincia_comprador);
+  const nombreComp2 = s(b.nombre_comprador_2);
+  const docComp2 = s(b.documento_identidad_comprador_2) || 'DNI';
+  const dniComp2 = s(b.dni_comprador_2);
   const edificio = s(b.edificio);
   const planta = s(b.planta);
   const numPuerta = s(b.numero_puerta);
@@ -233,13 +269,10 @@ router.post('/autorizacion-pdf', (req, res) => {
     .text('DOCUMENTO DE ARRAS PENITENCIALES', M, doc.y, { width: contentW, align: 'center' });
   doc.moveDown(0.8);
 
-  parrafo([
-    N('De una parte '), B(nombreVend), N(' con '), B(`${docVend} ${dniVend}`),
-    N(', domiciliado en '), B(dirVend), N(' de '), B(`${ciuVend} ${provVend}`),
-    N('; en adelante parte vendedora, y por otra parte '), B(nombreComp), N(' con '),
-    B(`${docComp} ${dniComp}`), N(', con domicilio en '), B(`${dirComp} ${ciuComp} ${provComp}`),
-    N('; en adelante parte compradora.'),
-  ]);
+  parrafo(segsIdentificacionArras({
+    nombreVend, docVend, dniVend, nombreVend2, docVend2, dniVend2, dirVend, ciuVend, provVend,
+    nombreComp, docComp, dniComp, nombreComp2, docComp2, dniComp2, dirComp, ciuComp, provComp,
+  }));
 
   parrafo([N('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.')]);
 
@@ -288,21 +321,27 @@ router.post('/autorizacion-pdf', (req, res) => {
   doc.moveDown(0.5);
   doc.font('Helvetica').fontSize(BODY).text(fechaTexto, { align: 'left' });
 
-  // Tres columnas de firma con línea encima (espacio real para firmar).
+  // Columnas de firma con línea encima (espacio real para firmar). Hasta 5 firmantes
+  // (agencia + hasta 2 vendedores + hasta 2 compradores); con más de 3 se reparten en
+  // dos filas para que las columnas no queden demasiado estrechas.
   doc.moveDown(3);
   let yF = doc.y;
   if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
-  const colW = (contentW - 40) / 3;
-  const firmas = [
-    ['Analia Palermo Cornet', '20473042Y'],
-    [nombreVend || '—', dniVend || ''],
-    [nombreComp || '—', dniComp || ''],
-  ];
-  firmas.forEach((fm, i) => {
-    const x = M + i * (colW + 20);
-    doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
-    doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text(fm[0], x, yF + 4, { width: colW, align: 'center' });
-    doc.font('Helvetica').fontSize(8).text(fm[1], x, doc.y, { width: colW, align: 'center' });
+  const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
+  if (nombreVend2) firmas.push([nombreVend2, dniVend2 || '']);
+  firmas.push([nombreComp || '—', dniComp || '']);
+  if (nombreComp2) firmas.push([nombreComp2, dniComp2 || '']);
+
+  filasFirmas(firmas).forEach((fila, filaIdx) => {
+    if (filaIdx > 0) yF += 55;
+    if (yF > doc.page.height - M - 50) { doc.addPage(); yF = M; }
+    const colW = (contentW - (fila.length - 1) * 20) / fila.length;
+    fila.forEach((fm, i) => {
+      const x = M + i * (colW + 20);
+      doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text(fm[0], x, yF + 4, { width: colW, align: 'center' });
+      doc.font('Helvetica').fontSize(8).text(fm[1], x, doc.y, { width: colW, align: 'center' });
+    });
   });
 
   doc.end();
@@ -319,12 +358,18 @@ router.post('/autorizacion-docx', async (req, res) => {
   const dirVend = s(b.direccion_vendedor);
   const ciuVend = s(b.ciudad_vendedor);
   const provVend = s(b.provincia_vendedor);
+  const nombreVend2 = s(b.nombre_vendedor_2);
+  const docVend2 = s(b.documento_identidad_vendedor_2) || 'DNI';
+  const dniVend2 = s(b.dni_vendedor_2);
   const nombreComp = s(b.nombre_comprador);
   const docComp = s(b.documento_identidad_comprador) || 'DNI';
   const dniComp = s(b.dni_comprador);
   const dirComp = s(b.direccion_comprador);
   const ciuComp = s(b.ciudad_comprador);
   const provComp = s(b.provincia_comprador);
+  const nombreComp2 = s(b.nombre_comprador_2);
+  const docComp2 = s(b.documento_identidad_comprador_2) || 'DNI';
+  const dniComp2 = s(b.dni_comprador_2);
   const edificio = s(b.edificio);
   const planta = s(b.planta);
   const numPuerta = s(b.numero_puerta);
@@ -353,13 +398,10 @@ router.post('/autorizacion-docx', async (req, res) => {
   const k = [];
   k.push(titulo('DOCUMENTO DE ARRAS PENITENCIALES'));
 
-  k.push(P([
-    { t: 'De una parte ' }, { t: nombreVend, b: true }, { t: ' con ' }, { t: `${docVend} ${dniVend}`, b: true },
-    { t: ', domiciliado en ' }, { t: dirVend, b: true }, { t: ' de ' }, { t: `${ciuVend} ${provVend}`, b: true },
-    { t: '; en adelante parte vendedora, y por otra parte ' }, { t: nombreComp, b: true }, { t: ' con ' },
-    { t: `${docComp} ${dniComp}`, b: true }, { t: ', con domicilio en ' }, { t: `${dirComp} ${ciuComp} ${provComp}`, b: true },
-    { t: '; en adelante parte compradora.' },
-  ]));
+  k.push(P(segsIdentificacionArras({
+    nombreVend, docVend, dniVend, nombreVend2, docVend2, dniVend2, dirVend, ciuVend, provVend,
+    nombreComp, docComp, dniComp, nombreComp2, docComp2, dniComp2, dirComp, ciuComp, provComp,
+  })));
 
   k.push(Pt('Ambas partes se reconocen su mutua capacidad legal para obligarse en derecho y suscribir el presente contrato, así como el estar asistidos a requerimiento de la empresa, representada en este acto por Analia Palermo Cornet, DNI 20473042Y, debidamente facultada para intervenir en virtud del contrato de autorización de venta que se encuentra vigente, y con derecho a percibir sus honorarios conforme al pacto establecido, teniendo como fecha límite el día de la escrituración.'));
 
@@ -405,12 +447,11 @@ router.post('/autorizacion-docx', async (req, res) => {
   const fechaTexto = `En Oropesa del Mar, a ${ahora.getDate()} de ${MESES_ES[ahora.getMonth()]} de ${ahora.getFullYear()}`;
   k.push(new Paragraph({ spacing: { before: 200, after: 400 }, children: [R(fechaTexto)] }));
 
-  // Tres firmas (empresa, vendedor, comprador) en bloques sucesivos.
-  const firmas = [
-    ['Analia Palermo Cornet', '20473042Y'],
-    [nombreVend || '—', dniVend || ''],
-    [nombreComp || '—', dniComp || ''],
-  ];
+  // Firmas (empresa + hasta 2 vendedores + hasta 2 compradores) en bloques sucesivos.
+  const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
+  if (nombreVend2) firmas.push([nombreVend2, dniVend2 || '']);
+  firmas.push([nombreComp || '—', dniComp || '']);
+  if (nombreComp2) firmas.push([nombreComp2, dniComp2 || '']);
   firmas.forEach(([nombre, dni]) => {
     k.push(new Paragraph({ spacing: { before: 300 }, children: [R(nombre, true)] }));
     k.push(Pt(dni));

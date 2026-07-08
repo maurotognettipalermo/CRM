@@ -3029,6 +3029,17 @@ const Ventas = (() => {
           <div class="campo"><label>Ciudad</label><input id="aut-v-ciudad"></div>
           <div class="campo"><label>Provincia</label><input id="aut-v-prov"></div>
         </div>
+        <div class="campo">
+          <button type="button" class="btn-mini" id="aut-v2-toggle">+ Añadir otra persona</button>
+        </div>
+        <div class="oculto" id="aut-v2-bloque">
+          <div class="campo"><label>Nombre completo</label><input id="aut-v2-nombre"></div>
+          <div class="fila-campos">
+            <div class="campo"><label>Tipo documento</label><select id="aut-v2-tipodoc">${docOpts}</select></div>
+            <div class="campo"><label>Número documento</label><input id="aut-v2-numdoc"></div>
+          </div>
+          <div class="campo"><button type="button" class="btn-mini" id="aut-v2-quitar">🗑️ Quitar</button></div>
+        </div>
 
         <div class="aut-sec-tit">Parte compradora</div>
         <div class="campo vta-ta">
@@ -3044,6 +3055,17 @@ const Ventas = (() => {
         <div class="fila-campos">
           <div class="campo"><label>Ciudad</label><input id="aut-c-ciudad"></div>
           <div class="campo"><label>Provincia</label><input id="aut-c-prov"></div>
+        </div>
+        <div class="campo">
+          <button type="button" class="btn-mini" id="aut-c2-toggle">+ Añadir otra persona</button>
+        </div>
+        <div class="oculto" id="aut-c2-bloque">
+          <div class="campo"><label>Nombre completo</label><input id="aut-c2-nombre"></div>
+          <div class="fila-campos">
+            <div class="campo"><label>Tipo documento</label><select id="aut-c2-tipodoc">${docOpts}</select></div>
+            <div class="campo"><label>Número documento</label><input id="aut-c2-numdoc"></div>
+          </div>
+          <div class="campo"><button type="button" class="btn-mini" id="aut-c2-quitar">🗑️ Quitar</button></div>
         </div>
 
         <div class="aut-sec-tit">Inmueble</div>
@@ -3148,6 +3170,25 @@ const Ventas = (() => {
       if (!e.target.closest('.vta-ta')) { vRes.classList.add('oculto'); cRes.classList.add('oculto'); iRes.classList.add('oculto'); refRes.classList.add('oculto'); }
     });
 
+    // Segunda persona (vendedora/compradora) — mismo bloque toggle/quitar para ambas.
+    const wireSegundaPersona = (prefijo) => {
+      const toggle = document.getElementById(`aut-${prefijo}2-toggle`);
+      const bloque = document.getElementById(`aut-${prefijo}2-bloque`);
+      toggle.addEventListener('click', () => {
+        bloque.classList.remove('oculto');
+        toggle.parentElement.classList.add('oculto');
+      });
+      document.getElementById(`aut-${prefijo}2-quitar`).addEventListener('click', () => {
+        setVal(`aut-${prefijo}2-nombre`, '');
+        setVal(`aut-${prefijo}2-numdoc`, '');
+        document.getElementById(`aut-${prefijo}2-tipodoc`).value = 'DNI';
+        bloque.classList.add('oculto');
+        toggle.parentElement.classList.remove('oculto');
+      });
+    };
+    wireSegundaPersona('v');
+    wireSegundaPersona('c');
+
     // Resto a pagar = precio − señal (en vivo).
     document.getElementById('aut-e-precio').addEventListener('input', () => { calcResto(); calcComision(); });
     document.getElementById('aut-e-senal').addEventListener('input', calcResto);
@@ -3245,18 +3286,28 @@ const Ventas = (() => {
 
   function limpiarAutorizacion() {
     ['aut-v-nombre', 'aut-v-numdoc', 'aut-v-dir', 'aut-v-ciudad', 'aut-v-prov',
+      'aut-v2-nombre', 'aut-v2-numdoc',
       'aut-c-nombre', 'aut-c-numdoc', 'aut-c-dir', 'aut-c-ciudad', 'aut-c-prov',
+      'aut-c2-nombre', 'aut-c2-numdoc',
       'aut-i-edificio', 'aut-i-planta', 'aut-i-puerta', 'aut-i-parking', 'aut-i-trastero',
       'aut-e-precio', 'aut-e-comision', 'aut-e-fecha'].forEach((id) => setVal(id, ''));
     setVal('aut-e-senal', '3000');
     setVal('aut-e-comision-pct', '3');
     document.getElementById('aut-v-tipodoc').value = 'DNI';
     document.getElementById('aut-c-tipodoc').value = 'DNI';
+    document.getElementById('aut-v2-tipodoc').value = 'DNI';
+    document.getElementById('aut-c2-tipodoc').value = 'DNI';
+    document.getElementById('aut-v2-bloque').classList.add('oculto');
+    document.getElementById('aut-v2-toggle').parentElement.classList.remove('oculto');
+    document.getElementById('aut-c2-bloque').classList.add('oculto');
+    document.getElementById('aut-c2-toggle').parentElement.classList.remove('oculto');
     pintarIvaPills(false);
     calcResto();
   }
 
   function bodyAutorizacion() {
+    const nombreV2 = val('aut-v2-nombre').trim();
+    const nombreC2 = val('aut-c2-nombre').trim();
     return {
       nombre_vendedor: val('aut-v-nombre'),
       documento_identidad_vendedor: val('aut-v-tipodoc'),
@@ -3264,12 +3315,18 @@ const Ventas = (() => {
       direccion_vendedor: val('aut-v-dir'),
       ciudad_vendedor: val('aut-v-ciudad'),
       provincia_vendedor: val('aut-v-prov'),
+      nombre_vendedor_2: nombreV2,
+      documento_identidad_vendedor_2: nombreV2 ? val('aut-v2-tipodoc') : '',
+      dni_vendedor_2: nombreV2 ? val('aut-v2-numdoc') : '',
       nombre_comprador: val('aut-c-nombre'),
       documento_identidad_comprador: val('aut-c-tipodoc'),
       dni_comprador: val('aut-c-numdoc'),
       direccion_comprador: val('aut-c-dir'),
       ciudad_comprador: val('aut-c-ciudad'),
       provincia_comprador: val('aut-c-prov'),
+      nombre_comprador_2: nombreC2,
+      documento_identidad_comprador_2: nombreC2 ? val('aut-c2-tipodoc') : '',
+      dni_comprador_2: nombreC2 ? val('aut-c2-numdoc') : '',
       edificio: val('aut-i-edificio'),
       planta: val('aut-i-planta'),
       numero_puerta: val('aut-i-puerta'),
