@@ -517,8 +517,14 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/facturas/:id/pdf — genera el PDF de la factura con pdfkit (sin Chrome).
+// Estilo minimalista: sin cajas de color, cabeceras en negrita + línea fina, caja de
+// totales con borde. La nota_pie es de razones_sociales, no de la factura — se trae con
+// un LEFT JOIN (una factura puede no tener razon_social_id, ej. autofactura libre).
 router.get('/:id/pdf', (req, res) => {
-  const f = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
+  const f = db.prepare(
+    'SELECT f.*, rs.nota_pie AS rs_nota_pie FROM facturas f ' +
+    'LEFT JOIN razones_sociales rs ON rs.id = f.razon_social_id WHERE f.id = ?'
+  ).get(req.params.id);
   if (!f) return res.status(404).json({ error: 'Factura no encontrada' });
   const lineas = db.prepare('SELECT * FROM factura_lineas WHERE factura_id = ? ORDER BY orden, id').all(f.id);
 
@@ -538,37 +544,37 @@ router.get('/:id/pdf', (req, res) => {
   const contentW = right - M;
   let y = M;
 
-  // ---- Cabecera: logo + caja de título ----
+  // ---- Cabecera: logo + emisor (izquierda) — "FACTURA" / Nº / Fecha (derecha) ----
+  const topRightW = 200;
+  const emisorW = right - topRightW - 15 - M;
+
   const logo = leerLogoBuffer(f.emisor_logo_url);
-  if (logo) { try { doc.image(logo, M, y, { fit: [120, 60] }); } catch (e) { /* logo inválido */ } }
+  let logoY = y; // si no hay logo, el texto del emisor arranca en la misma posición
+  if (logo) {
+    try { doc.image(logo, M, y, { fit: [120, 60] }); logoY = y + 68; } catch (e) { /* logo inválido */ }
+  }
+  doc.font('Helvetica').fontSize(9).fillColor('#000000');
+  let ey = logoY;
+  [f.emisor_nombre, f.emisor_cif, f.emisor_direccion].filter(Boolean).forEach((t) => { doc.text(String(t), M, ey, { width: emisorW }); ey = doc.y + 2; });
 
-  const titulo = 'FACTURA';
-  const boxW = 210;
-  const boxH = 30;
-  doc.rect(right - boxW, y, boxW, boxH).fill('#1a1a2e');
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(16).text(titulo, right - boxW, y + 8, { width: boxW, align: 'center' });
-  doc.fillColor('#000000').font('Helvetica').fontSize(10);
-  let infoY = y + boxH + 8;
-  doc.text(`Nº: ${f.numero}`, right - boxW, infoY, { width: boxW, align: 'right' });
-  doc.text(`Fecha: ${fechaPDF(f.fecha_emision)}`, right - boxW, infoY + 14, { width: boxW, align: 'right' });
-  if (f.fecha_vencimiento) doc.text(`Vencimiento: ${fechaPDF(f.fecha_vencimiento)}`, right - boxW, infoY + 28, { width: boxW, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(11).fillColor('#6b7280').text('FACTURA', right - topRightW, y, { width: topRightW, align: 'right' });
+  doc.font('Helvetica-Bold').fontSize(15).fillColor('#000000').text(`Nº: ${f.numero}`, right - topRightW, y + 15, { width: topRightW, align: 'right' });
+  let infoY = y + 37;
+  doc.font('Helvetica').fontSize(9).fillColor('#6b7280').text(`Fecha: ${fechaPDF(f.fecha_emision)}`, right - topRightW, infoY, { width: topRightW, align: 'right' });
+  infoY += 12;
+  if (f.fecha_vencimiento) { doc.text(`Vencimiento: ${fechaPDF(f.fecha_vencimiento)}`, right - topRightW, infoY, { width: topRightW, align: 'right' }); infoY += 12; }
 
-  y = Math.max(y + 70, infoY + 46);
+  y = Math.max(ey, infoY) + 10;
 
-  // ---- Emisor / Receptor ----
+  // ---- Datos cliente ----
   doc.moveTo(M, y).lineTo(right, y).strokeColor('#e5e7eb').lineWidth(1).stroke();
   y += 12;
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text('Datos cliente', M, y);
+  doc.font('Helvetica').fontSize(9).fillColor('#000000');
+  let ry = y + 16;
   const colW = contentW / 2;
-  const y0 = y;
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#1a1a2e').text('EMISOR', M, y);
-  doc.font('Helvetica').fontSize(10).fillColor('#000000');
-  let ey = y + 16;
-  [f.emisor_nombre, f.emisor_cif, f.emisor_direccion].filter(Boolean).forEach((t) => { doc.text(String(t), M, ey, { width: colW - 12 }); ey = doc.y + 2; });
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#1a1a2e').text('RECEPTOR', M + colW, y0);
-  doc.font('Helvetica').fontSize(10).fillColor('#000000');
-  let ry = y0 + 16;
-  [f.receptor_nombre, f.receptor_cif, f.receptor_direccion, f.receptor_email].filter(Boolean).forEach((t) => { doc.text(String(t), M + colW, ry, { width: colW - 12 }); ry = doc.y + 2; });
-  y = Math.max(ey, ry) + 12;
+  [f.receptor_nombre, f.receptor_cif, f.receptor_direccion, f.receptor_email].filter(Boolean).forEach((t) => { doc.text(String(t), M, ry, { width: colW }); ry = doc.y + 2; });
+  y = ry + 12;
 
   // ---- Tabla de líneas ----
   const cDesc = M;
@@ -580,53 +586,76 @@ router.get('/:id/pdf', (req, res) => {
   const wUnit = cImp - cUnit - 6;
   const wImp = right - cImp - 4;
 
-  doc.rect(M, y, contentW, 20).fill('#f3f4f6');
   doc.fillColor('#111827').font('Helvetica-Bold').fontSize(9);
-  doc.text('CONCEPTO', cDesc + 4, y + 6, { width: wDesc });
-  doc.text('CANT', cCant, y + 6, { width: wCant, align: 'right' });
-  doc.text('P. UNIT', cUnit, y + 6, { width: wUnit, align: 'right' });
-  doc.text('IMPORTE', cImp, y + 6, { width: wImp, align: 'right' });
-  y += 20;
+  doc.text('CONCEPTO', cDesc, y, { width: wDesc });
+  doc.text('CANT', cCant, y, { width: wCant, align: 'right' });
+  doc.text('P. UNIT', cUnit, y, { width: wUnit, align: 'right' });
+  doc.text('IMPORTE', cImp, y, { width: wImp, align: 'right' });
+  y += 16;
+  doc.moveTo(M, y).lineTo(right, y).strokeColor('#e5e7eb').lineWidth(1).stroke();
+  y += 6;
 
   doc.font('Helvetica').fontSize(9).fillColor('#000000');
-  lineas.forEach((l, i) => {
+  lineas.forEach((l) => {
     const dh = doc.heightOfString(String(l.descripcion || ''), { width: wDesc });
     const h = Math.max(18, dh + 10);
     if (y + h > doc.page.height - M) { doc.addPage(); y = M; }
-    if (i % 2 === 1) doc.rect(M, y, contentW, h).fill('#fafafa');
     doc.fillColor('#000000');
-    doc.text(String(l.descripcion || ''), cDesc + 4, y + 5, { width: wDesc });
-    doc.text(cantidadPDF(l.cantidad), cCant, y + 5, { width: wCant, align: 'right' });
-    doc.text(euroPDF(l.precio_unitario), cUnit, y + 5, { width: wUnit, align: 'right' });
-    doc.text(euroPDF(l.importe), cImp, y + 5, { width: wImp, align: 'right' });
+    doc.text(String(l.descripcion || ''), cDesc, y + 4, { width: wDesc });
+    doc.text(cantidadPDF(l.cantidad), cCant, y + 4, { width: wCant, align: 'right' });
+    doc.text(euroPDF(l.precio_unitario), cUnit, y + 4, { width: wUnit, align: 'right' });
+    doc.text(euroPDF(l.importe), cImp, y + 4, { width: wImp, align: 'right' });
     y += h;
+    doc.moveTo(M, y).lineTo(right, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
   });
 
-  // ---- Totales ----
+  // ---- Totales: caja con borde + líneas divisorias internas ----
   y += 14;
   const totX = right - 240;
   const totLblW = 150;
   const totValW = 90;
-  const fila = (label, val, opts) => {
-    opts = opts || {};
-    if (y + 22 > doc.page.height - M) { doc.addPage(); y = M; }
-    doc.font(opts.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(opts.big ? 14 : 10).fillColor(opts.color || '#000000');
-    doc.text(label, totX, y, { width: totLblW, align: 'right' });
-    doc.text(val, totX + totLblW, y, { width: totValW, align: 'right' });
-    y += opts.big ? 22 : 16;
-  };
-  fila('Base imponible:', euroPDF(f.base_imponible));
-  if (f.porcentaje_iva) fila(`IVA ${f.porcentaje_iva}%:`, euroPDF(f.importe_iva));
-  if (f.porcentaje_retencion) fila(`Retención ${f.porcentaje_retencion}%:`, '-' + euroPDF(f.importe_retencion));
-  doc.moveTo(totX, y).lineTo(right, y).strokeColor('#1a1a2e').lineWidth(1).stroke();
-  y += 6;
-  fila('TOTAL:', euroPDF(f.total), { bold: true, big: true });
+  const boxLeft = totX - 12;
+  const boxW = right - boxLeft;
+  const rowH = 16;
+  const totalRowH = 26;
+  const padTop = 10;
 
-  // ---- Notas + nota de autofactura ----
+  const filasBase = [{ label: 'Base imponible:', val: euroPDF(f.base_imponible) }];
+  if (f.porcentaje_iva) filasBase.push({ label: `IVA ${f.porcentaje_iva}%:`, val: euroPDF(f.importe_iva) });
+  if (f.porcentaje_retencion) filasBase.push({ label: `Retención ${f.porcentaje_retencion}%:`, val: '-' + euroPDF(f.importe_retencion) });
+
+  const boxH = padTop + filasBase.length * rowH + totalRowH + 6;
+  if (y + boxH > doc.page.height - M) { doc.addPage(); y = M; }
+  const boxTop = y;
+  doc.rect(boxLeft, boxTop, boxW, boxH).strokeColor('#e5e7eb').lineWidth(1).stroke();
+
+  let ty = boxTop + padTop;
+  filasBase.forEach((r) => {
+    doc.font('Helvetica').fontSize(10).fillColor('#000000');
+    doc.text(r.label, totX, ty, { width: totLblW, align: 'right' });
+    doc.text(r.val, totX + totLblW, ty, { width: totValW, align: 'right' });
+    ty += rowH;
+    doc.moveTo(boxLeft + 10, ty - 4).lineTo(boxLeft + boxW - 10, ty - 4).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+  });
+  doc.moveTo(boxLeft + 10, ty).lineTo(boxLeft + boxW - 10, ty).strokeColor('#1a1a2e').lineWidth(1).stroke();
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000000');
+  doc.text('TOTAL:', totX, ty + 6, { width: totLblW, align: 'right' });
+  doc.text(euroPDF(f.total), totX + totLblW, ty + 6, { width: totValW, align: 'right' });
+
+  y = boxTop + boxH + 14;
+
+  // ---- Notas de la factura ----
   if (f.notas) {
-    y += 12;
     doc.font('Helvetica').fontSize(9).fillColor('#374151').text('Notas: ' + f.notas, M, y, { width: contentW });
     y = doc.y;
+  }
+
+  // ---- Nota de pie de la razón social (solo si está rellena) ----
+  if (f.rs_nota_pie && String(f.rs_nota_pie).trim()) {
+    y += 16;
+    doc.moveTo(M, y).lineTo(right, y).strokeColor('#e5e7eb').lineWidth(1).stroke();
+    y += 10;
+    doc.font('Helvetica').fontSize(8).fillColor('#6b7280').text(String(f.rs_nota_pie), M, y, { width: contentW });
   }
 
   doc.end();

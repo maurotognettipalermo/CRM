@@ -139,6 +139,7 @@ const COLUMNAS_RAZONES = {
   representante_nombre: 'TEXT',          // nombre del representante legal (firmante de los contratos)
   representante_dni: 'TEXT',             // DNI del representante (distinto del CIF de la empresa)
   serie: 'TEXT',                         // prefijo de numeración de facturas propio de esta razón social
+  nota_pie: 'TEXT',                      // nota libre (ej. IBAN) impresa en el pie de las facturas
 };
 
 // Columnas extra de la tabla catalogo_extras.

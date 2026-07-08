@@ -1044,6 +1044,9 @@ const Ajustes = (() => {
           IVA_OPTS.map((o) => `<option${v === o ? ' selected' : ''}>${o}</option>`).join('') +
           '</select></div>';
       }
+      if (tipo === 'textarea') {
+        return `<div class="ajuste-campo" style="grid-column:1/-1"><label>${label}</label><textarea data-rs="${key}" rows="3" style="width:100%;font-family:inherit">${esc(v)}</textarea></div>`;
+      }
       return `<div class="ajuste-campo"><label>${label}</label><input type="text" data-rs="${key}" value="${esc(v)}"></div>`;
     };
     abrirModal(`
@@ -1055,6 +1058,8 @@ const Ajustes = (() => {
         <label>IBAN</label>
         <input type="text" data-rs="iban" value="${esc(rs.iban != null ? rs.iban : '')}" style="width:100%;font-family:monospace;letter-spacing:1px">
       </div>
+      <div class="ajustes-seccion-titulo">Nota de pie de factura</div>
+      <div class="ajustes-grid">${campo(['nota_pie', 'Nota de pie de factura (ej. datos de la cuenta para transferencias)', 'textarea'])}</div>
       <div class="ajustes-seccion-titulo">Representante legal</div>
       <div class="ajustes-grid">${RS_REPRESENTANTE.map(campo).join('')}</div>
       <div class="ajustes-seccion-titulo">Logo</div>
