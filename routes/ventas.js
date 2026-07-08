@@ -730,11 +730,22 @@ router.get('/propiedades/:id', (req, res) => {
   res.json({ ...prop, visitas });
 });
 
-// POST /api/ventas/propiedades — crear manual.
+// Siguiente referencia libre con formato "A" + correlativo (A424 -> A425). Se deriva
+// siempre de las referencias reales existentes (sin contador aparte) para autocorregirse.
+function siguienteReferencia() {
+  const filas = db.prepare("SELECT referencia FROM propiedades_venta WHERE referencia LIKE 'A%'").all();
+  let max = 0;
+  for (const { referencia } of filas) {
+    const m = /^A(\d+)$/.exec(referencia || '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return 'A' + (max + 1);
+}
+
+// POST /api/ventas/propiedades — crear manual. Sin referencia -> se autogenera (A+correlativo).
 router.post('/propiedades', (req, res) => {
   const b = req.body || {};
-  const referencia = txt(b.referencia);
-  if (!referencia) return res.status(400).json({ error: 'La referencia es obligatoria' });
+  const referencia = txt(b.referencia) || siguienteReferencia();
   if (db.prepare('SELECT id FROM propiedades_venta WHERE referencia = ?').get(referencia)) {
     return res.status(409).json({ error: 'Ya existe una propiedad con esa referencia' });
   }
@@ -748,7 +759,7 @@ router.post('/propiedades', (req, res) => {
   const ph = claves.map((c) => '@' + c).join(', ');
   const info = db.prepare(`INSERT INTO propiedades_venta (${cols}) VALUES (${ph})`).run(datos);
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'propiedad-venta', info.lastInsertRowid, referencia);
-  res.status(201).json({ id: info.lastInsertRowid });
+  res.status(201).json({ id: info.lastInsertRowid, referencia });
 });
 
 // PUT /api/ventas/propiedades/:id — editar.

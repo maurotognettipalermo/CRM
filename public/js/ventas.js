@@ -568,7 +568,7 @@ const Ventas = (() => {
       <h3>${esNueva ? '＋ Nueva propiedad' : '✏️ Editar propiedad'}</h3>
       <div class="campo"><label>Nombre del apartamento</label><input id="vf-apartamento_nombre" value="${esc(p.apartamento_nombre)}"></div>
       <div class="fila-campos">
-        <div class="campo"><label>Referencia *</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? '' : ''}></div>
+        <div class="campo"><label>Referencia${esNueva ? '' : ' *'}</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? ' disabled placeholder="Se asignará automáticamente al guardar"' : ''}></div>
         <div class="campo"><label>Tipo</label><select id="vf-tipo">${optTipo}</select></div>
       </div>
       <div class="fila-campos">
@@ -677,22 +677,23 @@ const Ventas = (() => {
 
   async function guardar(id) {
     const referencia = val('vf-referencia').trim();
-    if (!referencia) return toast('La referencia es obligatoria', 'error');
+    if (id && !referencia) return toast('La referencia es obligatoria', 'error');
     const body = {};
     for (const c of CAMPOS_FORM) body[c] = val('vf-' + c);
-    body.referencia = referencia;
+    if (referencia) body.referencia = referencia; else delete body.referencia; // nueva sin referencia -> la genera el backend
     body.propietario_venta_id = vfPropVentaId; // null = sin vínculo
 
     const btn = document.getElementById('vf-guardar');
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
+      let creada = null;
       if (id) await API.put('/api/ventas/propiedades/' + id, body);
-      else await API.post('/api/ventas/propiedades', body);
+      else creada = await API.post('/api/ventas/propiedades', body);
       cerrarModal();
       await cargarPropiedades();
       cargarResumen();
       if (fichaActual && id && fichaActual.id === id) await recargarFicha();
-      toast(id ? 'Propiedad actualizada' : 'Propiedad creada', 'ok');
+      toast(id ? 'Propiedad actualizada' : `Propiedad creada: ${creada.referencia}`, 'ok');
     } catch (e) {
       toast(e.message, 'error');
       btn.disabled = false; btn.textContent = id ? 'Guardar' : 'Crear';
