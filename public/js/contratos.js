@@ -28,7 +28,7 @@ const Contratos = (() => {
     return (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 }) + '%';
   }
   function nombrePropietario(c) {
-    const nom = `${c.propietario_nombre || ''} ${c.propietario_apellidos || ''}`.trim();
+    const nom = [c.propietario_nombre, c.propietario_apellidos, c.propietario_segundo_apellido].filter(Boolean).join(' ');
     return nom || '—';
   }
   function tipoTexto(t) {
@@ -895,7 +895,7 @@ const Contratos = (() => {
   function autofillPropietario() {
     const a = apartamentos.find((x) => x.id === aptoSelId);
     const nom = a && a.propietario_id
-      ? `${a.propietario_nombre || ''} ${a.propietario_apellidos || ''}`.trim()
+      ? [a.propietario_nombre, a.propietario_apellidos, a.propietario_segundo_apellido].filter(Boolean).join(' ')
       : '';
     const inp = document.getElementById('cnt-f-propietario');
     if (inp) inp.value = nom || '—';

@@ -209,7 +209,14 @@ router.get('/', (req, res) => {
         WHERE ap.apartamento_id = c.apartamento_id AND ap.activo = 1
         ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
         LIMIT 1
-      ))                                                    AS propietario_apellidos
+      ))                                                    AS propietario_apellidos,
+      COALESCE(p.segundo_apellido, (
+        SELECT p2.segundo_apellido FROM apartamento_propietarios ap
+        JOIN propietarios p2 ON p2.id = ap.propietario_id
+        WHERE ap.apartamento_id = c.apartamento_id AND ap.activo = 1
+        ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+        LIMIT 1
+      ))                                                    AS propietario_segundo_apellido
     FROM contratos c
     JOIN apartamentos a ON a.id = c.apartamento_id
     LEFT JOIN propietarios p ON p.id = c.propietario_id
@@ -753,7 +760,8 @@ router.get('/:id', (req, res) => {
       a.nombre                                              AS apartamento_nombre,
       a.tipo                                                AS apartamento_tih,
       p.nombre                                              AS propietario_nombre,
-      p.apellidos                                           AS propietario_apellidos
+      p.apellidos                                           AS propietario_apellidos,
+      p.segundo_apellido                                    AS propietario_segundo_apellido
     FROM contratos c
     JOIN apartamentos a ON a.id = c.apartamento_id
     LEFT JOIN propietarios p ON p.id = c.propietario_id
@@ -766,7 +774,7 @@ router.get('/:id', (req, res) => {
   // (relación N:M, el de mayor porcentaje) como referencia.
   if (!contrato.propietario_id) {
     const activo = db.prepare(`
-      SELECT ap.propietario_id, p.nombre, p.apellidos
+      SELECT ap.propietario_id, p.nombre, p.apellidos, p.segundo_apellido
       FROM apartamento_propietarios ap
       JOIN propietarios p ON p.id = ap.propietario_id
       WHERE ap.apartamento_id = ? AND ap.activo = 1
@@ -777,6 +785,7 @@ router.get('/:id', (req, res) => {
       contrato.propietario_id = activo.propietario_id;
       contrato.propietario_nombre = activo.nombre;
       contrato.propietario_apellidos = activo.apellidos;
+      contrato.propietario_segundo_apellido = activo.segundo_apellido;
     }
   }
 

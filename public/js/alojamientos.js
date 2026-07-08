@@ -215,7 +215,7 @@ const Alojamientos = (() => {
     for (const a of lista) {
       // Propietarios activos (relación N:M) separados por coma.
       const propietario = (a.propietarios || [])
-        .map((p) => [p.nombre, p.apellidos].filter(Boolean).join(' '))
+        .map(nombrePropFull)
         .join(', ');
       const tr = document.createElement('tr');
       tr.innerHTML = `

@@ -32,7 +32,7 @@ router.get('/', (req, res) => {
 
   // Propietarios activos de TODOS los apartamentos en una sola query → map en JS.
   const rels = db.prepare(`
-    SELECT ap.apartamento_id, ap.propietario_id, p.nombre, p.apellidos, ap.porcentaje, ap.fecha_inicio
+    SELECT ap.apartamento_id, ap.propietario_id, p.nombre, p.apellidos, p.segundo_apellido, ap.porcentaje, ap.fecha_inicio
     FROM apartamento_propietarios ap
     JOIN propietarios p ON p.id = ap.propietario_id
     WHERE ap.activo = 1
@@ -54,6 +54,7 @@ router.get('/', (req, res) => {
       propietario_id: principal ? principal.propietario_id : null,
       propietario_nombre: principal ? principal.nombre : null,
       propietario_apellidos: principal ? principal.apellidos : null,
+      propietario_segundo_apellido: principal ? principal.segundo_apellido : null,
     };
   }));
 });
@@ -105,7 +106,7 @@ router.get('/:id', (req, res) => {
   if (!apartamento) return res.status(404).json({ error: 'Alojamiento no encontrado' });
 
   const propietarios = db.prepare(`
-    SELECT ap.*, p.nombre AS nombre, p.apellidos AS apellidos,
+    SELECT ap.*, p.nombre AS nombre, p.apellidos AS apellidos, p.segundo_apellido AS segundo_apellido,
            p.telefono AS telefono, p.email AS email
     FROM apartamento_propietarios ap
     JOIN propietarios p ON p.id = ap.propietario_id
@@ -126,6 +127,7 @@ router.get('/:id', (req, res) => {
     propietario_id: principal ? principal.propietario_id : null,
     propietario_nombre: principal ? principal.nombre : null,
     propietario_apellidos: principal ? principal.apellidos : null,
+    propietario_segundo_apellido: principal ? principal.segundo_apellido : null,
     propietario_telefono: principal ? principal.telefono : null,
     propietario_email: principal ? principal.email : null,
   });
