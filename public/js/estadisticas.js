@@ -221,7 +221,6 @@ const Estadisticas = (() => {
       return `
         <tr data-apto="${a.apartamento_id}" style="cursor:pointer">
           <td>${esc(a.apartamento_nombre)}</td>
-          <td>${badgeTih(a.tipo)}</td>
           <td class="num">${num(a.total_reservas)}</td>
           <td class="num">${num(a.noches_ocupadas)}</td>
           <td class="est-col-pct">${barra(ocup, colorOcupacion(ocup))}</td>
@@ -260,7 +259,6 @@ const Estadisticas = (() => {
           <thead>
             <tr>
               <th>Apartamento</th>
-              <th>TIH</th>
               <th class="num">Reservas</th>
               <th class="num">Noches</th>
               <th class="est-col-pct">% Ocupación</th>
@@ -268,7 +266,7 @@ const Estadisticas = (() => {
               <th class="est-col-pct">% del total</th>
             </tr>
           </thead>
-          <tbody data-apto-tbody>${filas || `<tr><td colspan="7" class="est-vacio">Sin resultados</td></tr>`}</tbody>
+          <tbody data-apto-tbody>${filas || `<tr><td colspan="6" class="est-vacio">Sin resultados</td></tr>`}</tbody>
         </table>
       </div>`;
   }
@@ -290,7 +288,7 @@ const Estadisticas = (() => {
         if (!tbody || !aptoCache) return;
         const total = Number(aptoCache.resumen?.ingresos_netos_total) || 0;
         const filas = filasAptoHTML(filtrarApto(aptoCache.apartamentos || []), total);
-        tbody.innerHTML = filas || `<tr><td colspan="7" class="est-vacio">Sin resultados</td></tr>`;
+        tbody.innerHTML = filas || `<tr><td colspan="6" class="est-vacio">Sin resultados</td></tr>`;
         enlazarFilas(panel);
       });
     }
