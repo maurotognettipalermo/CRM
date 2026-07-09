@@ -100,7 +100,7 @@ function parrafoFirmaDocx(firmaBuf, firmaUrl, textoSinFirma, Pt) {
   if (firmaBuf && tipo) {
     return new Paragraph({
       alignment: AlignmentType.LEFT,
-      children: [new ImageRun({ data: firmaBuf, type: tipo, transformation: { width: 110, height: 50 } })],
+      children: [new ImageRun({ data: firmaBuf, type: tipo, transformation: { width: 170, height: 85 } })],
     });
   }
   return Pt(textoSinFirma);
@@ -362,9 +362,12 @@ router.post('/autorizacion-pdf', (req, res) => {
   // Columnas de firma con línea encima (espacio real para firmar). Hasta 5 firmantes
   // (agencia + hasta 2 vendedores + hasta 2 compradores); con más de 3 se reparten en
   // dos filas para que las columnas no queden demasiado estrechas.
-  doc.moveDown(2.3);
+  const FIRMA_IMG_H = 55;      // alto de la imagen de firma/sello (criterio: recuadro de 70pt de Contratos, adaptado a columna más estrecha)
+  const RESERVA_FIRMA = FIRMA_IMG_H + 12; // + un margen antes/después de la imagen
+  doc.moveDown(1.2);
   let yF = doc.y;
-  if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
+  if (firmaBuf) yF += RESERVA_FIRMA; // hueco reservado para que la imagen no se solape con el texto de arriba
+  if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; if (firmaBuf) yF += RESERVA_FIRMA; }
   const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
   if (nombreVend2) firmas.push([nombreVend2, dniVend2 || '']);
   firmas.push([nombreComp || '—', dniComp || '']);
@@ -378,9 +381,9 @@ router.post('/autorizacion-pdf', (req, res) => {
       const x = M + i * (colW + 20);
       // Columna de la agencia (siempre la primera de la primera fila): si la razón social
       // tiene firma_url se inserta la imagen encima de la línea, dentro del hueco ya
-      // reservado por el moveDown anterior (no añade alto extra a la página).
+      // reservado (RESERVA_FIRMA) para que no se solape con el texto de arriba.
       if (filaIdx === 0 && i === 0 && firmaBuf) {
-        try { doc.image(firmaBuf, x, yF - 20, { fit: [colW, 18] }); } catch (e) { /* firma inválida */ }
+        try { doc.image(firmaBuf, x, yF - RESERVA_FIRMA + 6, { fit: [colW - 6, FIRMA_IMG_H] }); } catch (e) { /* firma inválida */ }
       }
       doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
       doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text(fm[0], x, yF + 4, { width: colW, align: 'center' });
@@ -639,8 +642,11 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
 
   // Columnas de firma con línea encima (en la misma página que el texto). Dos si un solo
   // vendedor (igual que siempre), tres si hay un segundo vendedor — ancho recalculado.
-  doc.moveDown(2);
+  const FIRMA_IMG_H = 55;      // alto de la imagen de firma/sello (criterio: recuadro de 70pt de Contratos, adaptado a columna más estrecha)
+  const RESERVA_FIRMA = FIRMA_IMG_H + 12; // + un margen antes/después de la imagen
+  doc.moveDown(1.2);
   let yF = doc.y;
+  if (firmaBuf) yF += RESERVA_FIRMA; // hueco reservado para que la imagen no se solape con el texto de arriba
   // Si no caben, se suben hasta el límite inferior en vez de pasar a otra página.
   const yMax = doc.page.height - M - 40;
   if (yF > yMax) yF = yMax;
@@ -651,9 +657,9 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   etiquetasFirma.forEach((label, i) => {
     const x = M + i * (colW + gapFirma);
     // Columna de la mercantil (siempre la primera): si tiene firma_url se inserta la
-    // imagen encima de la línea, dentro del hueco ya reservado por el moveDown anterior.
+    // imagen encima de la línea, dentro del hueco ya reservado (RESERVA_FIRMA).
     if (i === 0 && firmaBuf) {
-      try { doc.image(firmaBuf, x, yF - 20, { fit: [colW, 18] }); } catch (e) { /* firma inválida */ }
+      try { doc.image(firmaBuf, x, yF - RESERVA_FIRMA + 6, { fit: [colW - 6, FIRMA_IMG_H] }); } catch (e) { /* firma inválida */ }
     }
     doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(label, x, yF + 8, { width: colW, align: 'center' });
