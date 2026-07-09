@@ -1,5 +1,5 @@
 // Módulo Planning: grid mensual de apartamentos x días, barras de reserva,
-// drag & drop, filtro por TIH, importación e bandeja "Sin asignar".
+// drag & drop, filtro por tipo de clasificación, importación e bandeja "Sin asignar".
 
 const Planning = (() => {
   // Vista continua de días (estilo Avantio). El nº de días visibles se calcula
@@ -219,7 +219,7 @@ const Planning = (() => {
       fila.className = 'fila-planning fila-aptos';
       fila.dataset.apartamentoId = apto.id;
 
-      const meta = [apto.edificio, tihTexto(apto.tipo)].filter(Boolean).join(' · ');
+      const meta = apto.edificio || '';
       const celda = document.createElement('div');
       celda.className = 'celda-apto';
       celda.innerHTML =
@@ -263,13 +263,13 @@ const Planning = (() => {
         const esBloqueo = (r.tipo_reserva || '').toLowerCase() === 'bloqueado';
 
         const barra = document.createElement('div');
-        barra.className = 'barra-reserva tih-' + (r.tih || '1') + (esBloqueo ? ' barra-bloqueo' : '');
+        barra.className = 'barra-reserva barra-reserva-normal' + (esBloqueo ? ' barra-bloqueo' : '');
         if (esBloqueo) {
           // Rayas diagonales con el color del estado "Bloqueado" (rojo oscuro por defecto).
           barra.style.setProperty('--bloq-color', bloqueoColor);
           barra.style.setProperty('--bloq-dark', oscurecer(bloqueoColor));
         } else if (portalInfo && portalInfo.color) {
-          // Color del portal si lo tiene; si no, el color por TIH (clase tih-1/tih-2).
+          // Color del portal si lo tiene; si no, se queda el color neutro por defecto (clase barra-reserva-normal).
           barra.style.background = portalInfo.color;
         }
         barra.style.left = left + 1 + 'px';
@@ -364,7 +364,7 @@ const Planning = (() => {
     for (const r of lista) {
       const chip = document.createElement('div');
       chip.className = 'chip-reserva';
-      chip.textContent = `${r.nombre_cliente || r.numero_reserva} (${tihTexto(r.tih)}, ${fechaES(r.entrada)}→${fechaES(r.salida)})`;
+      chip.textContent = `${r.nombre_cliente || r.numero_reserva} (${fechaES(r.entrada)}→${fechaES(r.salida)})`;
       chip.draggable = true;
       chip.dataset.reservaId = r.id;
       chip.addEventListener('click', () => abrirFichaReserva(r.id));
@@ -405,7 +405,6 @@ const Planning = (() => {
       <h3>Reserva ${esc(r.numero_reserva)}</h3>
       ${dato('Cliente', r.nombre_cliente)}
       ${dato('Edificio', r.edificio)}
-      ${dato('TIH', tihTexto(r.tih))}
       ${dato('Personas', r.personas)}
       ${dato('Entrada', fechaES(r.entrada))}
       ${dato('Salida', fechaES(r.salida))}
@@ -469,7 +468,7 @@ const Planning = (() => {
     document.getElementById('cerrar-resumen').addEventListener('click', cerrarModal);
   }
 
-  // ---- Filtro de clasificación (dropdown multiselección, reemplaza los botones TIH) ----
+  // ---- Filtro de clasificación (dropdown multiselección) ----
   function construirFiltroClasificacion() {
     const cont = document.getElementById('filtro-tih');
     if (!cont) return;

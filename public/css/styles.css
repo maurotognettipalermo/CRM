@@ -514,6 +514,9 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .barra-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .barra-reserva:hover { filter: brightness(1.1); transform: translateY(-1px); cursor: pointer; }
 .barra-reserva:active { cursor: grabbing; transform: translateY(0); }
+/* Color neutro por defecto (sin portal con color propio); tih-1/tih-2 se mantienen para
+   badges de TIH en Alojamientos/Contratos, no para las barras del planning. */
+.barra-reserva-normal { background: var(--muted); }
 .tih-1 { background: var(--green); }
 .tih-2 { background: var(--blue); }
 
