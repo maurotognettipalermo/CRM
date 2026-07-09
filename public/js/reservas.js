@@ -158,7 +158,7 @@ const Reservas = (() => {
     tbody.innerHTML = '';
     if (lista.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
+        '<tr><td colspan="9" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
       return;
     }
     for (const r of lista) {
@@ -174,7 +174,6 @@ const Reservas = (() => {
         <td>${fechaES(r.entrada)}</td>
         <td>${fechaES(r.salida)}</td>
         <td>${r.personas ?? '—'}</td>
-        <td>${tihTexto(r.tih)}</td>
         <td>${portalCelda(r)}</td>
         <td class="obs-celda">${esc(r.observaciones)}</td>
         <td class="acciones">
@@ -208,7 +207,7 @@ const Reservas = (() => {
   async function formularioEditar(id) {
     let r = {
       numero_reserva: '', nombre_cliente: '', contrato: '', edificio: '',
-      tih: '1', apartamento_id: null, entrada: '', salida: '', personas: '', observaciones: '',
+      apartamento_id: null, entrada: '', salida: '', personas: '', observaciones: '',
       portal: '', precio_total: 0,
     };
     if (id) {
@@ -218,10 +217,6 @@ const Reservas = (() => {
         return toast(e.message, 'error');
       }
     }
-
-    const tihOpts = ['1', '2']
-      .map((v) => `<option value="${v}"${r.tih == v ? ' selected' : ''}>${tihTexto(v)}</option>`)
-      .join('');
 
     // Portales para el select (el cálculo de tarifa puede depender del portal).
     let portales = [];
@@ -254,10 +249,6 @@ const Reservas = (() => {
         </div>
       </div>
       <div class="fila-campos">
-        <div class="campo">
-          <label>TIH *</label>
-          <select id="f-tih">${tihOpts}</select>
-        </div>
         <div class="campo">
           <label>Apartamento</label>
           <select id="f-apartamento-id"></select>
@@ -299,15 +290,9 @@ const Reservas = (() => {
         <button class="btn-pri" id="f-guardar">Guardar</button>
       </div>`);
 
-    actualizarSelectorApto(r.tih, r.apartamento_id);
+    actualizarSelectorApto(r.apartamento_id);
 
     document.getElementById('f-cancelar').addEventListener('click', cerrarModal);
-
-    document.getElementById('f-tih').addEventListener('change', () => {
-      actualizarSelectorApto(document.getElementById('f-tih').value, null);
-      verificarDisponibilidad(id);
-      programarCalculoTarifa();
-    });
 
     ['f-apartamento-id', 'f-entrada', 'f-salida'].forEach((fid) => {
       document.getElementById(fid).addEventListener('change', () => {
@@ -448,7 +433,7 @@ const Reservas = (() => {
     }
     selPortal.addEventListener('change', () => { refrescarNumHint(); programarCalculoTarifa(); });
 
-    // Typeahead de apartamento (todos; al elegir guardamos tipo para derivar la TIH).
+    // Typeahead de apartamento (todos).
     const aptoInput = document.getElementById('rsv-apto-input');
     const aptoHidden = document.getElementById('f-apartamento-id');
     const aptoRes = document.getElementById('rsv-apto-res');
@@ -456,7 +441,7 @@ const Reservas = (() => {
       wzApto = null; aptoHidden.value = '';
       const q = aptoInput.value.trim().toLowerCase();
       renderTAReserva(aptoRes, apartamentos.filter((a) => (a.nombre || '').toLowerCase().includes(q)),
-        (a) => `${esc(a.nombre)} <span class="rsv-ta-tih">${tihTexto(a.tipo)}</span>`,
+        (a) => esc(a.nombre),
         (a) => {
           wzApto = a; aptoHidden.value = a.id; aptoInput.value = a.nombre; aptoRes.classList.add('oculto');
           verificarDisponibilidad(null); programarCalculoTarifa();
@@ -618,8 +603,6 @@ const Reservas = (() => {
 
       const portal = document.getElementById('f-portal')?.value || '';
       const precio = document.getElementById('f-precio')?.value || '';
-      // TIH derivada del apartamento elegido (la requiere el backend); por defecto 1ª línea.
-      const tih = wzApto && wzApto.tipo ? wzApto.tipo : '1';
 
       // 2) Crear reserva (sin numero_reserva: lo genera el backend).
       const body = {
@@ -627,7 +610,6 @@ const Reservas = (() => {
         apartamento_id: document.getElementById('f-apartamento-id')?.value || null,
         nombre_cliente: nombreCliente,
         cliente_id: clienteId,
-        tih,
         entrada: document.getElementById('f-entrada')?.value || '',
         salida: document.getElementById('f-salida')?.value || '',
         precio_total: precio,
@@ -648,14 +630,13 @@ const Reservas = (() => {
     }
   }
 
-  // Rellena el select de apartamentos filtrado por TIH; pre-selecciona selectedId si se proporciona.
-  function actualizarSelectorApto(tih, selectedId) {
+  // Rellena el select con todos los apartamentos; pre-selecciona selectedId si se proporciona.
+  function actualizarSelectorApto(selectedId) {
     const sel = document.getElementById('f-apartamento-id');
     if (!sel) return;
-    const filtrados = apartamentos.filter((a) => a.tipo === String(tih));
     sel.innerHTML =
       '<option value="">— Sin asignar —</option>' +
-      filtrados
+      apartamentos
         .map((a) => `<option value="${a.id}"${a.id == selectedId ? ' selected' : ''}>${esc(a.nombre)}</option>`)
         .join('');
   }
@@ -874,7 +855,6 @@ const Reservas = (() => {
       nombre_cliente: nombreCliente,
       contrato:       document.getElementById('f-contrato')?.value || '',
       edificio:       document.getElementById('f-edificio')?.value || '',
-      tih:            document.getElementById('f-tih')?.value || '',
       apartamento_id: document.getElementById('f-apartamento-id')?.value || null,
       entrada,
       salida,
@@ -1102,14 +1082,13 @@ const Reservas = (() => {
   }
 
   // ==================== Filtros avanzados (panel desplegable) ====================
-  // Inyecta el botón "🔽 Filtros" + panel en la barra de controles, eliminando los
-  // filtros antiguos (botones TIH + select de mes) que viven en index.html.
+  // Inyecta el botón "🔽 Filtros" + panel en la barra de controles, eliminando el
+  // select de mes antiguo que vive en index.html.
   function construirFiltros() {
     const controles = document.querySelector('#vista-reservas .reservas-controles');
     if (!controles || document.getElementById('rsv-filtros-btn')) return;
 
-    // Eliminar filtros antiguos.
-    controles.querySelector('.filtro-tih-btns')?.remove();
+    // Eliminar filtro antiguo.
     controles.querySelector('#reservas-filtro-mes')?.remove();
 
     const grupoCheck = (titulo, contId, items) => `

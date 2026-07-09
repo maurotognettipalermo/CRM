@@ -247,12 +247,11 @@ router.post('/:id/convertir', (req, res) => {
 
   if (!entrada || !salida) return res.status(400).json({ error: 'fecha_entrada y fecha_salida son obligatorias' });
 
-  let tih = null;
   if (apartamentoId != null) {
-    const apto = db.prepare('SELECT id, tipo FROM apartamentos WHERE id = ?').get(apartamentoId);
+    const apto = db.prepare('SELECT id FROM apartamentos WHERE id = ?').get(apartamentoId);
     if (!apto) return res.status(400).json({ error: 'El apartamento indicado no existe' });
-    tih = apto.tipo || null;
   }
+  const tih = null; // campo legado, ya no se deriva del apartamento
 
   const u = usuarioActual(req);
   const numeroReserva = `LEAD-${lead.id}-${Date.now()}`;

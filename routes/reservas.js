@@ -80,10 +80,9 @@ function generarNumeroReserva(portalNombre) {
 
 // Reservas para el planning (vista continua de días). Devuelve las que solapan
 // la ventana visible [desde, hasta], con hasta = último día visible (inclusive).
-// Parámetros: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD&tih=1|2
+// Parámetros: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 router.get('/', (req, res) => {
   const { desde, hasta } = req.query;
-  const tih = normalizaTih(req.query.tih);
 
   let sql = 'SELECT * FROM reservas WHERE 1=1';
   const params = [];
@@ -94,25 +93,13 @@ router.get('/', (req, res) => {
     sql += ' AND entrada <= ? AND salida > ?';
     params.push(hasta, desde);
   }
-  if (tih) {
-    sql += ' AND tih = ?';
-    params.push(tih);
-  }
   sql += ' ORDER BY entrada';
   res.json(db.prepare(sql).all(...params));
 });
 
-// Reservas sin apartamento asignado (bandeja "Sin asignar"), con filtro opcional de TIH.
+// Reservas sin apartamento asignado (bandeja "Sin asignar").
 router.get('/sin-asignar', (req, res) => {
-  const tih = normalizaTih(req.query.tih);
-  let sql = 'SELECT * FROM reservas WHERE apartamento_id IS NULL';
-  const params = [];
-  if (tih) {
-    sql += ' AND tih = ?';
-    params.push(tih);
-  }
-  sql += ' ORDER BY entrada';
-  res.json(db.prepare(sql).all(...params));
+  res.json(db.prepare('SELECT * FROM reservas WHERE apartamento_id IS NULL ORDER BY entrada').all());
 });
 
 // Todas las reservas con nombre del apartamento, ordenadas por entrada DESC. Usada por la pestaña Reservas.
@@ -316,8 +303,8 @@ router.post('/', (req, res) => {
   if (entrada >= salida)
     return res.status(400).json({ error: 'La entrada debe ser anterior a la salida' });
 
+  // Campo legado: ya no se pide en la UI, se guarda null si no viene.
   const tihNorm = normalizaTih(tih);
-  if (!tihNorm) return res.status(400).json({ error: 'TIH inválida (debe ser 1ª o 2ª Línea)' });
 
   const existente = db.prepare('SELECT id FROM reservas WHERE numero_reserva = ?').get(numeroFinal);
   if (existente)
