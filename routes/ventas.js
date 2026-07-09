@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const {
-  Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType,
+  Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType, ImageRun,
 } = require('docx');
 const db = require('../db/database');
 const { importarPropiedades } = require('../services/importPropiedades');
@@ -84,6 +84,26 @@ function leerLogoVenta(url) {
   const ext = path.extname(url).toLowerCase();
   if (!['.png', '.jpg', '.jpeg'].includes(ext)) return null;
   try { return fs.readFileSync(path.join(PUBLIC_DIR, url)); } catch (e) { return null; }
+}
+
+// Tipo de imagen ('png'/'jpg') que espera ImageRun de docx, a partir de la extensión del
+// archivo. null si no es una extensión soportada por leerLogoVenta (ya filtrado antes).
+function tipoImagenVenta(url) {
+  const ext = path.extname(url || '').toLowerCase();
+  return ext === '.png' ? 'png' : (ext === '.jpg' || ext === '.jpeg') ? 'jpg' : null;
+}
+
+// Paragraph con la imagen de firma/sello de la razón social, o el texto de siempre
+// ("(Firma)"/"(Firma y sello)") si no hay firma_url configurada.
+function parrafoFirmaDocx(firmaBuf, firmaUrl, textoSinFirma, Pt) {
+  const tipo = firmaBuf ? tipoImagenVenta(firmaUrl) : null;
+  if (firmaBuf && tipo) {
+    return new Paragraph({
+      alignment: AlignmentType.LEFT,
+      children: [new ImageRun({ data: firmaBuf, type: tipo, transformation: { width: 110, height: 50 } })],
+    });
+  }
+  return Pt(textoSinFirma);
 }
 
 function txt(v) { return v === undefined || v === null || v === '' ? null : String(v); }
@@ -232,16 +252,17 @@ router.post('/autorizacion-pdf', (req, res) => {
   const importeComision = formatearEuros(b.importe_comision);
   const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
 
-  // Logo de la razón social (si se indicó y es PNG/JPG).
+  // Logo y firma/sello de la razón social (si se indicó y son PNG/JPG).
   const rsId = aEntero(b.razon_social_id);
-  const rsLogo = rsId != null ? db.prepare('SELECT logo_url FROM razones_sociales WHERE id = ?').get(rsId) : null;
+  const rsLogo = rsId != null ? db.prepare('SELECT logo_url, firma_url FROM razones_sociales WHERE id = ?').get(rsId) : null;
   const logoBuf = rsLogo ? leerLogoVenta(rsLogo.logo_url) : null;
+  const firmaBuf = rsLogo ? leerLogoVenta(rsLogo.firma_url) : null;
 
   const BODY = 10;   // tamaño de fuente del cuerpo
-  const LG = 4;      // interlineado ~1.4 con BODY
-  const PARR = 0.5;  // espacio entre párrafos
+  const LG = 2.6;    // interlineado ~1.25 con BODY (reducido para que quepa con hasta 5 firmantes)
+  const PARR = 0.35; // espacio entre párrafos (reducido, ver LG)
 
-  const M = Math.round(25 * MM); // márgenes 25mm
+  const M = Math.round(20 * MM); // márgenes 20mm (reducido de 25mm para ganar alto de página)
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -341,7 +362,7 @@ router.post('/autorizacion-pdf', (req, res) => {
   // Columnas de firma con línea encima (espacio real para firmar). Hasta 5 firmantes
   // (agencia + hasta 2 vendedores + hasta 2 compradores); con más de 3 se reparten en
   // dos filas para que las columnas no queden demasiado estrechas.
-  doc.moveDown(3);
+  doc.moveDown(2.3);
   let yF = doc.y;
   if (yF > doc.page.height - M - 50) { doc.addPage(); yF = doc.y; }
   const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
@@ -350,11 +371,17 @@ router.post('/autorizacion-pdf', (req, res) => {
   if (nombreComp2) firmas.push([nombreComp2, dniComp2 || '']);
 
   filasFirmas(firmas).forEach((fila, filaIdx) => {
-    if (filaIdx > 0) yF += 55;
+    if (filaIdx > 0) yF += 44;
     if (yF > doc.page.height - M - 50) { doc.addPage(); yF = M; }
     const colW = (contentW - (fila.length - 1) * 20) / fila.length;
     fila.forEach((fm, i) => {
       const x = M + i * (colW + 20);
+      // Columna de la agencia (siempre la primera de la primera fila): si la razón social
+      // tiene firma_url se inserta la imagen encima de la línea, dentro del hueco ya
+      // reservado por el moveDown anterior (no añade alto extra a la página).
+      if (filaIdx === 0 && i === 0 && firmaBuf) {
+        try { doc.image(firmaBuf, x, yF - 20, { fit: [colW, 18] }); } catch (e) { /* firma inválida */ }
+      }
       doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
       doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000').text(fm[0], x, yF + 4, { width: colW, align: 'center' });
       doc.font('Helvetica').fontSize(8).text(fm[1], x, doc.y, { width: colW, align: 'center' });
@@ -399,11 +426,16 @@ router.post('/autorizacion-docx', async (req, res) => {
   const importeComision = formatearEuros(b.importe_comision);
   const textoIva = b.iva_incluido ? 'con el IVA incluido' : 'más el IVA correspondiente';
 
+  // Firma/sello de la razón social (misma que el logo del PDF de Arras).
+  const rsIdDocx = aEntero(b.razon_social_id);
+  const rsFirmaDocx = rsIdDocx != null ? db.prepare('SELECT firma_url FROM razones_sociales WHERE id = ?').get(rsIdDocx) : null;
+  const firmaBufDocx = rsFirmaDocx ? leerLogoVenta(rsFirmaDocx.firma_url) : null;
+
   // --- Primitivas docx (tamaños en medios puntos: 20 = 10pt, 28 = 14pt) ---
   const R = (t, bold) => new TextRun({ text: t, bold: !!bold, size: 20, font: 'Helvetica' });
   const P = (segs, align) => new Paragraph({
     alignment: align || AlignmentType.JUSTIFIED,
-    spacing: { after: 140, line: 276 },
+    spacing: { after: 110, line: 250 },
     children: segs.map((seg) => R(seg.t, seg.b)),
   });
   const Pt = (t, align) => P([{ t }], align);
@@ -462,22 +494,25 @@ router.post('/autorizacion-docx', async (req, res) => {
     'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const ahora = new Date();
   const fechaTexto = `En Oropesa del Mar, a ${ahora.getDate()} de ${MESES_ES[ahora.getMonth()]} de ${ahora.getFullYear()}`;
-  k.push(new Paragraph({ spacing: { before: 200, after: 400 }, children: [R(fechaTexto)] }));
+  k.push(new Paragraph({ spacing: { before: 150, after: 300 }, children: [R(fechaTexto)] }));
 
-  // Firmas (empresa + hasta 2 vendedores + hasta 2 compradores) en bloques sucesivos.
+  // Firmas (empresa + hasta 2 vendedores + hasta 2 compradores) en bloques sucesivos. Para
+  // la empresa, si hay firma_url se inserta la imagen en vez del texto "(Firma)".
   const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
   if (nombreVend2) firmas.push([nombreVend2, dniVend2 || '']);
   firmas.push([nombreComp || '—', dniComp || '']);
   if (nombreComp2) firmas.push([nombreComp2, dniComp2 || '']);
-  firmas.forEach(([nombre, dni]) => {
-    k.push(new Paragraph({ spacing: { before: 300 }, children: [R(nombre, true)] }));
+  firmas.forEach(([nombre, dni], i) => {
+    k.push(new Paragraph({ spacing: { before: 220 }, children: [R(nombre, true)] }));
     k.push(Pt(dni));
-    k.push(Pt('(Firma)'));
+    k.push(i === 0
+      ? parrafoFirmaDocx(firmaBufDocx, rsFirmaDocx && rsFirmaDocx.firma_url, '(Firma)', Pt)
+      : Pt('(Firma)'));
   });
 
   const docx = new Document({
     sections: [{
-      properties: { page: { margin: { top: 1417, bottom: 1417, left: 1417, right: 1417 } } }, // 25mm
+      properties: { page: { margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } }, // 20mm
       children: k,
     }],
   });
@@ -516,15 +551,16 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
   const fechaDoc = fechaTextoEspanol(b.fecha_documento);
 
-  // Logo de la razón social (si coincide por nombre y es PNG/JPG).
-  const rs = db.prepare('SELECT logo_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
+  // Logo y firma/sello de la razón social (si coincide por nombre y son PNG/JPG).
+  const rs = db.prepare('SELECT logo_url, firma_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
   const logoBuf = rs ? leerLogoVenta(rs.logo_url) : null;
+  const firmaBuf = rs ? leerLogoVenta(rs.firma_url) : null;
 
   const BODY = 11;   // tamaño de fuente del cuerpo
-  const LG = 4.4;    // interlineado ~1.4 con BODY
-  const PARR = 0.5;  // espacio entre párrafos
+  const LG = 3.4;    // interlineado (reducido para que quepa con el segundo vendedor)
+  const PARR = 0.4;  // espacio entre párrafos (reducido, ver LG)
 
-  const M = Math.round(22 * MM); // márgenes 22mm
+  const M = Math.round(20 * MM); // márgenes 20mm (reducido de 22mm para ganar alto de página)
   const doc = new PDFDocument({ size: 'A4', margin: M });
   const chunks = [];
   doc.on('data', (c) => chunks.push(c));
@@ -614,6 +650,11 @@ router.post('/autorizacion-venta-pdf', (req, res) => {
   const colW = (contentW - gapFirma * (etiquetasFirma.length - 1)) / etiquetasFirma.length;
   etiquetasFirma.forEach((label, i) => {
     const x = M + i * (colW + gapFirma);
+    // Columna de la mercantil (siempre la primera): si tiene firma_url se inserta la
+    // imagen encima de la línea, dentro del hueco ya reservado por el moveDown anterior.
+    if (i === 0 && firmaBuf) {
+      try { doc.image(firmaBuf, x, yF - 20, { fit: [colW, 18] }); } catch (e) { /* firma inválida */ }
+    }
     doc.moveTo(x, yF).lineTo(x + colW, yF).strokeColor('#000000').lineWidth(0.8).stroke();
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(label, x, yF + 8, { width: colW, align: 'center' });
   });
@@ -644,11 +685,15 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
   const razonSocial = s(b.razon_social) || 'Costa Azahar Real Estate Solutions 2023 S.L.';
   const fechaDoc = fechaTextoEspanol(b.fecha_documento);
 
+  // Firma/sello de la razón social (misma que el logo del PDF de Autorización de venta).
+  const rsDocx = db.prepare('SELECT firma_url FROM razones_sociales WHERE razon_social = ?').get(razonSocial);
+  const firmaBufDocx = rsDocx ? leerLogoVenta(rsDocx.firma_url) : null;
+
   // --- Primitivas docx (tamaños en medios puntos: 20 = 10pt, 28 = 14pt) ---
   const R = (t, bold) => new TextRun({ text: t, bold: !!bold, size: 22, font: 'Helvetica' });
   const P = (segs, align) => new Paragraph({
     alignment: align || AlignmentType.JUSTIFIED,
-    spacing: { after: 140, line: 276 },
+    spacing: { after: 110, line: 250 },
     children: segs.map((seg) => R(seg.t, seg.b)),
   });
   const Pt = (t, align) => P([{ t }], align);
@@ -696,19 +741,20 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
     { t: fechaDoc, b: true }, { t: '.' },
   ]));
 
-  // Firmas (mercantil + uno o dos vendedores) en bloques sucesivos.
-  k.push(new Paragraph({ spacing: { before: 400 }, children: [R(razonSocial, true)] }));
-  k.push(Pt('(Firma y sello)'));
-  k.push(new Paragraph({ spacing: { before: 300 }, children: [R(nombreVend2 ? 'El Vendedor 1' : 'El Vendedor', true)] }));
+  // Firmas (mercantil + uno o dos vendedores) en bloques sucesivos. Para la mercantil, si
+  // hay firma_url se inserta la imagen en vez del texto "(Firma y sello)".
+  k.push(new Paragraph({ spacing: { before: 300 }, children: [R(razonSocial, true)] }));
+  k.push(parrafoFirmaDocx(firmaBufDocx, rsDocx && rsDocx.firma_url, '(Firma y sello)', Pt));
+  k.push(new Paragraph({ spacing: { before: 220 }, children: [R(nombreVend2 ? 'El Vendedor 1' : 'El Vendedor', true)] }));
   k.push(Pt('(Firma)'));
   if (nombreVend2) {
-    k.push(new Paragraph({ spacing: { before: 300 }, children: [R('El Vendedor 2', true)] }));
+    k.push(new Paragraph({ spacing: { before: 220 }, children: [R('El Vendedor 2', true)] }));
     k.push(Pt('(Firma)'));
   }
 
   const docx = new Document({
     sections: [{
-      properties: { page: { margin: { top: 1247, bottom: 1247, left: 1247, right: 1247 } } }, // 22mm
+      properties: { page: { margin: { top: 1134, bottom: 1134, left: 1134, right: 1134 } } }, // 20mm
       children: k,
     }],
   });
