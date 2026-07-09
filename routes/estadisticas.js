@@ -11,6 +11,46 @@ function anioParam(req) {
   return String(n >= 1900 && n <= 9999 ? n : new Date().getFullYear());
 }
 
+// Días de calendario entre dos fechas ISO (YYYY-MM-DD), sin componente horario.
+function diasEntre(a, b) {
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+
+// Fusiona intervalos [entrada, salida) solapados o contiguos de un MISMO apartamento y suma
+// las noches resultantes, sin contar dos veces una noche cuando el apartamento tiene más de
+// una reserva solapando esa fecha (p. ej. la misma estancia duplicada por venir de dos
+// canales — Booking + un mayorista —, o varios bloqueos de contrato para las mismas fechas).
+function nochesSinSolape(intervalos) {
+  if (!intervalos.length) return 0;
+  const ordenados = [...intervalos].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  let total = 0;
+  let [curE, curS] = ordenados[0];
+  for (let i = 1; i < ordenados.length; i++) {
+    const [e, s] = ordenados[i];
+    if (e <= curS) {
+      if (s > curS) curS = s;
+    } else {
+      total += diasEntre(curE, curS);
+      [curE, curS] = [e, s];
+    }
+  }
+  total += diasEntre(curE, curS);
+  return total;
+}
+
+// Agrupa filas {apartamento_id, entrada, salida} por apartamento y devuelve un Map
+// apartamento_id -> noches ocupadas ya deduplicadas (ver nochesSinSolape).
+function nochesPorApartamento(filas) {
+  const porApto = new Map();
+  for (const r of filas) {
+    if (!porApto.has(r.apartamento_id)) porApto.set(r.apartamento_id, []);
+    porApto.get(r.apartamento_id).push([r.entrada, r.salida]);
+  }
+  const resultado = new Map();
+  for (const [id, intervalos] of porApto) resultado.set(id, nochesSinSolape(intervalos));
+  return resultado;
+}
+
 // GET /api/estadisticas/portales?anio=2026
 // Ingresos agregados por portal de venta durante el año indicado (por fecha de entrada).
 // Se excluyen las reservas canceladas. Ordena por ingresos brutos desc.
@@ -103,8 +143,7 @@ router.get('/apartamentos', (req, res) => {
         a.nombre                                                         AS apartamento_nombre,
         a.tipo                                                           AS tipo,
         COUNT(r.id)                                                      AS total_reservas,
-        COALESCE(SUM(r.pagado), 0)                                       AS ingresos_netos,
-        CAST(ROUND(COALESCE(SUM(julianday(r.salida) - julianday(r.entrada)), 0)) AS INTEGER) AS noches_ocupadas
+        COALESCE(SUM(r.pagado), 0)                                       AS ingresos_netos
       FROM apartamentos a
       LEFT JOIN reservas r
         ON r.apartamento_id = a.id
@@ -115,8 +154,6 @@ router.get('/apartamentos', (req, res) => {
     `).get(anio, aptoId);
 
     if (!apto) return res.status(404).json({ error: 'Apartamento no encontrado' });
-
-    apto.porcentaje_ocupacion = Math.round((apto.noches_ocupadas / 365) * 1000) / 10;
 
     apto.reservas = db.prepare(`
       SELECT
@@ -134,6 +171,12 @@ router.get('/apartamentos', (req, res) => {
       ORDER BY entrada ASC
     `).all(aptoId, anio);
 
+    // Noches ocupadas deduplicadas: si hay reservas solapadas para este apartamento (misma
+    // estancia por dos canales, bloqueos de contrato repetidos, etc.), esa noche cuenta una
+    // sola vez en vez de sumarse por cada reserva que la cubre.
+    apto.noches_ocupadas = nochesSinSolape(apto.reservas.map((r) => [r.entrada, r.salida]));
+    apto.porcentaje_ocupacion = Math.round((apto.noches_ocupadas / 365) * 1000) / 10;
+
     return res.json({ apartamento: apto });
   }
 
@@ -144,8 +187,7 @@ router.get('/apartamentos', (req, res) => {
       a.nombre                                                         AS apartamento_nombre,
       a.tipo                                                           AS tipo,
       COUNT(r.id)                                                      AS total_reservas,
-      COALESCE(SUM(r.pagado), 0)                                       AS ingresos_netos,
-      CAST(ROUND(COALESCE(SUM(julianday(r.salida) - julianday(r.entrada)), 0)) AS INTEGER) AS noches_ocupadas
+      COALESCE(SUM(r.pagado), 0)                                       AS ingresos_netos
     FROM apartamentos a
     JOIN reservas r
       ON r.apartamento_id = a.id
@@ -155,7 +197,20 @@ router.get('/apartamentos', (req, res) => {
     ORDER BY ingresos_netos DESC
   `).all(anio);
 
+  // Noches ocupadas deduplicadas por apartamento (ver nochesSinSolape): evita que dos
+  // reservas solapadas del mismo apartamento (mismo motivo que en la vista detalle) inflen
+  // el % de ocupación por encima del 100%.
+  const reservasDelAnio = db.prepare(`
+    SELECT apartamento_id, entrada, salida
+    FROM reservas
+    WHERE apartamento_id IS NOT NULL
+      AND strftime('%Y', entrada) = ?
+      AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')
+  `).all(anio);
+  const nochesMap = nochesPorApartamento(reservasDelAnio);
+
   apartamentos.forEach((a) => {
+    a.noches_ocupadas = nochesMap.get(a.apartamento_id) || 0;
     a.porcentaje_ocupacion = Math.round((a.noches_ocupadas / 365) * 1000) / 10;
   });
 
@@ -187,42 +242,29 @@ router.get('/ocupacion', (req, res) => {
 
   const totalApts = db.prepare('SELECT COUNT(*) AS n FROM apartamentos').get().n;
 
-  // Suma de noches ocupadas (solape con [@inicio, @fin)) de reservas asignadas no canceladas.
-  const stmtSolape = db.prepare(`
-    SELECT COALESCE(SUM(
-      julianday(MIN(salida, @fin)) - julianday(MAX(entrada, @inicio))
-    ), 0) AS noches
+  // Reservas (apartamento_id, entrada, salida) asignadas y no canceladas que solapan
+  // [@inicio, @fin). Las noches ocupadas se calculan luego en JS con nochesPorApartamento,
+  // que fusiona los intervalos de un MISMO apartamento antes de sumar — así dos reservas
+  // solapadas para el mismo apartamento (misma estancia por dos canales, bloqueos de
+  // contrato repetidos, etc.) no inflan las noches ni el % de ocupación por encima del 100%.
+  const stmtReservasPeriodo = db.prepare(`
+    SELECT apartamento_id, entrada, salida
     FROM reservas
     WHERE apartamento_id IS NOT NULL
       AND entrada < @fin AND salida > @inicio
       AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')
   `);
-
-  // ---- Por tipo de clasificación (tipo_clasificacion: A/A+/A++/B/B+/C, o "Sin clasificar") ----
-  const stmtAptsPorTipo = db.prepare('SELECT COUNT(*) AS n FROM apartamentos WHERE tipo_clasificacion = ?');
-  const stmtAptsSinClasificar = db.prepare("SELECT COUNT(*) AS n FROM apartamentos WHERE tipo_clasificacion IS NULL OR tipo_clasificacion = ''");
-
-  // Igual que stmtSolape pero filtrando por tipo_clasificacion del apartamento.
-  const stmtSolapePorTipo = db.prepare(`
-    SELECT COALESCE(SUM(
-      julianday(MIN(r.salida, @fin)) - julianday(MAX(r.entrada, @inicio))
-    ), 0) AS noches
-    FROM reservas r
-    JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE a.tipo_clasificacion = @tipo
-      AND r.entrada < @fin AND r.salida > @inicio
-      AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
-  `);
-  const stmtSolapeSinClasificar = db.prepare(`
-    SELECT COALESCE(SUM(
-      julianday(MIN(r.salida, @fin)) - julianday(MAX(r.entrada, @inicio))
-    ), 0) AS noches
-    FROM reservas r
-    JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE (a.tipo_clasificacion IS NULL OR a.tipo_clasificacion = '')
-      AND r.entrada < @fin AND r.salida > @inicio
-      AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
-  `);
+  // Noches ocupadas deduplicadas en [inicio, fin), recortando cada reserva a ese periodo.
+  function nochesEnPeriodo(inicio, fin) {
+    const filas = stmtReservasPeriodo.all({ inicio, fin }).map((r) => ({
+      apartamento_id: r.apartamento_id,
+      entrada: r.entrada < inicio ? inicio : r.entrada,
+      salida: r.salida > fin ? fin : r.salida,
+    })).filter((r) => r.salida > r.entrada);
+    let total = 0;
+    for (const noches of nochesPorApartamento(filas).values()) total += noches;
+    return total;
+  }
 
   // ---- Por mes ----
   const por_mes = [];
@@ -230,7 +272,7 @@ router.get('/ocupacion', (req, res) => {
   for (let m = 1; m <= 12; m++) {
     const inicio = `${anio}-${pad2(m)}-01`;
     const fin = m === 12 ? `${anio + 1}-01-01` : `${anio}-${pad2(m + 1)}-01`;
-    const noches = Math.round(stmtSolape.get({ inicio, fin }).noches);
+    const noches = nochesEnPeriodo(inicio, fin);
     const disponibles = totalApts * diasMes(m);
     const porcentaje = disponibles > 0 ? Math.round((noches / disponibles) * 1000) / 10 : 0;
     totalNoches += noches;
@@ -240,13 +282,21 @@ router.get('/ocupacion', (req, res) => {
   // ---- Por tipo de clasificación (sobre el año completo) ----
   const inicioAnio = `${anio}-01-01`;
   const finAnio = `${anio + 1}-01-01`;
+  const filasAnio = stmtReservasPeriodo.all({ inicio: inicioAnio, fin: finAnio }).map((r) => ({
+    apartamento_id: r.apartamento_id,
+    entrada: r.entrada < inicioAnio ? inicioAnio : r.entrada,
+    salida: r.salida > finAnio ? finAnio : r.salida,
+  })).filter((r) => r.salida > r.entrada);
+  const nochesMapAnio = nochesPorApartamento(filasAnio);
+  const aptosClasificacion = db.prepare('SELECT id, tipo_clasificacion FROM apartamentos').all();
+
   // tipo === null representa "Sin clasificar" (tipo_clasificacion vacío/NULL).
   const statsTipo = (tipo) => {
-    const n = tipo === null ? stmtAptsSinClasificar.get().n : stmtAptsPorTipo.get(tipo).n;
-    const solape = tipo === null
-      ? stmtSolapeSinClasificar.get({ inicio: inicioAnio, fin: finAnio })
-      : stmtSolapePorTipo.get({ inicio: inicioAnio, fin: finAnio, tipo });
-    const noches = Math.round(solape.noches);
+    const ids = aptosClasificacion
+      .filter((a) => (tipo === null ? !a.tipo_clasificacion : a.tipo_clasificacion === tipo))
+      .map((a) => a.id);
+    const n = ids.length;
+    const noches = ids.reduce((s, id) => s + (nochesMapAnio.get(id) || 0), 0);
     const media = n > 0 ? Math.round((noches / (n * diasAnio)) * 1000) / 10 : 0;
     return { tipo: tipo === null ? 'Sin clasificar' : tipo, total_apartamentos: n, media_ocupacion: media, noches_ocupadas: noches };
   };
@@ -254,9 +304,7 @@ router.get('/ocupacion', (req, res) => {
   // Orden canónico de clasificaciones (igual que CLASIFICACIONES en alojamientos.js); un
   // valor que no esté en la lista se ordena al final, antes de "Sin clasificar".
   const ORDEN_CLASIFICACIONES = ['A', 'A+', 'A++', 'B', 'B+', 'C'];
-  const tiposReales = db.prepare(
-    "SELECT DISTINCT tipo_clasificacion AS t FROM apartamentos WHERE tipo_clasificacion IS NOT NULL AND tipo_clasificacion <> ''"
-  ).all().map((r) => r.t);
+  const tiposReales = [...new Set(aptosClasificacion.map((a) => a.tipo_clasificacion).filter((t) => t))];
   tiposReales.sort((a, b) => {
     const ia = ORDEN_CLASIFICACIONES.indexOf(a);
     const ib = ORDEN_CLASIFICACIONES.indexOf(b);
@@ -266,7 +314,7 @@ router.get('/ocupacion', (req, res) => {
     return ia - ib;
   });
   const por_tipo = tiposReales.map(statsTipo);
-  if (stmtAptsSinClasificar.get().n > 0) por_tipo.push(statsTipo(null));
+  if (aptosClasificacion.some((a) => !a.tipo_clasificacion)) por_tipo.push(statsTipo(null));
 
   // ---- Resumen ----
   const mesTop = por_mes.reduce((a, b) => (b.porcentaje > a.porcentaje ? b : a), por_mes[0]);
