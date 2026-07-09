@@ -849,13 +849,9 @@ const Contratos = (() => {
       dd.classList.remove('oculto');
       return;
     }
-    dd.innerHTML = taMatches.map((a, i) => {
-      const t = String(a.tipo) === '2' ? '2' : '1';
-      return `<div class="cnt-ta-op${i === taIndex ? ' activo' : ''}" data-id="${a.id}">
+    dd.innerHTML = taMatches.map((a, i) => `<div class="cnt-ta-op${i === taIndex ? ' activo' : ''}" data-id="${a.id}">
         <span class="cnt-ta-nombre">${esc(a.nombre)}${a.edificio ? ` <span class="cnt-ta-edif">${esc(a.edificio)}</span>` : ''}</span>
-        <span class="badge-tih-mini tih-${t}">${tihTexto(t)}</span>
-      </div>`;
-    }).join('');
+      </div>`).join('');
     dd.classList.remove('oculto');
     // mousedown (no click) para que se dispare antes del blur del input.
     dd.querySelectorAll('.cnt-ta-op').forEach((op) =>

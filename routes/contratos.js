@@ -758,7 +758,6 @@ router.get('/:id', (req, res) => {
     SELECT
       c.*,
       a.nombre                                              AS apartamento_nombre,
-      a.tipo                                                AS apartamento_tih,
       p.nombre                                              AS propietario_nombre,
       p.apellidos                                           AS propietario_apellidos,
       p.segundo_apellido                                    AS propietario_segundo_apellido
