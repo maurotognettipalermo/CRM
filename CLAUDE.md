@@ -119,7 +119,9 @@ Variables: `--nav:#1a1a2e` · `--green:#10b981` · `--blue:#3b82f6` · `--red:#e
 - **fichajes**: estado del día derivado de la secuencia de eventos (sin tabla de estado separada).
 - **extras_items**: `stock_total NULL = ilimitado`. `disponible` = stock − Σpréstamos + Σdevoluciones, calculado en API.
 - **Tablas sin migración ALTER**: las que no existían en versiones anteriores se crean solo por `schema.sql`. Las migraciones ALTER en `database.js` solo afectan columnas añadidas a tablas ya existentes (apartamentos, reservas, portales, horas_extra, propiedades_venta, usuarios, facturas).
-- TIH: `'1'`/`'2'` en BD → "1ª Línea"/"2ª Línea". Fechas: ISO en BD, DD/MM/AAAA en UI.
+- TIH (`apartamentos.tipo`/`reservas.tih`, `'1'`/`'2'` → "1ª Línea"/"2ª Línea"): **legado en retirada**, en curso desde 2026-07-09. Sigue siendo la columna real que usan `services/importService.js` (autoasignación al importar Excel, regla de negocio #2) y el filtro `?tih=` de `GET /api/apartamentos`; pero ya NO se pide/muestra/filtra en Reservas (formulario, tabla, wizard), Planning (barras, ficha, chips) ni Contratos (typeahead) — las reservas creadas a mano desde esos flujos guardan `tih = NULL`. La clasificación real hoy es `tipo_clasificacion` (A/A+/A++/B/B+/C), pero solo la tiene rellena 1 de 44 apartamentos (el resto se trata como "Sin clasificar" en Estadísticas/Planning) — no sustituyas TIH por tipo_clasificacion en UI sin comprobar antes cuántos apartamentos lo tienen relleno de verdad.
+- **razones_sociales.firma_url**: imagen de firma/sello (PNG/JPG), análoga a `logo_url`. Se sube por `POST /api/ajustes/razones-sociales/:id/firma` (multipart, campo `firma`), que la recorta automáticamente al contenido real (`jimp` `.autocrop()`, quita el margen en blanco/transparente) antes de guardarla — el archivo en disco puede tener dimensiones distintas al original subido. Se inserta en el recuadro de firma del PDF de Contratos y, desde 2026-07-09, también en Arras/Autorización de Ventas (PDF con `fit` que mantiene proporción; Word con `ImageRun` que NO mantiene proporción sola, así que `routes/ventas.js` calcula el tamaño final a partir de las dimensiones reales del archivo).
+- **Noches ocupadas sin duplicar por solape**: `routes/estadisticas.js` (`/ocupacion` y `/apartamentos`) fusiona los intervalos [entrada,salida) de un MISMO apartamento antes de sumar noches (`nochesSinSolape`/`nochesPorApartamento`) — si se suma el solape de cada reserva de forma independiente (como hacía antes), dos reservas solapadas del mismo apartamento (mismo hueco reservado por dos canales, bloqueos de contrato repetidos, etc.) duplican noches y el % de ocupación puede superar el 100%. Cualquier query nueva de ocupación/noches debe deduplicar igual, no sumar overlaps por fila.
 
 ## Reglas de negocio
 
@@ -183,8 +185,8 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/POST/PUT/DELETE | /api/propietarios[/:id] | CRUD |
 | POST | /api/propietarios/importar | `archivo`; upsert por email o documento |
 | POST | /api/apartamentos/importar | Export Avantio (`archivo`, antes de /:id); upsert id_avantio. No pisa notas/config en UPDATE |
-| GET | /api/reservas | `?desde=&hasta=` (ISO) + `?tih=` — para planning |
-| GET | /api/reservas/sin-asignar | Bandeja; `?tih=` |
+| GET | /api/reservas | `?desde=&hasta=` (ISO) — para planning |
+| GET | /api/reservas/sin-asignar | Bandeja |
 | GET | /api/reservas/todas | Todas + apartamento_nombre; orden entrada DESC |
 | GET | /api/reservas/verificar-disponibilidad | `?apartamento_id=&entrada=&salida=[&excluir_reserva_id=]` → `{disponible, conflicto}` |
 | GET | /api/reservas/entradas-pdf | `?desde=&hasta=`. PDF A4 horizontal check-ins del rango. `Content-Disposition: attachment` |
@@ -257,6 +259,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET | /api/personal/fichajes/exportar | `?empleado_ids=&meses=&anio=`. CSV (`;`, BOM UTF-8). **Solo admin. Antes de /fichajes** |
 | GET/POST/PUT/DELETE | /api/ajustes/razones-sociales[/:id] | CRUD |
 | POST | /api/ajustes/razones-sociales/:id/logo | Multipart campo `logo` |
+| POST | /api/ajustes/razones-sociales/:id/firma | Multipart campo `firma`; auto-recorta el margen en blanco/transparente (`jimp` `.autocrop()`) antes de guardar |
 | GET/POST/PUT/DELETE | /api/ajustes/estados-reserva[/:id] | DELETE→409 si `es_sistema=1` o en uso |
 | GET/PUT | /api/ajustes/smtp | **Solo admin**. PUT con `smtp_password='••••••••'` conserva la anterior |
 | POST | /api/ajustes/smtp/test | **Solo admin**. → `{ok}` / `{ok:false,error}` |
@@ -282,7 +285,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET | /api/dashboard | `proximos_checkin, reservas_en_curso, proximos_checkout` (máx 50 c/u) + `pagos_pendientes` |
 | GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas). Si portal tiene `mayorista_id`: usa `importe_total` del contrato anual como ingreso (sin comisión). Si no: `ingresos_netos = ingresos_brutos × (1 − comision_porcentaje/100)`. Resumen usa `ingresos_netos` |
 | GET | /api/estadisticas/apartamentos | `?anio=[&apartamento_id=]`. Sin id: resumen. Con id: detalle + reservas |
-| GET | /api/estadisticas/ocupacion | `?anio=`. `por_mes[12]` + `por_tih` + resumen |
+| GET | /api/estadisticas/ocupacion | `?anio=`. `por_mes[12]` + `por_tipo[]` (uno por `tipo_clasificacion` real + "Sin clasificar", orden `CLASIFICACIONES`) + resumen |
 | GET | /api/estadisticas/propietarios | `?anio=`. Cashflow precio_cerrado por propietario |
 | GET/POST/PUT/DELETE | /api/contratos[/:id] | POST/PUT llaman `generarBloqueosContrato`. DELETE→409 si cuotas pagadas |
 | GET | /api/contratos/resumen-propietario | `?propietario_id=&anio=`. **Antes de /:id** |
