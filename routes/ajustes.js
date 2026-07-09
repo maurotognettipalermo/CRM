@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { Jimp } = require('jimp');
 const db = require('../db/database');
 const { registrarActividad } = require('../services/actividadService');
 const { enviarEmail, leerConfigSmtp } = require('../services/emailService');
@@ -128,9 +129,27 @@ router.post('/razones-sociales/:id/logo', upload.single('logo'), (req, res) => {
   res.json({ ok: true, logo_url });
 });
 
+// Recorta el margen en blanco/transparente alrededor del trazo real de una firma/sello, para
+// que al insertarla en los documentos ocupe de verdad la caja disponible en vez de verse
+// diminuta dentro de un lienzo con mucho margen vacío (típico de logos/firmas escaneadas).
+// Solo png/jpg (formatos que Jimp puede decodificar); en cualquier otro caso, o si algo falla,
+// devuelve el buffer original sin tocar — nunca debe bloquear la subida.
+const MIME_RECORTE = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+async function recortarFirma(buffer, ext) {
+  const mime = MIME_RECORTE[ext];
+  if (!mime) return buffer;
+  try {
+    const img = await Jimp.read(buffer);
+    img.autocrop();
+    return await img.getBuffer(mime);
+  } catch (e) {
+    return buffer;
+  }
+}
+
 // Sube/actualiza la imagen de firma/sello de una razón social (multipart, campo "firma").
 // Misma mecánica que el logo; se inserta en el recuadro de firma del PDF del contrato.
-router.post('/razones-sociales/:id/firma', upload.single('firma'), (req, res) => {
+router.post('/razones-sociales/:id/firma', upload.single('firma'), async (req, res) => {
   const id = Number(req.params.id);
   const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(id);
   if (!rs) return res.status(404).json({ error: 'Razón social no encontrada' });
@@ -149,7 +168,8 @@ router.post('/razones-sociales/:id/firma', upload.single('firma'), (req, res) =>
   }
 
   const nombreArchivo = `firma-${id}-${Date.now()}${ext}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, nombreArchivo), req.file.buffer);
+  const bufferRecortado = await recortarFirma(req.file.buffer, ext);
+  fs.writeFileSync(path.join(UPLOAD_DIR, nombreArchivo), bufferRecortado);
 
   const firma_url = `/uploads/razones-sociales/${nombreArchivo}`;
   db.prepare('UPDATE razones_sociales SET firma_url = ? WHERE id = ?').run(firma_url, id);

@@ -28,6 +28,7 @@ npm start   # node server.js — puerto 3000, escucha 0.0.0.0
 | `multer ^2` | Subida de archivos (memoryStorage) |
 | `nodemailer ^8` | Email SMTP |
 | `flatpickr ^4` | Date picker — **copiado a `public/lib/`** (sin CDN, LAN sin internet) |
+| `jimp ^1` | Recorte de imágenes (auto-crop del margen en blanco/transparente de firma_url al subirla) — pura JS, sin binarios nativos |
 
 ## Arquitectura
 

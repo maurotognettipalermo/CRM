@@ -8,6 +8,7 @@ const PDFDocument = require('pdfkit');
 const {
   Document, Packer, Paragraph, TextRun, AlignmentType, UnderlineType, ImageRun,
 } = require('docx');
+const { Jimp } = require('jimp');
 const db = require('../db/database');
 const { importarPropiedades } = require('../services/importPropiedades');
 const { registrarActividad } = require('../services/actividadService');
@@ -94,13 +95,26 @@ function tipoImagenVenta(url) {
 }
 
 // Paragraph con la imagen de firma/sello de la razón social, o el texto de siempre
-// ("(Firma)"/"(Firma y sello)") si no hay firma_url configurada.
-function parrafoFirmaDocx(firmaBuf, firmaUrl, textoSinFirma, Pt) {
+// ("(Firma)"/"(Firma y sello)") si no hay firma_url configurada. A diferencia de pdfkit
+// (que con `fit` escala manteniendo proporción), ImageRun de docx solo admite un ancho/alto
+// fijo (estira la imagen si no coincide la proporción) — por eso se calcula aquí el tamaño
+// final a partir de las dimensiones reales del archivo, para no deformar la firma.
+const FIRMA_DOCX_MAX_W = 170;
+const FIRMA_DOCX_MAX_H = 85;
+async function parrafoFirmaDocx(firmaBuf, firmaUrl, textoSinFirma, Pt) {
   const tipo = firmaBuf ? tipoImagenVenta(firmaUrl) : null;
   if (firmaBuf && tipo) {
+    let w = FIRMA_DOCX_MAX_W;
+    let h = FIRMA_DOCX_MAX_H;
+    try {
+      const img = await Jimp.read(firmaBuf);
+      const escala = Math.min(FIRMA_DOCX_MAX_W / img.width, FIRMA_DOCX_MAX_H / img.height);
+      w = Math.max(1, Math.round(img.width * escala));
+      h = Math.max(1, Math.round(img.height * escala));
+    } catch (e) { /* si no se puede leer, usa el tamaño máximo tal cual */ }
     return new Paragraph({
       alignment: AlignmentType.LEFT,
-      children: [new ImageRun({ data: firmaBuf, type: tipo, transformation: { width: 170, height: 85 } })],
+      children: [new ImageRun({ data: firmaBuf, type: tipo, transformation: { width: w, height: h } })],
     });
   }
   return Pt(textoSinFirma);
@@ -501,6 +515,7 @@ router.post('/autorizacion-docx', async (req, res) => {
 
   // Firmas (empresa + hasta 2 vendedores + hasta 2 compradores) en bloques sucesivos. Para
   // la empresa, si hay firma_url se inserta la imagen en vez del texto "(Firma)".
+  const firmaEmpresaParrafo = await parrafoFirmaDocx(firmaBufDocx, rsFirmaDocx && rsFirmaDocx.firma_url, '(Firma)', Pt);
   const firmas = [['Analia Palermo Cornet', '20473042Y'], [nombreVend || '—', dniVend || '']];
   if (nombreVend2) firmas.push([nombreVend2, dniVend2 || '']);
   firmas.push([nombreComp || '—', dniComp || '']);
@@ -508,9 +523,7 @@ router.post('/autorizacion-docx', async (req, res) => {
   firmas.forEach(([nombre, dni], i) => {
     k.push(new Paragraph({ spacing: { before: 220 }, children: [R(nombre, true)] }));
     k.push(Pt(dni));
-    k.push(i === 0
-      ? parrafoFirmaDocx(firmaBufDocx, rsFirmaDocx && rsFirmaDocx.firma_url, '(Firma)', Pt)
-      : Pt('(Firma)'));
+    k.push(i === 0 ? firmaEmpresaParrafo : Pt('(Firma)'));
   });
 
   const docx = new Document({
@@ -750,7 +763,7 @@ router.post('/autorizacion-venta-docx', async (req, res) => {
   // Firmas (mercantil + uno o dos vendedores) en bloques sucesivos. Para la mercantil, si
   // hay firma_url se inserta la imagen en vez del texto "(Firma y sello)".
   k.push(new Paragraph({ spacing: { before: 300 }, children: [R(razonSocial, true)] }));
-  k.push(parrafoFirmaDocx(firmaBufDocx, rsDocx && rsDocx.firma_url, '(Firma y sello)', Pt));
+  k.push(await parrafoFirmaDocx(firmaBufDocx, rsDocx && rsDocx.firma_url, '(Firma y sello)', Pt));
   k.push(new Paragraph({ spacing: { before: 220 }, children: [R(nombreVend2 ? 'El Vendedor 1' : 'El Vendedor', true)] }));
   k.push(Pt('(Firma)'));
   if (nombreVend2) {
