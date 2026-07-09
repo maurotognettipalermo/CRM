@@ -186,7 +186,6 @@ router.get('/ocupacion', (req, res) => {
   const diasAnio = bisiesto ? 366 : 365;
 
   const totalApts = db.prepare('SELECT COUNT(*) AS n FROM apartamentos').get().n;
-  const aptsTih = (t) => db.prepare('SELECT COUNT(*) AS n FROM apartamentos WHERE tipo = ?').get(t).n;
 
   // Suma de noches ocupadas (solape con [@inicio, @fin)) de reservas asignadas no canceladas.
   const stmtSolape = db.prepare(`
@@ -199,14 +198,28 @@ router.get('/ocupacion', (req, res) => {
       AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')
   `);
 
-  // Igual pero filtrando por TIH del apartamento.
-  const stmtSolapeTih = db.prepare(`
+  // ---- Por tipo de clasificación (tipo_clasificacion: A/A+/A++/B/B+/C, o "Sin clasificar") ----
+  const stmtAptsPorTipo = db.prepare('SELECT COUNT(*) AS n FROM apartamentos WHERE tipo_clasificacion = ?');
+  const stmtAptsSinClasificar = db.prepare("SELECT COUNT(*) AS n FROM apartamentos WHERE tipo_clasificacion IS NULL OR tipo_clasificacion = ''");
+
+  // Igual que stmtSolape pero filtrando por tipo_clasificacion del apartamento.
+  const stmtSolapePorTipo = db.prepare(`
     SELECT COALESCE(SUM(
       julianday(MIN(r.salida, @fin)) - julianday(MAX(r.entrada, @inicio))
     ), 0) AS noches
     FROM reservas r
     JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE a.tipo = @tipo
+    WHERE a.tipo_clasificacion = @tipo
+      AND r.entrada < @fin AND r.salida > @inicio
+      AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
+  `);
+  const stmtSolapeSinClasificar = db.prepare(`
+    SELECT COALESCE(SUM(
+      julianday(MIN(r.salida, @fin)) - julianday(MAX(r.entrada, @inicio))
+    ), 0) AS noches
+    FROM reservas r
+    JOIN apartamentos a ON a.id = r.apartamento_id
+    WHERE (a.tipo_clasificacion IS NULL OR a.tipo_clasificacion = '')
       AND r.entrada < @fin AND r.salida > @inicio
       AND (r.tipo_reserva IS NULL OR r.tipo_reserva <> 'Cancelada')
   `);
@@ -224,15 +237,36 @@ router.get('/ocupacion', (req, res) => {
     por_mes.push({ mes: m, nombre_mes: MESES[m - 1], noches_ocupadas: noches, noches_disponibles: disponibles, porcentaje });
   }
 
-  // ---- Por TIH (sobre el año completo) ----
+  // ---- Por tipo de clasificación (sobre el año completo) ----
   const inicioAnio = `${anio}-01-01`;
   const finAnio = `${anio + 1}-01-01`;
-  const tihStats = (tipo) => {
-    const n = aptsTih(tipo);
-    const noches = Math.round(stmtSolapeTih.get({ inicio: inicioAnio, fin: finAnio, tipo }).noches);
+  // tipo === null representa "Sin clasificar" (tipo_clasificacion vacío/NULL).
+  const statsTipo = (tipo) => {
+    const n = tipo === null ? stmtAptsSinClasificar.get().n : stmtAptsPorTipo.get(tipo).n;
+    const solape = tipo === null
+      ? stmtSolapeSinClasificar.get({ inicio: inicioAnio, fin: finAnio })
+      : stmtSolapePorTipo.get({ inicio: inicioAnio, fin: finAnio, tipo });
+    const noches = Math.round(solape.noches);
     const media = n > 0 ? Math.round((noches / (n * diasAnio)) * 1000) / 10 : 0;
-    return { total_apartamentos: n, media_ocupacion: media, noches_ocupadas: noches };
+    return { tipo: tipo === null ? 'Sin clasificar' : tipo, total_apartamentos: n, media_ocupacion: media, noches_ocupadas: noches };
   };
+
+  // Orden canónico de clasificaciones (igual que CLASIFICACIONES en alojamientos.js); un
+  // valor que no esté en la lista se ordena al final, antes de "Sin clasificar".
+  const ORDEN_CLASIFICACIONES = ['A', 'A+', 'A++', 'B', 'B+', 'C'];
+  const tiposReales = db.prepare(
+    "SELECT DISTINCT tipo_clasificacion AS t FROM apartamentos WHERE tipo_clasificacion IS NOT NULL AND tipo_clasificacion <> ''"
+  ).all().map((r) => r.t);
+  tiposReales.sort((a, b) => {
+    const ia = ORDEN_CLASIFICACIONES.indexOf(a);
+    const ib = ORDEN_CLASIFICACIONES.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+  const por_tipo = tiposReales.map(statsTipo);
+  if (stmtAptsSinClasificar.get().n > 0) por_tipo.push(statsTipo(null));
 
   // ---- Resumen ----
   const mesTop = por_mes.reduce((a, b) => (b.porcentaje > a.porcentaje ? b : a), por_mes[0]);
@@ -246,7 +280,7 @@ router.get('/ocupacion', (req, res) => {
   res.json({
     resumen,
     por_mes,
-    por_tih: { primera_linea: tihStats('1'), segunda_linea: tihStats('2') },
+    por_tipo,
   });
 });
 

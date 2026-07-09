@@ -449,7 +449,12 @@ const Estadisticas = (() => {
       </div>`;
   }
 
-  // Tarjeta de comparativa de una TIH (título + nº apartamentos + media con barra + noches).
+  // Color por tipo de clasificación (mismos colores sólidos que .pc-pill.sel en styles.css,
+  // usados en Alojamientos, para que las tarjetas coincidan visualmente entre pestañas).
+  const COLOR_CLASIFICACION = { 'A++': '#ca8a04', 'A+': '#ea580c', A: '#10b981', 'B+': '#2563eb', B: '#0ea5e9', C: '#6b7280' };
+  const COLOR_SIN_CLASIFICAR = '#9ca3af';
+
+  // Tarjeta de comparativa de un tipo de clasificación (título + nº apartamentos + media con barra + noches).
   function tarjetaTih(titulo, d, color) {
     const media = Number(d.media_ocupacion) || 0;
     const ancho = Math.max(0, Math.min(100, media));
@@ -472,7 +477,7 @@ const Estadisticas = (() => {
   }
 
   function ocupacionHTML(data) {
-    const { resumen = {}, por_mes = [], por_tih = {} } = data || {};
+    const { resumen = {}, por_mes = [], por_tipo = [] } = data || {};
 
     const cards = `
       <div class="est-cards">
@@ -486,11 +491,12 @@ const Estadisticas = (() => {
       return cards + `<div class="est-vacio">No hay apartamentos registrados</div>`;
     }
 
-    const comparativa = `
+    const comparativa = por_tipo.length
+      ? `
       <div style="display:flex;gap:16px;flex-wrap:wrap">
-        ${tarjetaTih('1ª Línea', por_tih.primera_linea || {}, '#10b981')}
-        ${tarjetaTih('2ª Línea', por_tih.segunda_linea || {}, '#3b82f6')}
-      </div>`;
+        ${por_tipo.map((t) => tarjetaTih(t.tipo, t, COLOR_CLASIFICACION[t.tipo] || COLOR_SIN_CLASIFICAR)).join('')}
+      </div>`
+      : `<div class="est-vacio">No hay tipos de apartamento configurados</div>`;
 
     return cards + graficoMeses(por_mes) + comparativa;
   }
