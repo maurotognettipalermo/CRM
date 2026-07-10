@@ -140,6 +140,16 @@ const Reservas = (() => {
     return esc(r.portal);
   }
 
+  // Celda "Cobro": total pagado vs precio_total, con color según pagada/parcial/pendiente.
+  function cobroCelda(r) {
+    const total = Number(r.precio_total) || 0;
+    const pagado = Number(r.total_pagado) || 0;
+    let clase = 'be-borrador';
+    if (pagado > 0 && pagado >= total - 0.01) clase = 'be-pagada';
+    else if (pagado > 0) clase = 'be-parcialmente_pagada';
+    return `<span class="badge-fac-estado ${clase}">${euro(pagado)} / ${euro(total)}</span>`;
+  }
+
   // Inserta el <th>Portal</th> en la cabecera (la tabla vive en index.html, que no tocamos).
   function asegurarColumnaPortal() {
     const tr = document.querySelector('#tabla-reservas thead tr');
@@ -158,7 +168,7 @@ const Reservas = (() => {
     tbody.innerHTML = '';
     if (lista.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="9" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
+        '<tr><td colspan="10" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
       return;
     }
     for (const r of lista) {
@@ -174,6 +184,7 @@ const Reservas = (() => {
         <td>${fechaES(r.entrada)}</td>
         <td>${fechaES(r.salida)}</td>
         <td>${r.personas ?? '—'}</td>
+        <td>${cobroCelda(r)}</td>
         <td>${portalCelda(r)}</td>
         <td class="obs-celda">${esc(r.observaciones)}</td>
         <td class="acciones">

@@ -106,7 +106,8 @@ router.get('/sin-asignar', (req, res) => {
 router.get('/todas', (req, res) => {
   res.json(
     db.prepare(`
-      SELECT r.*, a.nombre AS apartamento_nombre
+      SELECT r.*, a.nombre AS apartamento_nombre,
+        (SELECT COALESCE(SUM(importe), 0) FROM reserva_pagos WHERE reserva_id = r.id AND pagado = 1) AS total_pagado
       FROM reservas r
       LEFT JOIN apartamentos a ON a.id = r.apartamento_id
       ORDER BY r.entrada DESC
