@@ -168,7 +168,7 @@ const Reservas = (() => {
     tbody.innerHTML = '';
     if (lista.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="10" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
+        '<tr><td colspan="9" style="color:#6b7280;text-align:center;padding:24px">No hay reservas con los filtros actuales.</td></tr>';
       return;
     }
     for (const r of lista) {
@@ -183,7 +183,6 @@ const Reservas = (() => {
         <td>${aptoNombre}</td>
         <td>${fechaES(r.entrada)}</td>
         <td>${fechaES(r.salida)}</td>
-        <td>${r.personas ?? '—'}</td>
         <td>${cobroCelda(r)}</td>
         <td>${portalCelda(r)}</td>
         <td class="obs-celda">${esc(r.observaciones)}</td>
