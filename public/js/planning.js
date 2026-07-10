@@ -284,7 +284,7 @@ const Planning = (() => {
         barra.dataset.reservaId = r.id;
         barra.addEventListener('click', () => abrirFichaReserva(r.id));
         barra.addEventListener('dragstart', (e) => {
-          arrastrando = { reservaId: r.id };
+          arrastrando = { reservaId: r.id, apartamentoOrigenId: apto.id };
           e.dataTransfer.effectAllowed = 'move';
         });
         dias.appendChild(barra);
@@ -339,7 +339,18 @@ const Planning = (() => {
       fila.classList.remove('drop-activo');
       if (!arrastrando) return;
       const id = arrastrando.reservaId;
+      const origenId = arrastrando.apartamentoOrigenId;
       arrastrando = null;
+      if (origenId != null && origenId !== apartamentoId) {
+        const aptoOrigen = apartamentosCache.find((a) => a.id === origenId);
+        const aptoDestino = apartamentosCache.find((a) => a.id === apartamentoId);
+        const tipoOrigen = aptoOrigen && aptoOrigen.tipo_clasificacion;
+        const tipoDestino = aptoDestino && aptoDestino.tipo_clasificacion;
+        if (tipoOrigen && tipoDestino && tipoOrigen !== tipoDestino) {
+          const ok = confirm(`El apartamento de destino es tipo ${tipoDestino} y la reserva viene de un ${tipoOrigen}. ¿Quieres moverla igualmente?`);
+          if (!ok) return;
+        }
+      }
       try {
         await API.put(`/api/reservas/${id}/mover`, { apartamento_id: apartamentoId });
         await cargar();
