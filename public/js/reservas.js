@@ -941,6 +941,11 @@ const Reservas = (() => {
     return { desde: d, hasta: h || d };
   }
 
+  function entPortalSeleccionado() {
+    const sel = document.getElementById('ent-portal');
+    return sel && sel.value ? sel.value : '';
+  }
+
   async function actualizarPreviewEntradas() {
     const { desde, hasta } = rangoEntradas();
     const el = document.getElementById('ent-preview');
@@ -949,7 +954,9 @@ const Reservas = (() => {
     el.textContent = 'Buscando…';
     try {
       const lista = await API.get(`/api/reservas?desde=${desde}&hasta=${hasta}`);
-      const n = lista.filter((r) => r.entrada >= desde && r.entrada <= hasta).length;
+      const portal = entPortalSeleccionado();
+      const n = lista.filter((r) => r.entrada >= desde && r.entrada <= hasta
+        && (!portal || r.portal === portal)).length;
       el.textContent = `${n} entrada${n === 1 ? '' : 's'} encontrada${n === 1 ? '' : 's'}`;
     } catch (e) { el.textContent = 'No se pudo contar las entradas'; }
   }
@@ -959,7 +966,9 @@ const Reservas = (() => {
     if (!desde) return toast('Selecciona una fecha', 'error');
     try {
       const sesion = (typeof Auth !== 'undefined' && Auth.sesion()) || {};
-      const r = await fetch(`/api/reservas/entradas-pdf?desde=${desde}&hasta=${hasta}`, {
+      const portal = entPortalSeleccionado();
+      const qsPortal = portal ? `&portal=${encodeURIComponent(portal)}` : '';
+      const r = await fetch(`/api/reservas/entradas-pdf?desde=${desde}&hasta=${hasta}${qsPortal}`, {
         headers: { 'X-Auth-Token': sesion.token },
       });
       if (!r.ok) throw new Error('Error al generar PDF');
@@ -995,6 +1004,10 @@ const Reservas = (() => {
         <div class="campo"><label>Desde</label><input type="date" id="ent-desde"></div>
         <div class="campo"><label>Hasta</label><input type="date" id="ent-hasta"></div>
       </div>
+      <div class="campo">
+        <label>Portal</label>
+        <select id="ent-portal"><option value="">— Todos los portales —</option></select>
+      </div>
       <div id="ent-preview" style="margin:8px 0 4px;font-weight:600;color:var(--nav)">…</div>
       <div class="modal-acciones">
         <button class="btn-sec" id="ent-cancelar">Cancelar</button>
@@ -1015,9 +1028,22 @@ const Reservas = (() => {
       }));
     document.getElementById('ent-desde').addEventListener('change', actualizarPreviewEntradas);
     document.getElementById('ent-hasta').addEventListener('change', actualizarPreviewEntradas);
+    document.getElementById('ent-portal').addEventListener('change', actualizarPreviewEntradas);
     document.getElementById('ent-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('ent-descargar').addEventListener('click', () => descargarEntradas(false));
     document.getElementById('ent-imprimir').addEventListener('click', () => descargarEntradas(true));
+    (async () => {
+      try {
+        const portales = (await API.getPortales()).filter((p) => p.activo);
+        const sel = document.getElementById('ent-portal');
+        for (const p of portales) {
+          const opt = document.createElement('option');
+          opt.value = p.nombre;
+          opt.textContent = p.nombre;
+          sel.appendChild(opt);
+        }
+      } catch (e) { /* select se queda solo con "Todos" */ }
+    })();
     actualizarPreviewEntradas();
   }
 

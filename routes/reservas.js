@@ -154,15 +154,16 @@ router.get('/entradas-pdf', (req, res) => {
   const desde = String(req.query.desde || '').trim();
   const hasta = String(req.query.hasta || '').trim() || desde;
   if (!desde) return res.status(400).json({ error: 'Falta el parámetro desde' });
+  const portal = String(req.query.portal || '').trim();
 
   const reservas = db.prepare(`
     SELECT r.*, a.nombre AS apartamento_nombre, c.telefono AS cliente_telefono
     FROM reservas r
     LEFT JOIN apartamentos a ON a.id = r.apartamento_id
     LEFT JOIN clientes c ON c.id = r.cliente_id
-    WHERE r.entrada BETWEEN ? AND ?
+    WHERE r.entrada BETWEEN ? AND ?${portal ? ' AND r.portal = ?' : ''}
     ORDER BY r.entrada ASC, a.nombre ASC
-  `).all(desde, hasta);
+  `).all(...(portal ? [desde, hasta, portal] : [desde, hasta]));
 
   // Razón social principal (la primera) para el logo.
   const rs = db.prepare('SELECT razon_social, logo_url FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get() || {};
