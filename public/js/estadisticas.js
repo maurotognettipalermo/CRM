@@ -15,6 +15,7 @@ const Estadisticas = (() => {
   };
   const METODOS_PAGO = [['transferencia', 'Transferencia'], ['cheque', 'Cheque'], ['efectivo', 'Efectivo']];
   const ANIOS = [2024, 2025, 2026];
+  const CLASIFICACIONES = ['A', 'A+', 'A++', 'B', 'B+', 'C'];
 
   let seccionActiva = 'portal';
   let anio = new Date().getFullYear();
@@ -1040,8 +1041,39 @@ const Estadisticas = (() => {
         </div>
       </div>`;
 
+    const partidas = contrato.partidas || [];
+    const filasPartidas = partidas.map((p) => `
+      <tr>
+        <td>${esc(p.nombre) || '—'}</td>
+        <td>${esc(p.tipo_clasificacion)}</td>
+        <td>${fechaES(p.fecha_inicio)} – ${fechaES(p.fecha_fin)}</td>
+        <td class="num">${euro(p.importe_total)}</td>
+        <td class="num" title="Solo informativo, no afecta al precio calculado">${p.num_apartamentos != null ? p.num_apartamentos : '—'}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-edit-partida="${p.id}">✏️</button>
+          <button class="btn-mini" data-del-partida="${p.id}">🗑</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="6" class="est-vacio">Sin partidas configuradas</td></tr>';
+
+    const tablaPartidas = `
+      <div class="may-d-seccion">
+        <div class="mc-plan-cab">
+          <span class="may-d-titulo-sec" style="margin:0">📋 Partidas</span>
+          <button class="btn-sec" id="may-d-partida-nueva">＋ Añadir partida</button>
+        </div>
+        <div class="tabla-scroll">
+          <table class="tabla est-tabla">
+            <thead><tr>
+              <th>Nombre</th><th>Tipo</th><th>Fechas</th><th class="num">Importe pactado</th>
+              <th class="num" title="Solo informativo, no afecta al precio calculado">Nº aptos ⓘ</th><th></th>
+            </tr></thead>
+            <tbody>${filasPartidas}</tbody>
+          </table>
+        </div>
+      </div>`;
+
     const cuerpo = document.getElementById('may-d-cuerpo');
-    cuerpo.innerHTML = datosMay + datosCon + tabla;
+    cuerpo.innerHTML = datosMay + datosCon + tabla + tablaPartidas;
 
     cuerpo.querySelectorAll('[data-cobrar]').forEach((b) =>
       b.addEventListener('click', () => modalCobrar(Number(b.dataset.cobrar))));
@@ -1051,6 +1083,12 @@ const Estadisticas = (() => {
       b.addEventListener('click', () => generarFactura(pagos.find((p) => p.id === Number(b.dataset.factura)), contrato)));
     cuerpo.querySelectorAll('[data-fact-num]').forEach((a) =>
       a.addEventListener('click', () => irAFactura(a.dataset.factNum, contrato.anio)));
+
+    document.getElementById('may-d-partida-nueva').addEventListener('click', () => modalPartida(contrato, null));
+    cuerpo.querySelectorAll('[data-edit-partida]').forEach((b) =>
+      b.addEventListener('click', () => modalPartida(contrato, partidas.find((p) => p.id === Number(b.dataset.editPartida)))));
+    cuerpo.querySelectorAll('[data-del-partida]').forEach((b) =>
+      b.addEventListener('click', () => borrarPartida(partidas.find((p) => p.id === Number(b.dataset.delPartida)))));
   }
 
   // Navega a Facturación y abre el panel de la factura con ese número (busca el id por año).
@@ -1107,6 +1145,71 @@ const Estadisticas = (() => {
     try {
       await API.put('/api/mayoristas/pagos/' + pagoId, { pagado: false });
       toast('Cobro desmarcado', 'ok');
+      await recargarPanel();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // ---- Partidas del contrato (mayorista_contrato_partidas): añadir / editar / borrar ----
+  function modalPartida(contrato, partida) {
+    const esNuevo = !partida;
+    const opts = CLASIFICACIONES.map((c) =>
+      `<option value="${c}"${partida && partida.tipo_clasificacion === c ? ' selected' : ''}>${c}</option>`).join('');
+    abrirModal(`
+      <h3>${esNuevo ? '＋ Añadir partida' : '✏️ Editar partida'}</h3>
+      <div class="campo"><label>Nombre</label><input id="mp-nombre" placeholder="Ej. Telefónica" value="${esc(partida?.nombre || '')}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Tipo de apartamento *</label><select id="mp-tipo">${opts}</select></div>
+        <div class="campo"><label>Importe pactado (€) *</label><input type="number" min="0" step="0.01" id="mp-importe" value="${partida ? partida.importe_total : ''}" placeholder="0,00"></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="mp-inicio" value="${partida?.fecha_inicio || ''}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="mp-fin" value="${partida?.fecha_fin || ''}"></div>
+      </div>
+      <div class="campo">
+        <label>Nº de apartamentos <span title="Solo informativo, no afecta al precio calculado" style="cursor:help;color:#9ca3af">ⓘ</span></label>
+        <input type="number" min="0" step="1" id="mp-num-apartamentos" value="${partida?.num_apartamentos ?? ''}" placeholder="Solo informativo">
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="mp-cancelar">Cancelar</button>
+        <button class="btn-pri" id="mp-guardar">${esNuevo ? 'Añadir partida' : 'Guardar cambios'}</button>
+      </div>`);
+    document.getElementById('mp-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('mp-guardar').addEventListener('click', () => guardarPartida(contrato.id, partida ? partida.id : null));
+  }
+
+  async function guardarPartida(contratoId, partidaId) {
+    const fechaInicio = document.getElementById('mp-inicio').value;
+    const fechaFin = document.getElementById('mp-fin').value;
+    const importe = Number(document.getElementById('mp-importe').value) || 0;
+    if (!fechaInicio || !fechaFin) return toast('Las fechas son obligatorias', 'error');
+    if (!(importe > 0)) return toast('El importe pactado debe ser mayor que 0', 'error');
+    const numApartamentosVal = document.getElementById('mp-num-apartamentos').value;
+    const body = {
+      nombre: document.getElementById('mp-nombre').value.trim(),
+      tipo_clasificacion: document.getElementById('mp-tipo').value,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      importe_total: importe,
+      num_apartamentos: numApartamentosVal === '' ? null : parseInt(numApartamentosVal, 10),
+    };
+    const btn = document.getElementById('mp-guardar');
+    const textoOriginal = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (partidaId) await API.put('/api/mayoristas/partidas/' + partidaId, body);
+      else await API.post('/api/mayoristas/contratos/' + contratoId + '/partidas', body);
+      cerrarModal();
+      toast(partidaId ? 'Partida actualizada' : 'Partida añadida', 'ok');
+      await recargarPanel();
+    } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+
+  async function borrarPartida(partida) {
+    if (!partida) return;
+    if (!confirm(`¿Eliminar la partida "${partida.nombre || partida.tipo_clasificacion}"?`)) return;
+    try {
+      await API.del('/api/mayoristas/partidas/' + partida.id);
+      toast('Partida eliminada', 'ok');
       await recargarPanel();
     } catch (e) { toast(e.message, 'error'); }
   }

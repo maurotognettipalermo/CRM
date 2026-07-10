@@ -701,10 +701,12 @@ const Reservas = (() => {
   let tarifaCalc = null;         // último resultado de /api/tarifas/calcular
   let tarifaPrecioManual = false; // el usuario ha puesto el precio a mano
   let tarifaDesplegado = false;  // desglose largo expandido
+  let tarifaPartidaId = null;    // partida de mayorista elegida (caso ambiguo), null = sin elegir
   let coloresTemporada = {};     // nombre temporada -> color (por años cargados)
   let coloresAniosCargados = new Set();
 
   function programarCalculoTarifa() {
+    tarifaPartidaId = null; // cambió apartamento/fechas/portal: no arrastrar la elección anterior
     clearTimeout(tarifaTimer);
     tarifaTimer = setTimeout(calcularTarifa, 500);
   }
@@ -752,6 +754,7 @@ const Reservas = (() => {
     try {
       let url = `/api/tarifas/calcular?apartamento_id=${encodeURIComponent(aptId)}&entrada=${encodeURIComponent(entrada)}&salida=${encodeURIComponent(salida)}`;
       if (portal) url += `&portal=${encodeURIComponent(portal)}`;
+      if (tarifaPartidaId != null) url += `&partida_id=${encodeURIComponent(tarifaPartidaId)}`;
       data = await API.get(url);
     } catch (e) {
       if (token !== tarifaToken) return; // llegó tarde, hay otro cálculo en curso
@@ -765,6 +768,13 @@ const Reservas = (() => {
     }
     if (token !== tarifaToken) return;
 
+    if (data.requiere_partida) {
+      tarifaCalc = null;
+      actualizarBadgePrecio();
+      renderSelectorPartida(cont, data);
+      return;
+    }
+
     tarifaCalc = data;
     tarifaDesplegado = false;
     await cargarColoresTemporada(entrada, salida);
@@ -777,6 +787,24 @@ const Reservas = (() => {
       if (inp) inp.value = data.precio_total;
     }
     actualizarBadgePrecio();
+  }
+
+  // Varias partidas de mayorista encajan (mismo tipo/fechas, clientes distintos del mayorista):
+  // el usuario elige cuál usar antes de poder calcular el precio.
+  function renderSelectorPartida(cont, data) {
+    const opts = (data.opciones || []).map((o) =>
+      `<option value="${o.id}">${esc(o.nombre || `Partida ${o.id}`)} — ${euro(o.importe_total)} (${fechaES(o.fecha_inicio)} → ${fechaES(o.fecha_fin)})</option>`
+    ).join('');
+    cont.innerHTML = `
+      <div class="rsv-trf-aviso">Hay varias partidas de mayorista para el tipo ${esc(data.tipo)} en estas fechas. Elige cuál aplicar:</div>
+      <div class="fila-campos">
+        <div class="campo" style="flex:1"><select id="f-trf-partida">${opts}</select></div>
+        <button type="button" class="btn-pri" id="f-trf-confirmar-partida">Confirmar</button>
+      </div>`;
+    document.getElementById('f-trf-confirmar-partida').addEventListener('click', () => {
+      tarifaPartidaId = document.getElementById('f-trf-partida').value;
+      calcularTarifa();
+    });
   }
 
   function filaNoche(n) {

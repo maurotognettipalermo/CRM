@@ -158,6 +158,18 @@ const MODIFICADORES_DEFECTO = [
   { tipo: 'C', porcentaje: -30, orden: 6 },
 ];
 
+// Modificadores de la tabla de referencia de Propietario (se insertan si la tabla está
+// vacía). Mismos tipos/orden que MODIFICADORES_DEFECTO, pero todos a 0% al principio —
+// es Héctor quien los ajusta luego desde Ajustes según lo que quiera ofrecer al propietario.
+const MODIFICADORES_PROPIETARIO_DEFECTO = [
+  { tipo: 'A++', porcentaje: 0, orden: 1 },
+  { tipo: 'A+', porcentaje: 0, orden: 2 },
+  { tipo: 'A', porcentaje: 0, orden: 3 },
+  { tipo: 'B+', porcentaje: 0, orden: 4 },
+  { tipo: 'B', porcentaje: 0, orden: 5 },
+  { tipo: 'C', porcentaje: 0, orden: 6 },
+];
+
 // Estados de reserva por defecto (se insertan si la tabla está vacía).
 // es_sistema=1 → no se pueden eliminar desde Ajustes.
 const ESTADOS_RESERVA_DEFECTO = [
@@ -244,6 +256,7 @@ function init() {
   seedAdmin();
   seedPortales();
   seedModificadores();
+  seedModificadoresPropietario();
   seedEstadosReserva();
   seedMayoristas();
   seedLeadPlantillas();
@@ -586,6 +599,16 @@ function seedModificadores() {
     const insertar = db.prepare('INSERT INTO tipo_modificadores (tipo, porcentaje, orden) VALUES (?, ?, ?)');
     for (const m of MODIFICADORES_DEFECTO) insertar.run(m.tipo, m.porcentaje, m.orden);
     console.log('Modificadores de tarifa por tipo creados.');
+  }
+}
+
+// Inserta los modificadores de la tabla de referencia de Propietario si está vacía.
+function seedModificadoresPropietario() {
+  const n = db.prepare('SELECT COUNT(*) AS c FROM tipo_modificadores_propietario').get().c;
+  if (n === 0) {
+    const insertar = db.prepare('INSERT INTO tipo_modificadores_propietario (tipo, porcentaje, orden) VALUES (?, ?, ?)');
+    for (const m of MODIFICADORES_PROPIETARIO_DEFECTO) insertar.run(m.tipo, m.porcentaje, m.orden);
+    console.log('Modificadores de tarifa por tipo (propietario) creados.');
   }
 }
 

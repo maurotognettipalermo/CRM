@@ -423,6 +423,31 @@ CREATE TABLE IF NOT EXISTS descuentos (
 CREATE INDEX IF NOT EXISTS idx_temporadas_anio ON temporadas(anio);
 CREATE INDEX IF NOT EXISTS idx_descuentos_anio ON descuentos(anio);
 
+-- Tabla de referencia informativa para Propietario (contratos "sin garantía"): cuánto
+-- percibiría el propietario si se alquila su apartamento en tal temporada. Independiente
+-- del sistema de Particular (temporadas/tipo_modificadores) — no interviene en /calcular
+-- ni en la creación de reservas.
+CREATE TABLE IF NOT EXISTS temporadas_propietario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  anio INTEGER NOT NULL,
+  fecha_inicio TEXT NOT NULL,
+  fecha_fin TEXT NOT NULL,
+  precio_base_semana REAL NOT NULL,      -- precio por semana del Tipo A (el que manda)
+  orden INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(anio, fecha_inicio, fecha_fin)
+);
+
+CREATE TABLE IF NOT EXISTS tipo_modificadores_propietario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL UNIQUE,             -- 'A', 'A+', 'A++', 'B', 'B+', 'C'
+  porcentaje REAL NOT NULL DEFAULT 0,
+  orden INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_temporadas_propietario_anio ON temporadas_propietario(anio);
+
 -- ==================== Fotos, estados de reserva y limpieza ====================
 
 -- Galería de fotos de un apartamento. Los archivos viven en
@@ -710,6 +735,26 @@ CREATE TABLE IF NOT EXISTS mayorista_pagos (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_mayorista_pagos_contrato ON mayorista_pagos(contrato_id);
+
+-- Tramos de precio dentro de un contrato de mayorista: por tipo de apartamento y rango de
+-- fechas, el importe pactado (para derivar el precio/noche al crear una reserva de ese
+-- mayorista) y, solo a nivel informativo (no afecta al cálculo), cuántos apartamentos de
+-- ese tipo se han pactado en esta partida — un mismo contrato puede tener varias partidas
+-- para el mismo tipo/fechas si agrupan clientes distintos del mayorista (ej. Telefónica,
+-- Ejército del Aire, dentro del mismo contrato con Viajes Himalaya).
+CREATE TABLE IF NOT EXISTS mayorista_contrato_partidas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contrato_id INTEGER NOT NULL REFERENCES mayorista_contratos(id) ON DELETE CASCADE,
+  nombre TEXT,                    -- opcional, para distinguir partidas (ej. "Telefónica")
+  tipo_clasificacion TEXT NOT NULL,
+  fecha_inicio TEXT NOT NULL,
+  fecha_fin TEXT NOT NULL,
+  importe_total REAL NOT NULL,    -- pactado para este tramo, usado para derivar precio/noche
+  num_apartamentos INTEGER,       -- solo informativo, NO interviene en el cálculo de precio
+  notas TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_contrato ON mayorista_contrato_partidas(contrato_id);
 
 -- ===================== Módulo de Personal (RRHH) =====================
 

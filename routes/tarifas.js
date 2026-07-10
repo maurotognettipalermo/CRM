@@ -171,6 +171,144 @@ router.put('/modificadores/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ==================== Temporadas propietario (tabla de referencia informativa) ====================
+// Independiente del sistema de Particular (temporadas/tipo_modificadores): sirve solo para
+// decirle a un propietario con contrato "sin garantía" cuánto percibiría en tal temporada.
+// No interviene en /calcular ni en la creación de reservas.
+
+// Valida el cuerpo de una temporada propietario. Devuelve { error } o { ok, datos }.
+function validarTemporadaPropietario(body, excluirId) {
+  const b = body || {};
+  const nombre = String(b.nombre || '').trim();
+  if (!nombre) return { error: 'El nombre es obligatorio' };
+  const fecha_inicio = fechaISO(b.fecha_inicio);
+  const fecha_fin = fechaISO(b.fecha_fin);
+  if (!fecha_inicio || !fecha_fin) return { error: 'Las fechas son obligatorias (YYYY-MM-DD)' };
+  if (!(fecha_inicio < fecha_fin)) return { error: 'La fecha de inicio debe ser anterior a la de fin' };
+  let anio = intOrNull(b.anio);
+  if (anio === null) anio = parseInt(fecha_inicio.slice(0, 4), 10);
+  const precio_base_semana = num(b.precio_base_semana);
+  if (precio_base_semana <= 0) return { error: 'El precio base por semana debe ser mayor que 0' };
+
+  // Solape con otra temporada propietario del mismo año (intervalos inclusivos por ambos extremos).
+  let sql = 'SELECT nombre FROM temporadas_propietario WHERE anio = ? AND fecha_inicio <= ? AND fecha_fin >= ?';
+  const params = [anio, fecha_fin, fecha_inicio];
+  if (excluirId != null) { sql += ' AND id != ?'; params.push(excluirId); }
+  const solapa = db.prepare(sql).get(...params);
+  if (solapa) return { conflicto: `Las fechas se solapan con la temporada "${solapa.nombre}"` };
+
+  return {
+    ok: true,
+    datos: {
+      nombre, anio, fecha_inicio, fecha_fin, precio_base_semana,
+      orden: intOrNull(b.orden) != null ? intOrNull(b.orden) : 0,
+    },
+  };
+}
+
+// GET /api/tarifas/temporadas-propietario?anio=2026
+router.get('/temporadas-propietario', (req, res) => {
+  const anio = intOrNull(req.query.anio) || new Date().getFullYear();
+  res.json(db.prepare('SELECT * FROM temporadas_propietario WHERE anio = ? ORDER BY fecha_inicio').all(anio));
+});
+
+// POST /api/tarifas/temporadas-propietario/copiar — body { anio_origen, anio_destino }.
+// Declarado ANTES de /temporadas-propietario/:id por claridad de prefijos.
+router.post('/temporadas-propietario/copiar', (req, res) => {
+  const b = req.body || {};
+  const origen = intOrNull(b.anio_origen);
+  const destino = intOrNull(b.anio_destino);
+  if (origen === null || destino === null) return res.status(400).json({ error: 'anio_origen y anio_destino son obligatorios' });
+  if (origen === destino) return res.status(400).json({ error: 'El año de origen y destino no pueden ser el mismo' });
+
+  const existentes = db.prepare('SELECT COUNT(*) AS c FROM temporadas_propietario WHERE anio = ?').get(destino).c;
+  if (existentes > 0) {
+    return res.status(409).json({ error: `El año ${destino} ya tiene temporadas de propietario definidas. Elimínalas primero` });
+  }
+  const origenes = db.prepare('SELECT * FROM temporadas_propietario WHERE anio = ? ORDER BY fecha_inicio').all(origen);
+  if (!origenes.length) return res.status(400).json({ error: `El año ${origen} no tiene temporadas de propietario que copiar` });
+
+  // Cambia el año de una fecha ISO; 29 de febrero pasa a 28 si el destino no es bisiesto.
+  const esBisiesto = (a) => (a % 4 === 0 && a % 100 !== 0) || a % 400 === 0;
+  const cambiarAnio = (fecha) => {
+    let resto = fecha.slice(4);
+    if (resto === '-02-29' && !esBisiesto(destino)) resto = '-02-28';
+    return destino + resto;
+  };
+
+  const copiar = db.transaction(() => {
+    const ins = db.prepare(`
+      INSERT INTO temporadas_propietario (nombre, anio, fecha_inicio, fecha_fin, precio_base_semana, orden)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const t of origenes) {
+      ins.run(t.nombre, destino, cambiarAnio(t.fecha_inicio), cambiarAnio(t.fecha_fin), t.precio_base_semana, t.orden);
+    }
+  });
+  copiar();
+  log(req, 'crear', 'temporada-propietario', null, `Copiadas ${origenes.length} temporada(s) de ${origen} a ${destino}`);
+  res.status(201).json({ ok: true, copiadas: origenes.length });
+});
+
+// POST /api/tarifas/temporadas-propietario
+router.post('/temporadas-propietario', (req, res) => {
+  const v = validarTemporadaPropietario(req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  if (v.conflicto) return res.status(409).json({ error: v.conflicto });
+  const d = v.datos;
+  const info = db.prepare(`
+    INSERT INTO temporadas_propietario (nombre, anio, fecha_inicio, fecha_fin, precio_base_semana, orden)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(d.nombre, d.anio, d.fecha_inicio, d.fecha_fin, d.precio_base_semana, d.orden);
+  log(req, 'crear', 'temporada-propietario', info.lastInsertRowid, `${d.nombre} ${d.anio}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// PUT /api/tarifas/temporadas-propietario/:id
+router.put('/temporadas-propietario/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existe = db.prepare('SELECT id FROM temporadas_propietario WHERE id = ?').get(id);
+  if (!existe) return res.status(404).json({ error: 'Temporada de propietario no encontrada' });
+  const v = validarTemporadaPropietario(req.body, id);
+  if (v.error) return res.status(400).json({ error: v.error });
+  if (v.conflicto) return res.status(409).json({ error: v.conflicto });
+  const d = v.datos;
+  db.prepare(`
+    UPDATE temporadas_propietario SET nombre = ?, anio = ?, fecha_inicio = ?, fecha_fin = ?,
+      precio_base_semana = ?, orden = ?
+    WHERE id = ?
+  `).run(d.nombre, d.anio, d.fecha_inicio, d.fecha_fin, d.precio_base_semana, d.orden, id);
+  log(req, 'editar', 'temporada-propietario', id, `${d.nombre} ${d.anio}`);
+  res.json({ ok: true });
+});
+
+// DELETE /api/tarifas/temporadas-propietario/:id
+router.delete('/temporadas-propietario/:id', (req, res) => {
+  const t = db.prepare('SELECT nombre, anio FROM temporadas_propietario WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Temporada de propietario no encontrada' });
+  db.prepare('DELETE FROM temporadas_propietario WHERE id = ?').run(req.params.id);
+  log(req, 'eliminar', 'temporada-propietario', req.params.id, `${t.nombre} ${t.anio}`);
+  res.json({ ok: true });
+});
+
+// ==================== Modificadores propietario por tipo ====================
+
+// GET /api/tarifas/modificadores-propietario
+router.get('/modificadores-propietario', (req, res) => {
+  res.json(db.prepare('SELECT * FROM tipo_modificadores_propietario ORDER BY orden').all());
+});
+
+// PUT /api/tarifas/modificadores-propietario/:id — solo el porcentaje. El tipo A es la referencia (0%).
+router.put('/modificadores-propietario/:id', (req, res) => {
+  const m = db.prepare('SELECT * FROM tipo_modificadores_propietario WHERE id = ?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Modificador no encontrado' });
+  if (m.tipo === 'A') return res.status(400).json({ error: 'El tipo A es la referencia y su porcentaje es siempre 0' });
+  const porcentaje = num((req.body || {}).porcentaje);
+  db.prepare('UPDATE tipo_modificadores_propietario SET porcentaje = ? WHERE id = ?').run(porcentaje, req.params.id);
+  log(req, 'editar', 'tipo_modificador_propietario', req.params.id, `${m.tipo}: ${porcentaje}%`);
+  res.json({ ok: true });
+});
+
 // ==================== Descuentos ====================
 
 // Valida el cuerpo de un descuento. Devuelve { error } o { ok, datos }.
@@ -254,6 +392,103 @@ function sumarDias(fecha, dias) {
   return d.toISOString().slice(0, 10);
 }
 
+// Extras obligatorios del catálogo (activos) para `noches` noches. tipo_precio 'noche' multiplica.
+function extrasObligatorios(noches) {
+  const obligatorios = db.prepare(
+    'SELECT * FROM catalogo_extras WHERE obligatorio = 1 AND activo = 1 ORDER BY nombre COLLATE NOCASE'
+  ).all();
+  const extras_obligatorios = obligatorios.map((e) => ({
+    nombre: e.nombre,
+    precio: r2(e.precio),
+    cantidad: 1,
+    importe: r2(e.precio * (e.tipo_precio === 'noche' ? noches : 1)),
+  }));
+  const total_extras_obligatorios = r2(extras_obligatorios.reduce((s, e) => s + e.importe, 0));
+  return { extras_obligatorios, total_extras_obligatorios };
+}
+
+// Nº de días entre dos fechas ISO, ambos extremos incluidos (para un tramo cerrado "inicio a fin").
+function diasInclusive(fechaInicio, fechaFin) {
+  const a = new Date(fechaInicio + 'T00:00:00Z');
+  const b = new Date(fechaFin + 'T00:00:00Z');
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+// Rama de /calcular para portales de mayorista: precio derivado de las partidas del contrato
+// anual del mayorista (mayorista_contrato_partidas), en vez de temporadas/modificadores.
+function calcularTarifaMayorista(req, res, { entrada, salida, tipoApto, mayoristaId }) {
+  const mayorista = db.prepare('SELECT id, nombre FROM mayoristas WHERE id = ?').get(mayoristaId);
+  const anioEntrada = parseInt(entrada.slice(0, 4), 10);
+  const contrato = db.prepare('SELECT id FROM mayorista_contratos WHERE mayorista_id = ? AND anio = ?')
+    .get(mayoristaId, anioEntrada);
+  if (!contrato) {
+    return res.status(400).json({ ok: false, error: `No hay contrato de mayorista configurado para ${mayorista.nombre} en ${anioEntrada}` });
+  }
+
+  const nochesReserva = [];
+  for (let fecha = entrada; fecha < salida; fecha = sumarDias(fecha, 1)) nochesReserva.push(fecha);
+  const ultimaNocheReserva = nochesReserva[nochesReserva.length - 1];
+
+  const partidaId = intOrNull(req.query.partida_id);
+  let partida = null;
+  if (partidaId !== null) {
+    const p = db.prepare('SELECT * FROM mayorista_contrato_partidas WHERE id = ? AND contrato_id = ?').get(partidaId, contrato.id);
+    if (p && p.tipo_clasificacion === tipoApto && p.fecha_inicio <= entrada && p.fecha_fin >= ultimaNocheReserva) {
+      partida = p;
+    }
+  }
+  if (!partida) {
+    const candidatas = db.prepare(`
+      SELECT * FROM mayorista_contrato_partidas
+      WHERE contrato_id = ? AND tipo_clasificacion = ? AND fecha_inicio <= ? AND fecha_fin >= ?
+      ORDER BY fecha_inicio
+    `).all(contrato.id, tipoApto, entrada, ultimaNocheReserva);
+    if (!candidatas.length) {
+      return res.status(400).json({
+        ok: false,
+        error: `No hay ninguna partida configurada para el tipo ${tipoApto} en estas fechas, dentro del contrato de ${mayorista.nombre}`,
+      });
+    }
+    if (candidatas.length > 1) {
+      return res.json({
+        ok: false,
+        requiere_partida: true,
+        tipo: tipoApto,
+        opciones: candidatas.map((c) => ({
+          id: c.id, nombre: c.nombre, importe_total: c.importe_total,
+          fecha_inicio: c.fecha_inicio, fecha_fin: c.fecha_fin, num_apartamentos: c.num_apartamentos,
+        })),
+      });
+    }
+    partida = candidatas[0];
+  }
+
+  const noches_bloque = diasInclusive(partida.fecha_inicio, partida.fecha_fin);
+  const precio_noche = r2(partida.importe_total / noches_bloque);
+  const noches_reserva = nochesReserva.length;
+  const precio_total_bloque = r2(precio_noche * noches_reserva);
+
+  const desglose = nochesReserva.map((fecha) => ({
+    fecha,
+    temporada: partida.nombre || 'Mayorista',
+    precio_base: precio_noche,
+    modificador: 0,
+    precio_final: precio_noche,
+  }));
+
+  const { extras_obligatorios, total_extras_obligatorios } = extrasObligatorios(noches_reserva);
+
+  res.json({
+    desglose,
+    subtotal: precio_total_bloque,
+    descuentos_aplicados: [],
+    total_descuentos: 0,
+    extras_obligatorios,
+    total_extras_obligatorios,
+    precio_total: r2(precio_total_bloque + total_extras_obligatorios),
+  });
+}
+
 // GET /api/tarifas/calcular?apartamento_id=X&entrada=YYYY-MM-DD&salida=YYYY-MM-DD&portal=Booking.com
 // Precio noche a noche: temporada (precio base del Tipo A) + modificador del tipo del
 // apartamento, menos descuentos aplicables, más extras obligatorios del catálogo.
@@ -269,8 +504,17 @@ router.get('/calcular', (req, res) => {
   const apto = db.prepare('SELECT id, tipo_clasificacion FROM apartamentos WHERE id = ?').get(apartamentoId);
   if (!apto) return res.status(404).json({ ok: false, error: 'Apartamento no encontrado' });
 
-  // Modificador del tipo del apartamento (sin clasificación o tipo desconocido -> 0%, como el A).
   const tipoApto = apto.tipo_clasificacion || 'A';
+
+  // Portal de mayorista: precio derivado de las partidas del contrato anual, no de temporadas.
+  if (portal) {
+    const portalRow = db.prepare('SELECT mayorista_id FROM portales WHERE nombre = ?').get(portal);
+    if (portalRow && portalRow.mayorista_id) {
+      return calcularTarifaMayorista(req, res, { apartamentoId, entrada, salida, tipoApto, mayoristaId: portalRow.mayorista_id });
+    }
+  }
+
+  // Modificador del tipo del apartamento (sin clasificación o tipo desconocido -> 0%, como el A).
   const mod = db.prepare('SELECT porcentaje FROM tipo_modificadores WHERE tipo = ?').get(tipoApto);
   const modificador = mod ? Number(mod.porcentaje) : 0;
 
@@ -322,16 +566,7 @@ router.get('/calcular', (req, res) => {
   total_descuentos = r2(total_descuentos);
 
   // Extras obligatorios del catálogo (activos). tipo_precio 'noche' multiplica por noches.
-  const obligatorios = db.prepare(
-    'SELECT * FROM catalogo_extras WHERE obligatorio = 1 AND activo = 1 ORDER BY nombre COLLATE NOCASE'
-  ).all();
-  const extras_obligatorios = obligatorios.map((e) => ({
-    nombre: e.nombre,
-    precio: r2(e.precio),
-    cantidad: 1,
-    importe: r2(e.precio * (e.tipo_precio === 'noche' ? noches : 1)),
-  }));
-  const total_extras_obligatorios = r2(extras_obligatorios.reduce((s, e) => s + e.importe, 0));
+  const { extras_obligatorios, total_extras_obligatorios } = extrasObligatorios(noches);
 
   res.json({
     desglose,
@@ -342,6 +577,32 @@ router.get('/calcular', (req, res) => {
     total_extras_obligatorios,
     precio_total: r2(subtotal - total_descuentos + total_extras_obligatorios),
   });
+});
+
+// GET /api/tarifas/calcular-propietario?anio=2026
+// Tabla de referencia informativa: para cada temporada_propietario del año, el precio por
+// semana resultante en cada tipo (A/A+/A++/B/B+/C). No es una consulta de una estancia
+// concreta (no hay apartamento/entrada/salida) — es la tabla completa del año.
+router.get('/calcular-propietario', (req, res) => {
+  const anio = intOrNull(req.query.anio) || new Date().getFullYear();
+  const temporadas = db.prepare('SELECT * FROM temporadas_propietario WHERE anio = ? ORDER BY fecha_inicio').all(anio);
+  const modificadores = db.prepare('SELECT * FROM tipo_modificadores_propietario ORDER BY orden').all();
+
+  const resultado = temporadas.map((t) => {
+    const precios = {};
+    for (const m of modificadores) {
+      precios[m.tipo] = r2(t.precio_base_semana * (1 + Number(m.porcentaje) / 100));
+    }
+    return {
+      id: t.id,
+      nombre: t.nombre,
+      fecha_inicio: t.fecha_inicio,
+      fecha_fin: t.fecha_fin,
+      precios,
+    };
+  });
+
+  res.json({ temporadas: resultado });
 });
 
 module.exports = router;

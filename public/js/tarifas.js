@@ -17,6 +17,10 @@ const Tarifas = (() => {
   let temporadas = [];        // temporadas del año seleccionado
   let modificadores = [];     // tipo_modificadores (cache, no depende del año)
   let descuentos = [];        // descuentos del año seleccionado
+  // Tabla de referencia informativa para Propietario (contratos "sin garantía"): precio por
+  // SEMANA, sistema independiente del de Particular. No se conecta a reservas ni contratos.
+  let propietarioTemporadas = [];
+  let propietarioModificadores = [];
 
   // ---- Formato ----
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
@@ -63,6 +67,7 @@ const Tarifas = (() => {
     if (subActiva === 'temporadas') return cargarTemporadas();
     if (subActiva === 'modificadores') return cargarModificadores();
     if (subActiva === 'descuentos') return cargarDescuentos();
+    if (subActiva === 'propietario') return cargarPropietario();
   }
 
   function panel(sub) {
@@ -562,6 +567,196 @@ const Tarifas = (() => {
       await API.del(`/api/tarifas/descuentos/${id}`);
       toast('Descuento eliminado', 'ok');
       await cargarDescuentos();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // ==================== Sub-pestaña Propietario (tabla de referencia informativa) ====================
+  // Sistema independiente del de Particular (temporadas/modificadores de arriba): precio por
+  // SEMANA, para decirle a un propietario con contrato "sin garantía" cuánto percibiría.
+  // No se conecta a reservas ni contratos automáticamente.
+  async function cargarPropietario() {
+    const cont = panel('propietario');
+    cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">Cargando…</div>';
+    try {
+      [propietarioTemporadas, propietarioModificadores] = await Promise.all([
+        API.get(`/api/tarifas/temporadas-propietario?anio=${anio}`),
+        API.get('/api/tarifas/modificadores-propietario'),
+      ]);
+    } catch (e) {
+      cont.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudo cargar la tabla de propietario.</div>';
+      return;
+    }
+    renderPropietario(cont);
+  }
+
+  // Tabla de precios/semana resultantes por tipo según el precio base introducido.
+  function previewTiposHTMLPropietario(precio) {
+    const base = Number(precio) || 0;
+    const filas = propietarioModificadores.map((m) => `
+      <tr>
+        <td>${badgeTipo(m.tipo)}</td>
+        <td>${pctMod(m.porcentaje)}</td>
+        <td style="text-align:right;white-space:nowrap">${euro(base * (1 + (Number(m.porcentaje) || 0) / 100))}</td>
+      </tr>`).join('');
+    return `
+      <table class="tabla trf-preview-tabla">
+        <thead><tr><th>Tipo</th><th>Modificador</th><th style="text-align:right">Precio/semana</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>`;
+  }
+
+  function renderPropietario(cont) {
+    const filas = propietarioTemporadas.map((t) => `
+      <tr>
+        <td>${esc(t.nombre)}</td>
+        <td>${fechaES(t.fecha_inicio)}</td>
+        <td>${fechaES(t.fecha_fin)}</td>
+        <td style="text-align:right;white-space:nowrap">${euro(t.precio_base_semana)}</td>
+        <td class="acciones">
+          <button class="btn-mini" data-editar-prop="${t.id}">Editar</button>
+          <button class="btn-mini" data-borrar-prop="${t.id}">Eliminar</button>
+        </td>
+      </tr>`).join('');
+
+    const tablaTemporadas = `
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+        Tabla de referencia informativa (contratos "sin garantía"): no se conecta a reservas ni contratos.
+      </div>
+      <div class="trf-tabla-head">
+        <span class="sub-panel-titulo">Temporadas de propietario — ${anio}</span>
+        <button id="trf-nueva-temporada-prop" class="btn-pri">＋ Nueva temporada</button>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Nombre</th><th>Fecha inicio</th><th>Fecha fin</th><th style="text-align:right">Precio/semana (Tipo A)</th><th></th></tr></thead>
+          <tbody>${filas || `<tr><td colspan="5" style="color:#6b7280">No hay temporadas de propietario definidas en ${anio}.</td></tr>`}</tbody>
+        </table>
+      </div>`;
+
+    const filasMod = propietarioModificadores.map((m) => {
+      const esA = m.tipo === 'A';
+      const input = esA
+        ? '<span style="color:var(--muted)">Base (referencia)</span>'
+        : `<input type="number" step="1" class="trf-mod-input" data-modp-id="${m.id}" data-original="${m.porcentaje}" value="${m.porcentaje}"> %`;
+      return `
+        <tr>
+          <td>${esc(m.tipo)}</td>
+          <td>${badgeTipo(m.tipo)}</td>
+          <td>${input}</td>
+          <td style="text-align:right;white-space:nowrap" data-ejemplo-prop="${m.id}"></td>
+        </tr>`;
+    }).join('');
+
+    const tablaMod = `
+      <div class="trf-tabla-head" style="margin-top:28px">
+        <span class="sub-panel-titulo">Modificadores por tipo (propietario)</span>
+        <div class="trf-mod-controles">
+          <label for="trfp-mod-base" style="font-size:13px;color:var(--muted)">Precio ejemplo (€/semana)</label>
+          <input type="number" id="trfp-mod-base" step="0.01" min="0" value="700" class="trf-mod-input">
+          <button id="trfp-mod-guardar" class="btn-pri">Guardar cambios</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Tipo</th><th>Badge</th><th>Modificador %</th><th style="text-align:right">Precio ejemplo</th></tr></thead>
+          <tbody>${filasMod}</tbody>
+        </table>
+      </div>`;
+
+    cont.innerHTML = tablaTemporadas + tablaMod;
+
+    document.getElementById('trf-nueva-temporada-prop').addEventListener('click', () => modalTemporadaPropietario(null));
+    cont.querySelectorAll('[data-editar-prop]').forEach((b) =>
+      b.addEventListener('click', () => modalTemporadaPropietario(Number(b.dataset.editarProp))));
+    cont.querySelectorAll('[data-borrar-prop]').forEach((b) =>
+      b.addEventListener('click', () => borrarTemporadaPropietario(Number(b.dataset.borrarProp))));
+
+    const actualizarEjemplosProp = () => {
+      const base = Number(val('trfp-mod-base')) || 0;
+      for (const m of propietarioModificadores) {
+        const inp = cont.querySelector(`[data-modp-id="${m.id}"]`);
+        const pct = inp ? (Number(inp.value) || 0) : 0; // A no tiene input -> 0
+        const celda = cont.querySelector(`[data-ejemplo-prop="${m.id}"]`);
+        if (celda) celda.textContent = euro(base * (1 + pct / 100));
+      }
+    };
+    document.getElementById('trfp-mod-base').addEventListener('input', actualizarEjemplosProp);
+    cont.querySelectorAll('[data-modp-id]').forEach((inp) => inp.addEventListener('input', actualizarEjemplosProp));
+    actualizarEjemplosProp();
+
+    document.getElementById('trfp-mod-guardar').addEventListener('click', async () => {
+      const cambiados = [...cont.querySelectorAll('[data-modp-id]')]
+        .filter((inp) => Number(inp.value) !== Number(inp.dataset.original));
+      if (!cambiados.length) return toast('No hay cambios que guardar', 'ok');
+      try {
+        for (const inp of cambiados) {
+          await API.put(`/api/tarifas/modificadores-propietario/${inp.dataset.modpId}`, { porcentaje: Number(inp.value) || 0 });
+        }
+        toast(`${cambiados.length} modificador(es) actualizado(s)`, 'ok');
+        await cargarPropietario();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  function modalTemporadaPropietario(id) {
+    const t = id ? propietarioTemporadas.find((x) => x.id === id) : null;
+
+    abrirModal(`
+      <h3>${t ? 'Editar' : 'Nueva'} temporada (propietario)</h3>
+      <div class="campo"><label>Nombre *</label><input id="tpp-nombre" placeholder="Temporada Alta" value="${t ? esc(t.nombre) : ''}"></div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha inicio *</label><input type="date" id="tpp-inicio" value="${t ? t.fecha_inicio : ''}"></div>
+        <div class="campo"><label>Fecha fin *</label><input type="date" id="tpp-fin" value="${t ? t.fecha_fin : ''}"></div>
+      </div>
+      <div class="campo">
+        <label>Precio/semana (Tipo A) *</label>
+        <input type="number" step="0.01" min="0" id="tpp-precio" value="${t ? t.precio_base_semana : ''}">
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">Este es el precio para Tipo A</div>
+      </div>
+      <div class="campo">
+        <label>Precios resultantes por tipo</label>
+        <div id="tpp-preview">${previewTiposHTMLPropietario(t ? t.precio_base_semana : 0)}</div>
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="tpp-cancelar">Cancelar</button>
+        <button class="btn-pri" id="tpp-guardar">Guardar</button>
+      </div>`);
+
+    document.getElementById('tpp-precio').addEventListener('input', (e) => {
+      document.getElementById('tpp-preview').innerHTML = previewTiposHTMLPropietario(e.target.value);
+    });
+    document.getElementById('tpp-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('tpp-guardar').addEventListener('click', async () => {
+      const body = {
+        nombre: val('tpp-nombre'),
+        fecha_inicio: val('tpp-inicio'),
+        fecha_fin: val('tpp-fin'),
+        precio_base_semana: val('tpp-precio'),
+        anio,
+      };
+      try {
+        if (t) await API.put(`/api/tarifas/temporadas-propietario/${t.id}`, body);
+        else await API.post('/api/tarifas/temporadas-propietario', body);
+        cerrarModal();
+        toast('Temporada guardada', 'ok');
+        await cargarPropietario();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  async function borrarTemporadaPropietario(id) {
+    const t = propietarioTemporadas.find((x) => x.id === id);
+    if (!confirm(`¿Eliminar la temporada "${t ? t.nombre : ''}"?`)) return;
+    try {
+      await API.del(`/api/tarifas/temporadas-propietario/${id}`);
+      toast('Temporada eliminada', 'ok');
+      await cargarPropietario();
     } catch (e) {
       toast(e.message, 'error');
     }

@@ -124,6 +124,9 @@ router.get('/contratos/:id', (req, res) => {
   contrato.pagos = db.prepare(
     'SELECT * FROM mayorista_pagos WHERE contrato_id = ? ORDER BY numero_pago, fecha_prevista'
   ).all(contrato.id);
+  contrato.partidas = db.prepare(
+    'SELECT * FROM mayorista_contrato_partidas WHERE contrato_id = ? ORDER BY tipo_clasificacion, fecha_inicio'
+  ).all(contrato.id);
   res.json(contrato);
 });
 
@@ -205,6 +208,77 @@ router.put('/pagos/:pago_id', (req, res) => {
     .run(pagado, fecha_pago, metodo_pago, numero_factura, pago.id);
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'mayorista-pago', pago.id,
     pagado ? `Pago ${pago.numero_pago} cobrado` : `Pago ${pago.numero_pago} desmarcado`);
+  res.json({ ok: true });
+});
+
+// ==================== Partidas de contrato (rutas literales, antes de /:id) ====================
+// Valida los datos de una partida. Devuelve { error } o { partida }.
+function normalizarPartida(b) {
+  const tipo_clasificacion = txt(b.tipo_clasificacion);
+  if (!tipo_clasificacion) return { error: 'El tipo de clasificación es obligatorio' };
+  const fecha_inicio = txt(b.fecha_inicio);
+  const fecha_fin = txt(b.fecha_fin);
+  const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f || '');
+  if (!fechaOk(fecha_inicio) || !fechaOk(fecha_fin)) {
+    return { error: 'fecha_inicio y fecha_fin deben tener formato YYYY-MM-DD' };
+  }
+  if (fecha_inicio >= fecha_fin) return { error: 'fecha_inicio debe ser anterior a fecha_fin' };
+  const importe_total = round2(b.importe_total);
+  if (!(importe_total > 0)) return { error: 'El importe total debe ser mayor que 0' };
+  return {
+    partida: {
+      nombre: txt(b.nombre),
+      tipo_clasificacion,
+      fecha_inicio,
+      fecha_fin,
+      importe_total,
+      num_apartamentos: intOrNull(b.num_apartamentos),
+      notas: txt(b.notas),
+    },
+  };
+}
+
+// POST /api/mayoristas/contratos/:id/partidas — crear partida.
+router.post('/contratos/:id/partidas', (req, res) => {
+  const contrato = db.prepare('SELECT id FROM mayorista_contratos WHERE id = ?').get(req.params.id);
+  if (!contrato) return res.status(404).json({ error: 'Contrato no encontrado' });
+  const r = normalizarPartida(req.body || {});
+  if (r.error) return res.status(400).json({ error: r.error });
+  const p = r.partida;
+  const info = db.prepare(`
+    INSERT INTO mayorista_contrato_partidas
+      (contrato_id, nombre, tipo_clasificacion, fecha_inicio, fecha_fin, importe_total, num_apartamentos, notas)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(contrato.id, p.nombre, p.tipo_clasificacion, p.fecha_inicio, p.fecha_fin, p.importe_total, p.num_apartamentos, p.notas);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'crear', 'mayorista-partida', info.lastInsertRowid,
+    `${p.tipo_clasificacion} ${p.fecha_inicio}→${p.fecha_fin}`);
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+// PUT /api/mayoristas/partidas/:id — editar partida.
+router.put('/partidas/:id', (req, res) => {
+  const partida = db.prepare('SELECT id FROM mayorista_contrato_partidas WHERE id = ?').get(req.params.id);
+  if (!partida) return res.status(404).json({ error: 'Partida no encontrada' });
+  const r = normalizarPartida(req.body || {});
+  if (r.error) return res.status(400).json({ error: r.error });
+  const p = r.partida;
+  db.prepare(`
+    UPDATE mayorista_contrato_partidas
+    SET nombre = ?, tipo_clasificacion = ?, fecha_inicio = ?, fecha_fin = ?, importe_total = ?, num_apartamentos = ?, notas = ?
+    WHERE id = ?
+  `).run(p.nombre, p.tipo_clasificacion, p.fecha_inicio, p.fecha_fin, p.importe_total, p.num_apartamentos, p.notas, partida.id);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'mayorista-partida', partida.id,
+    `${p.tipo_clasificacion} ${p.fecha_inicio}→${p.fecha_fin}`);
+  res.json({ ok: true });
+});
+
+// DELETE /api/mayoristas/partidas/:id — borrar partida. Sin restricciones (no es un cobro).
+router.delete('/partidas/:id', (req, res) => {
+  const partida = db.prepare('SELECT * FROM mayorista_contrato_partidas WHERE id = ?').get(req.params.id);
+  if (!partida) return res.status(404).json({ error: 'Partida no encontrada' });
+  db.prepare('DELETE FROM mayorista_contrato_partidas WHERE id = ?').run(partida.id);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'eliminar', 'mayorista-partida', partida.id,
+    `${partida.tipo_clasificacion} ${partida.fecha_inicio}→${partida.fecha_fin}`);
   res.json({ ok: true });
 });
 
