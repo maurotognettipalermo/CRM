@@ -79,7 +79,7 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `facturas.js` | `Facturas` | Lista con filtros (+ buscador libre por apartamento/propietario/receptor/emisor, filtro en cliente sobre `todas`) + ficha en panel lateral + wizard de 2 pasos para emitir (propietario/autofactura/gastos/huésped/mayorista/proforma). Autofactura tiene 2 modos (📑 contrato / ✏️ libre, `wiz.modoAutofactura`); modo contrato admite buscar por propietario o por apartamento (`wireAptoAutofactura`, sincroniza ambos campos) |
 | `limpieza.js` | `Limpieza` | Tareas del día (cards, mobile-first) + sub-pestaña Reportes |
 | `propietarios.js` | `Propietarios` | Lista + ficha en panel lateral con edición inline + modal alta/edición por pestañas + importación Excel |
-| `tarifas.js` | `Tarifas` | Sub-pestañas: temporadas (calendario anual), modificadores por `tipo_clasificacion`, descuentos |
+| `tarifas.js` | `Tarifas` | Sub-pestañas: temporadas (calendario anual), modificadores por `tipo_clasificacion`, descuentos, propietario (tabla de referencia informativa), comparar (`GET /api/tarifas/comparar`, solo lectura) |
 | `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime |
 | `personal.js` | `Personal` | `init/cargar`; sub-pestañas inyectadas en runtime |
 | `leads.js` | `Leads` | `init/cargar/abrirFicha` |
@@ -300,15 +300,16 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/POST/PUT/DELETE | /api/facturas/:id/pagos[/:pago_id] | Pagos parciales. **Montado antes de /api/facturas**. POST/PUT/DELETE recalculan `facturas.estado` (emitida/parcialmente_pagada/pagada) a partir de la suma pagada |
 | PUT | /api/facturas/:id | Admin: todos los campos (incl. `numero`, validado único) + `lineas` reemplaza. No-admin: solo `estado/fecha_vencimiento/notas` (403 si más) |
 | POST | /api/facturas/:id/abono | Genera abono (líneas en negativo, o `lineas` propias del body). 400/409 si origen es proforma/abono/anulada/borrador |
-| GET/POST/PUT/DELETE | /api/tarifas/temporadas[/:id] | `?anio=`. POST/PUT validan solape (409) |
+| GET/POST/PUT/DELETE | /api/tarifas/temporadas[/:id] | `?anio=`. POST/PUT validan solape (409). `nombre` opcional (a diferencia de descuentos) — si viene vacío, el frontend muestra el rango de fechas como respaldo |
 | POST | /api/tarifas/temporadas/copiar | `{anio_origen, anio_destino}`. 409 si destino ya tiene; 29-feb→28 si no bisiesto |
 | GET/PUT | /api/tarifas/modificadores[/:id] | PUT solo porcentaje; tipo A bloqueado (400) |
-| GET/POST/PUT/DELETE | /api/tarifas/descuentos[/:id] | `tipos/portales` JSON array o null (= todos) |
+| GET/POST/PUT/DELETE | /api/tarifas/descuentos[/:id] | `tipos/portales` JSON array o null (= todos). `nombre` SÍ obligatorio (a diferencia de temporadas) |
 | GET | /api/tarifas/calcular | `?apartamento_id=&entrada=&salida=[&portal=]` → desglose + descuentos + extras obligatorios. 400 si falta tarifa. Si `portal` está vinculado a un mayorista (`portales.mayorista_id`): rama aparte, precio derivado de `mayorista_contrato_partidas` del contrato anual (no de temporadas/modificadores); `?partida_id=` desambigua si hay varias partidas candidatas, si no se manda y hay ambigüedad devuelve `{ok:false, requiere_partida:true, opciones:[...]}` |
-| GET/POST/PUT/DELETE | /api/tarifas/temporadas-propietario[/:id] | `?anio=`. Tabla de referencia informativa para propietarios con contrato "sin garantía" — independiente de temporadas/modificadores de Particular, NO interviene en `/calcular` ni en reservas |
+| GET/POST/PUT/DELETE | /api/tarifas/temporadas-propietario[/:id] | `?anio=`. Tabla de referencia informativa para propietarios con contrato "sin garantía" — independiente de temporadas/modificadores de Particular, NO interviene en `/calcular` ni en reservas. `nombre` opcional, mismo criterio que temporadas de Particular |
 | POST | /api/tarifas/temporadas-propietario/copiar | `{anio_origen, anio_destino}`. Mismo patrón que `/temporadas/copiar` |
 | GET/PUT | /api/tarifas/modificadores-propietario[/:id] | PUT solo porcentaje; tipo A bloqueado (400) |
 | GET | /api/tarifas/calcular-propietario | `?anio=` → tabla completa del año (todas las temporadas × todos los tipos), no una estancia concreta |
+| GET | /api/tarifas/comparar | `?entrada=&salida=&mayorista_id=` (mayorista_id opcional) → solo lectura, precio Particular/Propietario/Mayorista por cada tipo (A/A+/A++/B/B+/C) para pantalla de comparación (sub-pestaña "Consultar precio"). Lógica propia, NO llama a `/calcular`. A diferencia de `/calcular`, si hay varias partidas de mayorista candidatas para un tipo/fechas devuelve TODAS (no exige elegir una) |
 | GET | /api/facturas/:id/pdf | `Content-Disposition: attachment` |
 | PUT | /api/facturas/:id/anular | estado='anulada' (no borra) |
 
