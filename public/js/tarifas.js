@@ -21,6 +21,10 @@ const Tarifas = (() => {
   // SEMANA, sistema independiente del de Particular. No se conecta a reservas ni contratos.
   let propietarioTemporadas = [];
   let propietarioModificadores = [];
+  // Sub-pestaña "Consultar precio" (GET /api/tarifas/comparar): solo lectura, sin caché por año.
+  let mayoristasComparar = null;   // cache en memoria de sesión (activos)
+  let compararTimer = null;        // debounce
+  let compararToken = 0;           // descarta respuestas obsoletas
 
   // ---- Formato ----
   function euro(n) { return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
@@ -68,6 +72,7 @@ const Tarifas = (() => {
     if (subActiva === 'modificadores') return cargarModificadores();
     if (subActiva === 'descuentos') return cargarDescuentos();
     if (subActiva === 'propietario') return cargarPropietario();
+    if (subActiva === 'comparar') return cargarComparar();
   }
 
   function panel(sub) {
@@ -760,6 +765,111 @@ const Tarifas = (() => {
     } catch (e) {
       toast(e.message, 'error');
     }
+  }
+
+  // ==================== Sub-pestaña Consultar precio (comparativa) ====================
+  // Solo lectura: GET /api/tarifas/comparar. No crea ni modifica nada, no depende del año
+  // seleccionado arriba (usa las fechas elegidas aquí).
+  async function cargarComparar() {
+    const cont = panel('comparar');
+    if (mayoristasComparar === null) {
+      try {
+        const todos = await API.get('/api/mayoristas');
+        mayoristasComparar = (todos || []).filter((m) => m.activo === undefined || !!m.activo);
+      } catch (e) {
+        mayoristasComparar = [];
+      }
+    }
+    renderComparar(cont);
+  }
+
+  function renderComparar(cont) {
+    cont.innerHTML = `
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
+        Consulta el precio por noche de una estancia en los tres sistemas (Particular, Propietario y
+        Mayorista) para cada tipo de apartamento. Solo consulta: no crea ni modifica nada.
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Fecha entrada</label><input type="date" id="cmp-entrada"></div>
+        <div class="campo"><label>Fecha salida</label><input type="date" id="cmp-salida"></div>
+        <div class="campo">
+          <label>Mayorista</label>
+          <select id="cmp-mayorista">
+            <option value="">— Sin mayorista —</option>
+            ${mayoristasComparar.map((m) => `<option value="${m.id}">${esc(m.nombre)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div id="cmp-resultado"><div style="color:var(--muted);padding:8px 0">Elige fechas para consultar precios.</div></div>`;
+
+    ['cmp-entrada', 'cmp-salida', 'cmp-mayorista'].forEach((id) =>
+      document.getElementById(id).addEventListener('change', programarComparar));
+  }
+
+  function programarComparar() {
+    clearTimeout(compararTimer);
+    compararTimer = setTimeout(ejecutarComparar, 400);
+  }
+
+  function celdaComparar(r) {
+    if (!r) return '<span style="color:var(--muted)">—</span>';
+    if (r.ok) return euro(r.precio_total);
+    return `<span style="color:var(--muted)">${esc(r.error || 'Sin tarifa definida')}</span>`;
+  }
+
+  function celdaMayorista(r, mayoristaElegido) {
+    if (!mayoristaElegido) return '<span style="color:var(--muted)">Elige un mayorista</span>';
+    if (!r || r.requiere_mayorista) return '<span style="color:var(--muted)">Elige un mayorista</span>';
+    if (!r.ok) return `<span style="color:var(--muted)">${esc(r.error || 'Sin partida configurada')}</span>`;
+    return (r.opciones || []).map((o) => `<div>${esc(o.nombre || 'Mayorista')}: ${euro(o.precio_total)}</div>`).join('');
+  }
+
+  async function ejecutarComparar() {
+    const resultado = document.getElementById('cmp-resultado');
+    if (!resultado) return;
+    const entrada = val('cmp-entrada');
+    const salida = val('cmp-salida');
+    const mayoristaId = val('cmp-mayorista');
+
+    if (!entrada || !salida) {
+      resultado.innerHTML = '<div style="color:var(--muted);padding:8px 0">Elige fechas para consultar precios.</div>';
+      return;
+    }
+    if (entrada >= salida) {
+      resultado.innerHTML = '<div style="color:var(--muted);padding:8px 0">La fecha de entrada debe ser anterior a la de salida.</div>';
+      return;
+    }
+
+    const token = ++compararToken;
+    resultado.innerHTML = '<div style="color:var(--muted);padding:8px 0">Calculando…</div>';
+
+    let data;
+    try {
+      let url = `/api/tarifas/comparar?entrada=${encodeURIComponent(entrada)}&salida=${encodeURIComponent(salida)}`;
+      if (mayoristaId) url += `&mayorista_id=${encodeURIComponent(mayoristaId)}`;
+      data = await API.get(url);
+    } catch (e) {
+      if (token !== compararToken) return;
+      resultado.innerHTML = `<div style="color:var(--muted);padding:8px 0">${esc(e.message)}</div>`;
+      return;
+    }
+    if (token !== compararToken) return;
+
+    const filas = (data.tipos || []).map((t) => `
+      <tr>
+        <td>${badgeTipo(t.tipo)}</td>
+        <td style="text-align:right;white-space:nowrap">${celdaComparar(t.particular)}</td>
+        <td style="text-align:right;white-space:nowrap">${celdaComparar(t.propietario)}</td>
+        <td style="text-align:right">${celdaMayorista(t.mayorista, mayoristaId)}</td>
+      </tr>`).join('');
+
+    resultado.innerHTML = `
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Tipo</th><th style="text-align:right">Particular</th><th style="text-align:right">Propietario</th><th style="text-align:right">Mayorista</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
   }
 
   function val(id) {

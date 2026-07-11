@@ -605,4 +605,106 @@ router.get('/calcular-propietario', (req, res) => {
   res.json({ temporadas: resultado });
 });
 
+// ==================== Comparativa Particular / Propietario / Mayorista ====================
+// Lógica propia de /comparar, autocontenida — NO llama a /calcular ni a calcularTarifaMayorista
+// para no arriesgar el flujo real de reservas. Repite parte del cálculo noche a noche a propósito.
+
+const TIPOS_COMPARAR = ['A', 'A+', 'A++', 'B', 'B+', 'C'];
+
+// Particular: precio noche a noche a partir de `temporadas` (precio_base_noche) + modificador
+// del tipo. Igual criterio que /calcular pero sin filtro de portal ni descuentos/extras.
+function compararParticular(entrada, salida, temporadas, modificadorPorcentaje) {
+  let subtotal = 0;
+  for (let fecha = entrada; fecha < salida; fecha = sumarDias(fecha, 1)) {
+    const t = temporadas.find((x) => x.fecha_inicio <= fecha && fecha <= x.fecha_fin);
+    if (!t) return { ok: false, error: 'Sin tarifa definida para esas fechas' };
+    subtotal += t.precio_base_noche * (1 + modificadorPorcentaje / 100);
+  }
+  return { ok: true, precio_total: r2(subtotal) };
+}
+
+// Propietario: mismo criterio pero sobre `temporadas_propietario` (precio_base_semana / 7 como
+// equivalente por noche) + modificador propio del tipo.
+function compararPropietario(entrada, salida, temporadasProp, modificadorPorcentaje) {
+  let subtotal = 0;
+  for (let fecha = entrada; fecha < salida; fecha = sumarDias(fecha, 1)) {
+    const t = temporadasProp.find((x) => x.fecha_inicio <= fecha && fecha <= x.fecha_fin);
+    if (!t) return { ok: false, error: 'Sin tarifa definida para esas fechas' };
+    const precioNocheBase = t.precio_base_semana / 7;
+    subtotal += precioNocheBase * (1 + modificadorPorcentaje / 100);
+  }
+  return { ok: true, precio_total: r2(subtotal) };
+}
+
+// Mayorista: a diferencia de calcularTarifaMayorista (que exige elegir una partida si hay
+// varias candidatas), aquí se devuelven TODAS las partidas que encajen para poder comparar
+// varias partidas del mismo tipo/fechas (ej. distintos clientes del mayorista) a la vez.
+function compararMayorista(mayoristaId, entrada, ultimaNoche, noches, tipo) {
+  if (mayoristaId === null) return { ok: false, requiere_mayorista: true };
+  const anioEntrada = parseInt(entrada.slice(0, 4), 10);
+  const contrato = db.prepare('SELECT id FROM mayorista_contratos WHERE mayorista_id = ? AND anio = ?')
+    .get(mayoristaId, anioEntrada);
+  if (!contrato) return { ok: false, error: `No hay contrato de mayorista configurado para el año ${anioEntrada}` };
+
+  const candidatas = db.prepare(`
+    SELECT * FROM mayorista_contrato_partidas
+    WHERE contrato_id = ? AND tipo_clasificacion = ? AND fecha_inicio <= ? AND fecha_fin >= ?
+    ORDER BY fecha_inicio
+  `).all(contrato.id, tipo, entrada, ultimaNoche);
+  if (!candidatas.length) {
+    return { ok: false, error: `No hay ninguna partida configurada para el tipo ${tipo} en estas fechas` };
+  }
+
+  const opciones = candidatas.map((c) => {
+    const noches_bloque = diasInclusive(c.fecha_inicio, c.fecha_fin);
+    const precio_noche = r2(c.importe_total / noches_bloque);
+    return {
+      nombre: c.nombre,
+      importe_total: c.importe_total,
+      noches_bloque,
+      precio_noche,
+      precio_total: r2(precio_noche * noches),
+    };
+  });
+  return { ok: true, opciones };
+}
+
+// GET /api/tarifas/comparar?entrada=YYYY-MM-DD&salida=YYYY-MM-DD&mayorista_id=X
+// Solo lectura: precio Particular/Propietario/Mayorista por cada tipo de apartamento, para
+// una pantalla de comparación. No crea ni modifica nada.
+router.get('/comparar', (req, res) => {
+  const entrada = fechaISO(req.query.entrada);
+  const salida = fechaISO(req.query.salida);
+  if (!entrada || !salida) return res.status(400).json({ ok: false, error: 'entrada y salida son obligatorias (YYYY-MM-DD)' });
+  if (!(entrada < salida)) return res.status(400).json({ ok: false, error: 'La entrada debe ser anterior a la salida' });
+  const mayoristaId = intOrNull(req.query.mayorista_id);
+
+  const nochesReserva = [];
+  for (let fecha = entrada; fecha < salida; fecha = sumarDias(fecha, 1)) nochesReserva.push(fecha);
+  const ultimaNoche = nochesReserva[nochesReserva.length - 1];
+  const noches = nochesReserva.length;
+
+  const temporadas = db.prepare(
+    'SELECT * FROM temporadas WHERE fecha_fin >= ? AND fecha_inicio < ? ORDER BY fecha_inicio'
+  ).all(entrada, salida);
+  const temporadasProp = db.prepare(
+    'SELECT * FROM temporadas_propietario WHERE fecha_fin >= ? AND fecha_inicio < ? ORDER BY fecha_inicio'
+  ).all(entrada, salida);
+  const modificadores = db.prepare('SELECT tipo, porcentaje FROM tipo_modificadores').all();
+  const modificadoresProp = db.prepare('SELECT tipo, porcentaje FROM tipo_modificadores_propietario').all();
+
+  const tipos = TIPOS_COMPARAR.map((tipo) => {
+    const modPart = modificadores.find((m) => m.tipo === tipo);
+    const modProp = modificadoresProp.find((m) => m.tipo === tipo);
+    return {
+      tipo,
+      particular: compararParticular(entrada, salida, temporadas, modPart ? Number(modPart.porcentaje) : 0),
+      propietario: compararPropietario(entrada, salida, temporadasProp, modProp ? Number(modProp.porcentaje) : 0),
+      mayorista: compararMayorista(mayoristaId, entrada, ultimaNoche, noches, tipo),
+    };
+  });
+
+  res.json({ entrada, salida, noches, tipos });
+});
+
 module.exports = router;

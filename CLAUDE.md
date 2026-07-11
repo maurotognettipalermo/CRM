@@ -103,6 +103,7 @@ Variables: `--nav:#1a1a2e` · `--green:#10b981` · `--blue:#3b82f6` · `--red:#e
 - **apartamentos**: ya NO tiene `propietario_id` (migrado a N:M). `tipo_clasificacion` A/A+/A++/B/B+/C. `portal_id` FK portales. `estado_limpieza` CHECK 'limpio'|'sucio'.
 - **apartamento_propietarios**: N:M con histórico. "Principal" = mayor porcentaje (empate → fecha_inicio más antigua). Activos deben sumar 100%.
 - **portales**: `mayorista_id INTEGER REFERENCES mayoristas(id) ON DELETE SET NULL` — vinculación explícita (no por nombre). `comision_porcentaje REAL DEFAULT 0` — % que se descuenta del bruto en estadísticas. GET incluye `mayorista_nombre` (LEFT JOIN). POST/PUT aceptan ambos campos.
+- **mayorista_contrato_partidas**: tramos precio/`tipo_clasificacion`/fechas dentro de un `mayorista_contratos` anual — `importe_total` pactado del tramo ÷ noches del tramo = precio/noche, usado por `GET /api/tarifas/calcular` cuando el portal de la reserva está vinculado a ese mayorista. Un mismo contrato puede tener varias partidas para el mismo tipo/fechas (clientes distintos del mayorista); `num_apartamentos` es solo informativo, no interviene en el cálculo. Separado de `temporadas_propietario`/`tipo_modificadores_propietario` — tabla de referencia informativa (no ligada a mayoristas) para decirle a un propietario con contrato "sin garantía" cuánto percibiría; no interviene en `/calcular` ni en reservas.
 - **reservas**: `portal` es TEXT (nombre, NO FK a portales). `cliente_id` FK nullable. `contrato_origen_id` marca reservas auto de contratos. `apartamento_id` NULL = Sin asignar.
 - **ajustes**: clave/valor. Flag `limpieza_datos_prueba_v1` — **NO borrar** (volvería a borrar datos reales si reaparece). Claves `smtp_*` de correo.
 - **Patrón snapshot**: `apartamento_gastos`, `reserva_extras`, `factura_lineas`, `mantenimiento_tareas.cliente_*` copian nombre/precio al insertar. El catálogo puede cambiar sin afectar registros previos.
@@ -243,6 +244,7 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/PUT/DELETE | /api/mayoristas/contratos/:id | PUT reemplaza plan de pagos (transacción, valida suma==total). DELETE→409 si pagos cobrados |
 | GET/POST | /api/mayoristas/:id/contratos | `?anio=` / crear `{anio, importe_total, pagos:[...]}`. 409 si año duplicado |
 | PUT | /api/mayoristas/pagos/:pago_id | `{pagado, fecha_pago, metodo_pago, numero_factura}`. Marcar sin fecha→hoy |
+| POST/PUT/DELETE | /api/mayoristas/contratos/:id/partidas[/partidas/:id] | Tramos precio/tipo_clasificacion/fechas del contrato anual, usados por `/api/tarifas/calcular` para reservas de ese mayorista |
 | GET/POST/PUT/DELETE | /api/personal/empleados[/:id] | GET solo activos; `?todos=1`. DELETE→409 si tiene fichajes/ausencias |
 | GET | /api/personal/fichajes/estado | Estado actual + resumen del día del empleado logueado. **Antes de /:id** |
 | GET | /api/personal/fichajes/resumen | `?empleado_id=&mes=&anio=`. **Antes de /:id** |
@@ -302,7 +304,11 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | POST | /api/tarifas/temporadas/copiar | `{anio_origen, anio_destino}`. 409 si destino ya tiene; 29-feb→28 si no bisiesto |
 | GET/PUT | /api/tarifas/modificadores[/:id] | PUT solo porcentaje; tipo A bloqueado (400) |
 | GET/POST/PUT/DELETE | /api/tarifas/descuentos[/:id] | `tipos/portales` JSON array o null (= todos) |
-| GET | /api/tarifas/calcular | `?apartamento_id=&entrada=&salida=[&portal=]` → desglose + descuentos + extras obligatorios. 400 si falta tarifa |
+| GET | /api/tarifas/calcular | `?apartamento_id=&entrada=&salida=[&portal=]` → desglose + descuentos + extras obligatorios. 400 si falta tarifa. Si `portal` está vinculado a un mayorista (`portales.mayorista_id`): rama aparte, precio derivado de `mayorista_contrato_partidas` del contrato anual (no de temporadas/modificadores); `?partida_id=` desambigua si hay varias partidas candidatas, si no se manda y hay ambigüedad devuelve `{ok:false, requiere_partida:true, opciones:[...]}` |
+| GET/POST/PUT/DELETE | /api/tarifas/temporadas-propietario[/:id] | `?anio=`. Tabla de referencia informativa para propietarios con contrato "sin garantía" — independiente de temporadas/modificadores de Particular, NO interviene en `/calcular` ni en reservas |
+| POST | /api/tarifas/temporadas-propietario/copiar | `{anio_origen, anio_destino}`. Mismo patrón que `/temporadas/copiar` |
+| GET/PUT | /api/tarifas/modificadores-propietario[/:id] | PUT solo porcentaje; tipo A bloqueado (400) |
+| GET | /api/tarifas/calcular-propietario | `?anio=` → tabla completa del año (todas las temporadas × todos los tipos), no una estancia concreta |
 | GET | /api/facturas/:id/pdf | `Content-Disposition: attachment` |
 | PUT | /api/facturas/:id/anular | estado='anulada' (no borra) |
 
