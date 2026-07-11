@@ -36,6 +36,10 @@ const Tarifas = (() => {
   function badgeTipo(t) {
     return `<span class="badge-clasif ${CLASE_TIPO[t] || 'c-c'}">${esc(t)}</span>`;
   }
+  // Nombre a mostrar: si la temporada no tiene nombre (ahora opcional), usa el rango de fechas.
+  function nombreTemporada(t) {
+    return t.nombre || `${fechaES(t.fecha_inicio)} - ${fechaES(t.fecha_fin)}`;
+  }
   function diasEntre(inicio, fin) {
     return Math.round((new Date(fin + 'T00:00:00Z') - new Date(inicio + 'T00:00:00Z')) / 86400000) + 1;
   }
@@ -105,7 +109,7 @@ const Tarifas = (() => {
         const fecha = `${anio}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const t = temporadaDe(fecha);
         if (t) {
-          dias += `<div class="trf-cal-dia cubierto" style="background:${esc(t.color)}" title="${esc(t.nombre)} — ${euro(t.precio_base_noche)}/noche (${fechaES(fecha)})"></div>`;
+          dias += `<div class="trf-cal-dia cubierto" style="background:${esc(t.color)}" title="${esc(nombreTemporada(t))} — ${euro(t.precio_base_noche)}/noche (${fechaES(fecha)})"></div>`;
         } else {
           dias += `<div class="trf-cal-dia" title="${fechaES(fecha)} — sin temporada"></div>`;
         }
@@ -123,7 +127,7 @@ const Tarifas = (() => {
     const filas = temporadas.map((t) => `
       <tr>
         <td><span class="trf-color-sq" style="background:${esc(t.color)}"></span></td>
-        <td>${esc(t.nombre)}</td>
+        <td>${esc(nombreTemporada(t))}</td>
         <td>${fechaES(t.fecha_inicio)}</td>
         <td>${fechaES(t.fecha_fin)}</td>
         <td>${diasEntre(t.fecha_inicio, t.fecha_fin)}</td>
@@ -176,7 +180,7 @@ const Tarifas = (() => {
 
     abrirModal(`
       <h3>${t ? 'Editar' : 'Nueva'} temporada</h3>
-      <div class="campo"><label>Nombre *</label><input id="tp-nombre" placeholder="Temporada Alta" value="${t ? esc(t.nombre) : ''}"></div>
+      <div class="campo"><label>Nombre</label><input id="tp-nombre" placeholder="Temporada Alta" value="${t ? esc(t.nombre) : ''}"></div>
       <div class="fila-campos">
         <div class="campo"><label>Fecha inicio *</label><input type="date" id="tp-inicio" value="${t ? t.fecha_inicio : ''}"></div>
         <div class="campo"><label>Fecha fin *</label><input type="date" id="tp-fin" value="${t ? t.fecha_fin : ''}"></div>
@@ -225,7 +229,7 @@ const Tarifas = (() => {
 
   async function borrarTemporada(id) {
     const t = temporadas.find((x) => x.id === id);
-    if (!confirm(`¿Eliminar la temporada "${t ? t.nombre : ''}"?`)) return;
+    if (!confirm(`¿Eliminar la temporada "${t ? nombreTemporada(t) : ''}"?`)) return;
     try {
       await API.del(`/api/tarifas/temporadas/${id}`);
       toast('Temporada eliminada', 'ok');
@@ -615,7 +619,7 @@ const Tarifas = (() => {
   function renderPropietario(cont) {
     const filas = propietarioTemporadas.map((t) => `
       <tr>
-        <td>${esc(t.nombre)}</td>
+        <td>${esc(nombreTemporada(t))}</td>
         <td>${fechaES(t.fecha_inicio)}</td>
         <td>${fechaES(t.fecha_fin)}</td>
         <td style="text-align:right;white-space:nowrap">${euro(t.precio_base_semana)}</td>
@@ -712,7 +716,7 @@ const Tarifas = (() => {
 
     abrirModal(`
       <h3>${t ? 'Editar' : 'Nueva'} temporada (propietario)</h3>
-      <div class="campo"><label>Nombre *</label><input id="tpp-nombre" placeholder="Temporada Alta" value="${t ? esc(t.nombre) : ''}"></div>
+      <div class="campo"><label>Nombre</label><input id="tpp-nombre" placeholder="Temporada Alta" value="${t ? esc(t.nombre) : ''}"></div>
       <div class="fila-campos">
         <div class="campo"><label>Fecha inicio *</label><input type="date" id="tpp-inicio" value="${t ? t.fecha_inicio : ''}"></div>
         <div class="campo"><label>Fecha fin *</label><input type="date" id="tpp-fin" value="${t ? t.fecha_fin : ''}"></div>
@@ -757,7 +761,7 @@ const Tarifas = (() => {
 
   async function borrarTemporadaPropietario(id) {
     const t = propietarioTemporadas.find((x) => x.id === id);
-    if (!confirm(`¿Eliminar la temporada "${t ? t.nombre : ''}"?`)) return;
+    if (!confirm(`¿Eliminar la temporada "${t ? nombreTemporada(t) : ''}"?`)) return;
     try {
       await API.del(`/api/tarifas/temporadas-propietario/${id}`);
       toast('Temporada eliminada', 'ok');

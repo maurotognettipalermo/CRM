@@ -40,7 +40,6 @@ function log(req, accion, entidad, id, detalle) {
 function validarTemporada(body, excluirId) {
   const b = body || {};
   const nombre = String(b.nombre || '').trim();
-  if (!nombre) return { error: 'El nombre es obligatorio' };
   const fecha_inicio = fechaISO(b.fecha_inicio);
   const fecha_fin = fechaISO(b.fecha_fin);
   if (!fecha_inicio || !fecha_fin) return { error: 'Las fechas son obligatorias (YYYY-MM-DD)' };
@@ -180,7 +179,6 @@ router.put('/modificadores/:id', (req, res) => {
 function validarTemporadaPropietario(body, excluirId) {
   const b = body || {};
   const nombre = String(b.nombre || '').trim();
-  if (!nombre) return { error: 'El nombre es obligatorio' };
   const fecha_inicio = fechaISO(b.fecha_inicio);
   const fecha_fin = fechaISO(b.fecha_fin);
   if (!fecha_inicio || !fecha_fin) return { error: 'Las fechas son obligatorias (YYYY-MM-DD)' };
