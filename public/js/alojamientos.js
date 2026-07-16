@@ -190,7 +190,11 @@ const Alojamientos = (() => {
     const aplicaLimp = !limpDefault();
     const q = busqueda.toLowerCase();
     return todos.filter((a) => {
-      if (q && !(a.nombre || '').toLowerCase().includes(q)) return false;
+      if (q) {
+        const matchNombre = (a.nombre || '').toLowerCase().includes(q);
+        const matchProp = (a.propietarios || []).some((p) => nombrePropFull(p).toLowerCase().includes(q));
+        if (!matchNombre && !matchProp) return false;
+      }
       if (aplicaClas && !fClas.has(clasDeApto(a))) return false;
       if (aplicaLimp && !fLimp.has(limpDeApto(a))) return false;
       if (fProp === 'con' && !tieneProp(a)) return false;
