@@ -1076,7 +1076,7 @@ const Facturas = (() => {
     if (!contratoId) { cont.innerHTML = ''; document.getElementById('wiz-cuotas-resumen').classList.add('oculto'); return; }
     let c;
     try { c = await API.get('/api/contratos/' + contratoId); } catch (e) { return toast(e.message, 'error'); }
-    wiz.cuotas = (c.cuotas || []).filter((q) => !q.pagado); // solo pendientes
+    wiz.cuotas = (c.cuotas || []).filter((q) => !q.pagado && !q.factura_id); // solo pendientes y sin facturar
     if (!wiz.cuotas.length) {
       cont.innerHTML = '<div class="fac-vacio">Este contrato no tiene cuotas pendientes.</div>';
       document.getElementById('wiz-cuotas-resumen').classList.add('oculto');

@@ -181,6 +181,14 @@ function construirPropietario(body, autofactura) {
   ).all(contrato.id, ...ids);
   if (!cuotas.length) return { error: 'No se encontraron cuotas válidas para ese contrato' };
 
+  const yaFacturadas = cuotas.filter((c) => c.factura_id);
+  if (yaFacturadas.length) {
+    return {
+      error: `La(s) cuota(s) ${yaFacturadas.map((c) => c.numero_cuota).join(', ')} ya tienen una factura emitida`,
+      status: 409,
+    };
+  }
+
   const lineas = cuotas.map((c) => ({
     descripcion: `Pago ${c.numero_cuota} — ${apto.nombre || 'Apartamento'} — ${mesDeFecha(c.fecha_prevista)}`,
     cantidad: 1, precio_unitario: round2(c.importe), importe: round2(c.importe),
@@ -213,7 +221,7 @@ function construirPropietario(body, autofactura) {
     f.receptor_direccion = direccionPropietario(propietario);
     f.receptor_email = propietario.email || null;
   }
-  return { f, lineas };
+  return { f, lineas, cuotaIds: cuotas.map((c) => c.id) };
 }
 
 function construirGastos(body) {
@@ -694,7 +702,7 @@ router.post('/', (req, res) => {
   else if (body.tipo === 'proforma') construido = construirProforma(body);
   else construido = construirHuesped(body);
 
-  if (construido.error) return res.status(400).json({ error: construido.error });
+  if (construido.error) return res.status(construido.status || 400).json({ error: construido.error });
   const { f, lineas } = construido;
 
   // Metadatos comunes del body.
@@ -710,7 +718,14 @@ router.post('/', (req, res) => {
 
   let r;
   try {
-    r = insertarFactura(f, lineas);
+    r = db.transaction(() => {
+      const creada = insertarFactura(f, lineas);
+      if (Array.isArray(construido.cuotaIds) && construido.cuotaIds.length) {
+        const ph = construido.cuotaIds.map(() => '?').join(',');
+        db.prepare(`UPDATE contrato_cuotas SET factura_id = ? WHERE id IN (${ph})`).run(creada.id, ...construido.cuotaIds);
+      }
+      return creada;
+    })();
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -938,7 +953,12 @@ router.put('/:id', (req, res) => {
 router.put('/:id/anular', (req, res) => {
   const factura = db.prepare('SELECT id, numero FROM facturas WHERE id = ?').get(req.params.id);
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
-  db.prepare("UPDATE facturas SET estado = 'anulada' WHERE id = ?").run(req.params.id);
+  db.transaction(() => {
+    db.prepare("UPDATE facturas SET estado = 'anulada' WHERE id = ?").run(req.params.id);
+    // Libera las cuotas de contrato facturadas por esta autofactura/factura de propietario,
+    // para que puedan volver a facturarse.
+    db.prepare('UPDATE contrato_cuotas SET factura_id = NULL WHERE factura_id = ?').run(req.params.id);
+  })();
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'factura', factura.id, `Anulada ${factura.numero}`);
   res.json({ ok: true });
 });

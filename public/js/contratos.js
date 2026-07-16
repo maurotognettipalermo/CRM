@@ -339,6 +339,12 @@ const Contratos = (() => {
       Facturas.abrirWizardAutofacturaDeContrato(Number(btnAutof.dataset.emitirAutof));
     });
 
+    document.querySelectorAll('#cnt-cuerpo [data-ver-factura]').forEach((el) => el.addEventListener('click', () => {
+      cerrarPanel();
+      activarTab('facturacion');
+      Facturas.abrirFicha(Number(el.dataset.verFactura));
+    }));
+
     // Botones de marcar/desmarcar pago (solo precio cerrado).
     document.querySelectorAll('#cnt-cuerpo [data-pagar]').forEach((b) =>
       b.addEventListener('click', () => modalPago(c.id, Number(b.dataset.pagar))));
@@ -368,9 +374,10 @@ const Contratos = (() => {
     const factorRet = c.porcentaje_retencion ? c.porcentaje_retencion / 100 : 0;
 
     const filas = cuotas.map((q) => {
-      const badge = q.pagado
+      const badge = (q.pagado
         ? '<span class="badge-estado activo">Pagado</span>'
-        : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>';
+        : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>')
+        + (q.factura_id ? ` <span class="cnt-link" data-ver-factura="${q.factura_id}">🧾 Facturado</span>` : '');
       const accion = q.pagado
         ? `<button class="btn-mini" data-despagar="${q.id}">Desmarcar</button>`
         : `<button class="btn-mini" data-pagar="${q.id}">✓ Marcar pagado</button>`;

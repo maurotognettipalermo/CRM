@@ -98,7 +98,9 @@ const COLUMNAS_CONTRATOS = {
   porcentaje_retencion: 'REAL DEFAULT 19',  // retención IRPF: 0 / 19 (residentes) / 24 (no residentes)
 };
 const COLUMNAS_CUOTAS = {
-  // (reservado para columnas futuras de las cuotas)
+  // Factura (autofactura) generada a partir de esta cuota. ADD COLUMN con REFERENCES
+  // exige default NULL (implícito). Se libera (NULL) si la factura se anula.
+  factura_id: 'INTEGER REFERENCES facturas(id) ON DELETE SET NULL',
 };
 
 // Columnas extra de la tabla apartamentos (ficha ampliada). DEFAULT constante en los 0/1.
