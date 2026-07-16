@@ -374,10 +374,10 @@ const Contratos = (() => {
     const factorRet = c.porcentaje_retencion ? c.porcentaje_retencion / 100 : 0;
 
     const filas = cuotas.map((q) => {
-      const badge = (q.pagado
+      const badge = q.pagado
         ? '<span class="badge-estado activo">Pagado</span>'
-        : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>')
-        + (q.factura_id ? ` <span class="cnt-link" data-ver-factura="${q.factura_id}">🧾 Facturado</span>` : '');
+        : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>';
+      const factura = q.factura_id ? `<span class="cnt-link" data-ver-factura="${q.factura_id}">Facturado</span>` : '—';
       const accion = q.pagado
         ? `<button class="btn-mini" data-despagar="${q.id}">Desmarcar</button>`
         : `<button class="btn-mini" data-pagar="${q.id}">✓ Marcar pagado</button>`;
@@ -386,9 +386,10 @@ const Contratos = (() => {
         <tr>
           <td>${q.numero_cuota}</td>
           <td>${fechaES(q.fecha_prevista)}</td>
-          <td>${euro(q.importe)}</td>
-          <td style="font-weight:700;color:#3b82f6">${euro(transferencia)}</td>
+          <td class="num">${euro(q.importe)}</td>
+          <td class="num" style="font-weight:700;color:#3b82f6">${euro(transferencia)}</td>
           <td>${badge}</td>
+          <td>${factura}</td>
           <td>${q.fecha_pago ? fechaES(q.fecha_pago) : '—'}</td>
           <td class="acciones">${accion}</td>
         </tr>`;
@@ -398,15 +399,15 @@ const Contratos = (() => {
       ${cabecera}
       <div class="tabla-scroll">
         <table class="tabla cnt-tabla-cuotas">
-          <thead><tr><th>Nº</th><th>Fecha prevista</th><th>Importe</th><th>Transferencia</th><th>Estado</th><th>Fecha pago real</th><th></th></tr></thead>
+          <thead><tr><th>Nº</th><th>Fecha prevista</th><th>Importe</th><th>Transferencia</th><th>Estado</th><th>Factura</th><th>Fecha pago real</th><th></th></tr></thead>
           <tbody>${filas}</tbody>
           <tfoot>
-            <tr><td colspan="2">Precio base</td><td colspan="5">${euro(f.base)}</td></tr>
-            <tr><td colspan="2">IVA${c.aplica_iva ? ' 21%' : ''}</td><td colspan="5">${euro(f.iva)}</td></tr>
-            <tr><td colspan="2">Retención${Number(c.porcentaje_retencion) ? ' ' + (Number(c.porcentaje_retencion) || 0) + '%' : ''}</td><td colspan="5">−${euro(f.ret)}</td></tr>
-            <tr class="cnt-fila-total"><td colspan="2">Total a pagar</td><td colspan="5">${euro(f.total)}</td></tr>
-            <tr><td colspan="2">Pagado</td><td colspan="5" style="color:#059669">${euro(pagado)}</td></tr>
-            <tr><td colspan="2">Pendiente</td><td colspan="5" style="color:var(--red)">${euro(pendiente)}</td></tr>
+            <tr><td colspan="2">Precio base</td><td colspan="6">${euro(f.base)}</td></tr>
+            <tr><td colspan="2">IVA${c.aplica_iva ? ' 21%' : ''}</td><td colspan="6">${euro(f.iva)}</td></tr>
+            <tr><td colspan="2">Retención${Number(c.porcentaje_retencion) ? ' ' + (Number(c.porcentaje_retencion) || 0) + '%' : ''}</td><td colspan="6">−${euro(f.ret)}</td></tr>
+            <tr class="cnt-fila-total"><td colspan="2">Total a pagar</td><td colspan="6">${euro(f.total)}</td></tr>
+            <tr><td colspan="2">Pagado</td><td colspan="6" style="color:#059669">${euro(pagado)}</td></tr>
+            <tr><td colspan="2">Pendiente</td><td colspan="6" style="color:var(--red)">${euro(pendiente)}</td></tr>
           </tfoot>
         </table>
       </div>`;

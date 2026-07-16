@@ -2214,6 +2214,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 /* Ficha (panel lateral): reutiliza .panel-*, .rsv-* y .tabla */
 .cnt-link { color: var(--blue); cursor: pointer; }
 .cnt-link:hover { text-decoration: underline; }
+.cnt-tabla-cuotas th, .cnt-tabla-cuotas td { text-align: center; }
+.cnt-tabla-cuotas td.num { white-space: nowrap; }
 .cnt-tabla-cuotas tfoot td { font-weight: 700; border-top: 2px solid var(--border); }
 .cnt-vacio { color: var(--muted); text-align: center; padding: 24px; }
 
