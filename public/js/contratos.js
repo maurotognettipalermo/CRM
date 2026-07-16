@@ -332,6 +332,13 @@ const Contratos = (() => {
       Alojamientos.abrirFicha(link.dataset.irApto);
     });
 
+    const btnAutof = document.querySelector('#cnt-cuerpo [data-emitir-autof]');
+    if (btnAutof) btnAutof.addEventListener('click', () => {
+      cerrarPanel();
+      activarTab('facturacion');
+      Facturas.abrirWizardAutofacturaDeContrato(Number(btnAutof.dataset.emitirAutof));
+    });
+
     // Botones de marcar/desmarcar pago (solo precio cerrado).
     document.querySelectorAll('#cnt-cuerpo [data-pagar]').forEach((b) =>
       b.addEventListener('click', () => modalPago(c.id, Number(b.dataset.pagar))));
@@ -341,9 +348,14 @@ const Contratos = (() => {
 
   // Plan de pagos (cuotas) con totales.
   function seccionPlanPagos(c) {
+    const cabecera = `
+      <div class="cnt-fp-head">
+        <span class="rsv-seccion-titulo cnt-fp-titulo">Plan de pagos</span>
+        <button class="btn-sec" data-emitir-autof="${c.id}">📄 Emitir autofactura</button>
+      </div>`;
     const cuotas = (c.cuotas || []).slice().sort((a, b) => a.numero_cuota - b.numero_cuota);
     if (!cuotas.length) {
-      return '<div class="rsv-seccion-titulo">Plan de pagos</div><div class="cnt-vacio">Este contrato no tiene cuotas.</div>';
+      return cabecera + '<div class="cnt-vacio">Este contrato no tiene cuotas.</div>';
     }
     const total = cuotas.reduce((s, q) => s + (Number(q.importe) || 0), 0);
     const pagado = cuotas.filter((q) => q.pagado).reduce((s, q) => s + (Number(q.importe) || 0), 0);
@@ -376,7 +388,7 @@ const Contratos = (() => {
     }).join('');
 
     return `
-      <div class="rsv-seccion-titulo">Plan de pagos</div>
+      ${cabecera}
       <div class="tabla-scroll">
         <table class="tabla cnt-tabla-cuotas">
           <thead><tr><th>Nº</th><th>Fecha prevista</th><th>Importe</th><th>Transferencia</th><th>Estado</th><th>Fecha pago real</th><th></th></tr></thead>

@@ -429,6 +429,12 @@ const Facturas = (() => {
     const lnkOrigen = document.getElementById('fac-ver-origen');
     if (lnkOrigen) lnkOrigen.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(lnkOrigen.dataset.id); });
     document.querySelectorAll('.fac-ver-abono').forEach((el) => el.addEventListener('click', (e) => { e.preventDefault(); abrirFicha(el.dataset.id); }));
+    const lnkProp = document.querySelector('.fac-ver-propietario');
+    if (lnkProp) lnkProp.addEventListener('click', (e) => {
+      e.preventDefault();
+      activarTab('propietarios');
+      Propietarios.abrirFicha(lnkProp.dataset.id);
+    });
     if (fichaActual.tipo !== 'proforma') {
       await recargarPagosFactura(fichaActual.id);
       pintarPagosFactura();
@@ -452,7 +458,9 @@ const Facturas = (() => {
   function fichaHTML(f) {
     const emisor = `
       ${f.emisor_logo_url ? `<img class="fac-ficha-logo" src="${esc(f.emisor_logo_url)}" alt="" onerror="this.style.display='none'">` : ''}
-      ${dato('Nombre', esc(f.emisor_nombre))}
+      ${f.tipo === 'autofactura' && f.propietario_id
+        ? dato('Nombre', `<a href="#" class="fac-ver-propietario" data-id="${f.propietario_id}">${esc(f.emisor_nombre)}</a>`)
+        : dato('Nombre', esc(f.emisor_nombre))}
       ${dato('CIF/NIF', esc(f.emisor_cif))}
       ${dato('Dirección', esc(f.emisor_direccion))}`;
     const receptor = `
@@ -702,6 +710,34 @@ const Facturas = (() => {
       wiz.razonId = (pred || lista[0]).id;
     }
     renderWizard();
+  }
+
+  // Abre el wizard ya en el paso 2, tipo autofactura/según-contrato, con un contrato
+  // concreto preseleccionado (llamado desde la ficha de Contratos, botón "Emitir autofactura").
+  async function abrirWizardAutofacturaDeContrato(contratoId) {
+    wiz = {
+      paso: 2, tipo: 'autofactura', razonId: null, anio: filtroAnio,
+      propSel: null, contratoSel: null, cuotas: [], cuotaSel: [],
+      aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
+      libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
+      modoAutofactura: 'contrato',
+    };
+    try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
+    const lista = razonesCache || [];
+    if (lista.length) {
+      const pred = lista.find((r) => r.predeterminada);
+      wiz.razonId = (pred || lista[0]).id;
+    }
+    let contrato;
+    try { contrato = await API.get('/api/contratos/' + contratoId); } catch (e) { return toast(e.message, 'error'); }
+    renderWizard();
+    wiz.propSel = contrato.propietario_id;
+    const inputProp = document.getElementById('wiz-prop-buscar');
+    if (inputProp) inputProp.value = nombreProp({ nombre: contrato.propietario_nombre, apellidos: contrato.propietario_apellidos });
+    pintarSelectContratosWiz(contrato.tipo === 'precio_cerrado' ? [contrato] : []);
+    const selContrato = document.getElementById('wiz-contrato');
+    if (selContrato && contrato.tipo === 'precio_cerrado') selContrato.value = contratoId;
+    await cargarCuotasWiz(contratoId);
   }
 
   function renderWizard() {
@@ -1243,5 +1279,5 @@ const Facturas = (() => {
     } catch (e) { /* sin razones: queda solo "Todas" */ }
   }
 
-  return { init, cargar, abrirFicha };
+  return { init, cargar, abrirFicha, abrirWizardAutofacturaDeContrato };
 })();
