@@ -45,6 +45,7 @@ app.use('/api/email', require('./routes/email'));
 const limpieza = require('./routes/limpieza');
 app.use('/api/limpieza', limpieza);
 app.use('/api/mantenimiento', require('./routes/mantenimiento'));
+app.use('/api/ventas/propiedades/:id/fotos', require('./routes/propiedad-fotos')); // antes del router de ventas
 app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/mayoristas', require('./routes/mayoristas'));
 app.use('/api/personal', require('./routes/personal'));

@@ -463,6 +463,19 @@ CREATE TABLE IF NOT EXISTS apartamento_fotos (
 );
 CREATE INDEX IF NOT EXISTS idx_apto_fotos_apartamento ON apartamento_fotos(apartamento_id);
 
+-- Galería de fotos de una propiedad de venta. Los archivos viven en
+-- public/uploads/propiedades/{propiedad_id}/ y url es la ruta pública.
+CREATE TABLE IF NOT EXISTS propiedad_fotos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  propiedad_id INTEGER NOT NULL REFERENCES propiedades_venta(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  nombre_archivo TEXT NOT NULL,
+  descripcion TEXT,
+  orden INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_propiedad_fotos_propiedad ON propiedad_fotos(propiedad_id);
+
 -- Catálogo de estados de reserva (configurable en Ajustes). es_sistema=1 no se puede eliminar.
 CREATE TABLE IF NOT EXISTS estados_reserva (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

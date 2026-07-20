@@ -7,6 +7,10 @@ const Ventas = (() => {
   let fichaActual = null;      // propiedad abierta en el panel
   let busqueda = '';
   let subSel = [];             // File pendiente en el modal de importar
+  let galeriaFotosVenta = [];  // fotos de la propiedad abierta
+  let subirSeleccionVenta = []; // File[] pendientes de subir en el modal de galería
+  let dragFotoIdVenta = null;  // foto que se está arrastrando (reordenar)
+  let lightboxIdxVenta = -1;   // índice de la foto abierta en el lightbox
 
   function esAdmin() { return (((typeof Auth !== 'undefined' && Auth.sesion && Auth.sesion()) || {}).rol) === 'administrador'; }
 
@@ -387,6 +391,8 @@ const Ventas = (() => {
         </div>
       </div>`;
 
+    const galeriaSec = `<div class="vta-d-seccion">${galeriaShellHTMLVenta()}</div>`;
+
     let propietario;
     if (d.propietario_venta_id) {
       // Propietario vinculado de la cartera de ventas.
@@ -487,7 +493,8 @@ const Ventas = (() => {
         </div>`;
     }
 
-    document.getElementById('vta-d-cuerpo').innerHTML = ventaSec + datos + propietario + notas + histVisitas;
+    document.getElementById('vta-d-cuerpo').innerHTML = ventaSec + datos + galeriaSec + propietario + notas + histVisitas;
+    cargarGaleriaVenta();
 
     const btnEscritura = document.getElementById('vta-add-escritura');
     if (btnEscritura) btnEscritura.addEventListener('click', () => modalAnadirEscritura(d));
@@ -552,6 +559,301 @@ const Ventas = (() => {
       } catch (e) { toast(e.message, 'error'); }
       finally { btnCom.disabled = false; btnCom.textContent = 'Guardar'; }
     });
+  }
+
+  // ==================== Galería de fotos ====================
+  function galeriaShellHTMLVenta() {
+    return `
+      <div class="alo-gal-head">
+        <div class="alo-gal-titulo">Galería de fotos <span id="vta-gal-count" class="alo-prop-count">0</span></div>
+        <div class="alo-gal-acciones">
+          <button id="vta-gal-subir" class="btn-pri">＋ Subir fotos</button>
+        </div>
+      </div>
+      <div id="vta-gal-grid"></div>`;
+  }
+
+  function skeletonGaleriaVenta() {
+    return '<div class="alo-gal-grid">' +
+      '<div class="alo-gal-item"><span class="skeleton" style="display:block;aspect-ratio:1;border-radius:6px"></span></div>'.repeat(6) +
+      '</div>';
+  }
+
+  async function cargarGaleriaVenta() {
+    const id = fichaActual && fichaActual.id;
+    if (id == null) return;
+    const grid = document.getElementById('vta-gal-grid');
+    if (grid) grid.innerHTML = skeletonGaleriaVenta();
+    try {
+      galeriaFotosVenta = await API.get(`/api/ventas/propiedades/${id}/fotos`);
+    } catch (e) {
+      if (grid) grid.innerHTML = '<div style="color:var(--muted);padding:8px 0">No se pudieron cargar las fotos.</div>';
+      return;
+    }
+    if (!fichaActual || String(fichaActual.id) !== String(id)) return; // la ficha cambió
+    renderGaleriaVenta();
+    const bSubir = document.getElementById('vta-gal-subir');
+    if (bSubir) bSubir.onclick = modalSubirFotosVenta;
+  }
+
+  function renderGaleriaVenta() {
+    const grid = document.getElementById('vta-gal-grid');
+    const count = document.getElementById('vta-gal-count');
+    if (count) count.textContent = galeriaFotosVenta.length;
+    if (!grid) return;
+
+    if (!galeriaFotosVenta.length) {
+      grid.innerHTML = `
+        <div class="alo-gal-vacio" id="vta-gal-dropvacio">
+          <div class="alo-gal-vacio-icono">📷</div>
+          <div>Arrastra fotos aquí o pulsa <strong>Subir fotos</strong></div>
+        </div>`;
+      const dz = document.getElementById('vta-gal-dropvacio');
+      if (dz) conectarDropEnZonaVenta(dz);
+      return;
+    }
+
+    grid.innerHTML = '<div class="alo-gal-grid">' + galeriaFotosVenta.map((f, i) => `
+      <div class="alo-gal-celda">
+        <div class="alo-gal-item" draggable="true" data-foto="${f.id}" data-idx="${i}">
+          <img src="${esc(f.url)}" alt="${esc(f.descripcion || '')}" loading="lazy">
+          <div class="alo-gal-overlay">
+            <button class="alo-gal-ov-btn" data-borrar-foto-venta="${f.id}" title="Eliminar">🗑</button>
+            <button class="alo-gal-ov-btn" data-editar-foto-venta="${f.id}" title="Editar descripción">✏️</button>
+          </div>
+        </div>
+        ${f.descripcion ? `<div class="alo-gal-desc">${esc(f.descripcion)}</div>` : ''}
+      </div>`).join('') + '</div>';
+
+    // Clic en imagen → lightbox (ignora clics en botones del overlay).
+    grid.querySelectorAll('.alo-gal-item').forEach((it) => {
+      it.querySelector('img').addEventListener('click', () => abrirLightboxVenta(Number(it.dataset.idx)));
+      conectarDragItemVenta(it);
+    });
+    grid.querySelectorAll('[data-borrar-foto-venta]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); eliminarFotoVenta(Number(b.dataset.borrarFotoVenta)); }));
+    grid.querySelectorAll('[data-editar-foto-venta]').forEach((b) =>
+      b.addEventListener('click', (e) => { e.stopPropagation(); modalEditarDescripcionVenta(Number(b.dataset.editarFotoVenta)); }));
+  }
+
+  // ---- Drag & drop para reordenar ----
+  function conectarDragItemVenta(it) {
+    it.addEventListener('dragstart', (e) => { dragFotoIdVenta = Number(it.dataset.foto); it.classList.add('arrastrando'); e.dataTransfer.effectAllowed = 'move'; });
+    it.addEventListener('dragend', () => { dragFotoIdVenta = null; it.classList.remove('arrastrando'); document.querySelectorAll('.alo-gal-item.drop-target').forEach((x) => x.classList.remove('drop-target')); });
+    it.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; it.classList.add('drop-target'); });
+    it.addEventListener('dragleave', () => it.classList.remove('drop-target'));
+    it.addEventListener('drop', (e) => {
+      e.preventDefault();
+      it.classList.remove('drop-target');
+      const destinoId = Number(it.dataset.foto);
+      if (dragFotoIdVenta == null || dragFotoIdVenta === destinoId) return;
+      reordenarFotosVenta(dragFotoIdVenta, destinoId);
+    });
+  }
+
+  async function reordenarFotosVenta(origenId, destinoId) {
+    const arr = galeriaFotosVenta.slice();
+    const iO = arr.findIndex((f) => f.id === origenId);
+    const iD = arr.findIndex((f) => f.id === destinoId);
+    if (iO < 0 || iD < 0) return;
+    const [movida] = arr.splice(iO, 1);
+    arr.splice(iD, 0, movida);
+    galeriaFotosVenta = arr;
+    renderGaleriaVenta(); // feedback inmediato
+    try {
+      await API.post(`/api/ventas/propiedades/${fichaActual.id}/fotos/reordenar`, { orden: arr.map((f) => f.id) });
+    } catch (e) {
+      toast(e.message, 'error');
+      cargarGaleriaVenta(); // revertir desde servidor
+    }
+  }
+
+  // ---- Lightbox ----
+  function abrirLightboxVenta(idx) {
+    lightboxIdxVenta = idx;
+    let box = document.getElementById('venta-lightbox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'venta-lightbox';
+      box.className = 'alo-lightbox';
+      box.innerHTML = `
+        <button class="alo-lb-cerrar" data-lb="cerrar" title="Cerrar">✕</button>
+        <button class="alo-lb-nav alo-lb-prev" data-lb="prev" title="Anterior">◀</button>
+        <figure class="alo-lb-fig"><img id="venta-lb-img" src="" alt=""><figcaption id="venta-lb-cap"></figcaption></figure>
+        <button class="alo-lb-nav alo-lb-next" data-lb="next" title="Siguiente">▶</button>`;
+      document.body.appendChild(box);
+      box.addEventListener('click', (e) => {
+        const acc = e.target.closest('[data-lb]');
+        if (acc) { const a = acc.dataset.lb; if (a === 'cerrar') cerrarLightboxVenta(); else navLightboxVenta(a === 'next' ? 1 : -1); return; }
+        if (e.target === box) cerrarLightboxVenta(); // clic en el fondo cierra
+      });
+      document.addEventListener('keydown', lightboxKeysVenta, true);
+    }
+    pintarLightboxVenta();
+    box.classList.add('abierto');
+  }
+  function pintarLightboxVenta() {
+    const f = galeriaFotosVenta[lightboxIdxVenta];
+    if (!f) return cerrarLightboxVenta();
+    const img = document.getElementById('venta-lb-img');
+    const cap = document.getElementById('venta-lb-cap');
+    if (img) img.src = f.url;
+    if (cap) cap.textContent = f.descripcion || '';
+    const box = document.getElementById('venta-lightbox');
+    if (box) {
+      box.querySelector('.alo-lb-prev').style.visibility = galeriaFotosVenta.length > 1 ? 'visible' : 'hidden';
+      box.querySelector('.alo-lb-next').style.visibility = galeriaFotosVenta.length > 1 ? 'visible' : 'hidden';
+    }
+  }
+  function navLightboxVenta(delta) {
+    if (!galeriaFotosVenta.length) return;
+    lightboxIdxVenta = (lightboxIdxVenta + delta + galeriaFotosVenta.length) % galeriaFotosVenta.length;
+    pintarLightboxVenta();
+  }
+  function cerrarLightboxVenta() {
+    const box = document.getElementById('venta-lightbox');
+    if (box) box.classList.remove('abierto');
+    lightboxIdxVenta = -1;
+  }
+  function lightboxKeysVenta(e) {
+    const box = document.getElementById('venta-lightbox');
+    if (!box || !box.classList.contains('abierto')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrarLightboxVenta(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); navLightboxVenta(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); navLightboxVenta(-1); }
+  }
+
+  // Soltar fotos sobre la zona vacía de la galería → abre el modal de subida ya con archivos.
+  function conectarDropEnZonaVenta(zona) {
+    zona.addEventListener('dragover', (e) => { e.preventDefault(); zona.classList.add('arrastrando'); });
+    zona.addEventListener('dragleave', () => zona.classList.remove('arrastrando'));
+    zona.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zona.classList.remove('arrastrando');
+      modalSubirFotosVenta();
+      anadirArchivosVenta(e.dataTransfer.files);
+    });
+  }
+
+  async function eliminarFotoVenta(id) {
+    if (!confirm('¿Eliminar esta foto?')) return;
+    try {
+      await API.del(`/api/ventas/propiedades/${fichaActual.id}/fotos/${id}`);
+      toast('Foto eliminada', 'ok');
+      await cargarGaleriaVenta();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function modalEditarDescripcionVenta(id) {
+    const f = galeriaFotosVenta.find((x) => x.id === id);
+    if (!f) return;
+    abrirModal(`
+      <h3>Editar descripción</h3>
+      <div class="campo"><label>Descripción</label><textarea id="vta-ed-desc">${esc(f.descripcion)}</textarea></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vta-ed-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vta-ed-guardar">Guardar</button>
+      </div>`);
+    document.getElementById('vta-ed-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vta-ed-guardar').addEventListener('click', async () => {
+      try {
+        await API.put(`/api/ventas/propiedades/${fichaActual.id}/fotos/${id}`, { descripcion: val('vta-ed-desc') });
+        cerrarModal();
+        await cargarGaleriaVenta();
+        toast('Descripción guardada', 'ok');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ---- Subir fotos (dropzone + preview + barra de progreso) ----
+  function modalSubirFotosVenta() {
+    subirSeleccionVenta = [];
+    abrirModal(`
+      <h3>Subir fotos</h3>
+      <div class="alo-dropzone" id="vta-dropzone">
+        <div class="alo-dropzone-icono">📷</div>
+        <div>Arrastra fotos aquí o <strong>haz clic para seleccionar</strong></div>
+        <div class="alo-dropzone-sub">Hasta 10 a la vez · JPG, PNG, WEBP</div>
+        <input type="file" id="vta-file-input" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
+      </div>
+      <div id="vta-preview" class="alo-preview"></div>
+      <div id="vta-progreso" class="alo-progreso oculto"><div class="alo-progreso-barra" id="vta-progreso-barra"></div></div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="vta-sub-cancelar">Cancelar</button>
+        <button class="btn-pri" id="vta-sub-guardar" disabled>Subir</button>
+      </div>`);
+
+    const dz = document.getElementById('vta-dropzone');
+    const input = document.getElementById('vta-file-input');
+    dz.addEventListener('click', () => input.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('arrastrando'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('arrastrando'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('arrastrando'); anadirArchivosVenta(e.dataTransfer.files); });
+    input.addEventListener('change', () => anadirArchivosVenta(input.files));
+
+    document.getElementById('vta-sub-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('vta-sub-guardar').addEventListener('click', subirFotosVenta);
+  }
+
+  const EXT_FOTO_VENTA = ['jpg', 'jpeg', 'png', 'webp'];
+  function anadirArchivosVenta(fileList) {
+    const nuevos = Array.from(fileList).filter((f) => EXT_FOTO_VENTA.includes((f.name.split('.').pop() || '').toLowerCase()));
+    if (Array.from(fileList).length && !nuevos.length) toast('Formato no admitido (solo JPG, PNG, WEBP)', 'error');
+    for (const f of nuevos) {
+      if (subirSeleccionVenta.length >= 10) { toast('Máximo 10 fotos a la vez', 'aviso'); break; }
+      subirSeleccionVenta.push(f);
+    }
+    renderPreviewVenta();
+  }
+  function renderPreviewVenta() {
+    const cont = document.getElementById('vta-preview');
+    const btn = document.getElementById('vta-sub-guardar');
+    if (!cont) return;
+    if (btn) { btn.disabled = subirSeleccionVenta.length === 0; btn.textContent = subirSeleccionVenta.length ? `Subir ${subirSeleccionVenta.length}` : 'Subir'; }
+    cont.innerHTML = '';
+    subirSeleccionVenta.forEach((file, i) => {
+      const div = document.createElement('div');
+      div.className = 'alo-preview-item';
+      div.innerHTML = `<img alt=""><button class="alo-preview-quitar" title="Quitar">✕</button>`;
+      const reader = new FileReader();
+      reader.onload = (e) => { div.querySelector('img').src = e.target.result; };
+      reader.readAsDataURL(file);
+      div.querySelector('.alo-preview-quitar').addEventListener('click', () => { subirSeleccionVenta.splice(i, 1); renderPreviewVenta(); });
+      cont.appendChild(div);
+    });
+  }
+  function subirFotosVenta() {
+    if (!subirSeleccionVenta.length) return;
+    const fd = new FormData();
+    subirSeleccionVenta.forEach((f) => fd.append('fotos', f));
+    const barraCont = document.getElementById('vta-progreso');
+    const barra = document.getElementById('vta-progreso-barra');
+    if (barraCont) barraCont.classList.remove('oculto');
+    document.getElementById('vta-sub-guardar').disabled = true;
+    document.getElementById('vta-sub-cancelar').disabled = true;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/ventas/propiedades/${fichaActual.id}/fotos`);
+    const h = authHeaders();
+    for (const k in h) xhr.setRequestHeader(k, h[k]);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && barra) barra.style.width = Math.round((e.loaded / e.total) * 100) + '%'; };
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const n = subirSeleccionVenta.length;
+        cerrarModal();
+        await cargarGaleriaVenta();
+        toast(`${n} foto${n === 1 ? '' : 's'} subida${n === 1 ? '' : 's'}`, 'ok');
+      } else {
+        let msg = 'Error al subir';
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+        toast(msg, 'error');
+        document.getElementById('vta-sub-guardar').disabled = false;
+        document.getElementById('vta-sub-cancelar').disabled = false;
+        if (barraCont) barraCont.classList.add('oculto');
+      }
+    };
+    xhr.onerror = () => { toast('Error de red al subir', 'error'); document.getElementById('vta-sub-cancelar').disabled = false; };
+    xhr.send(fd);
   }
 
   // ==================== Modal nueva / editar ====================
