@@ -228,6 +228,8 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET | /api/ventas/propiedades | `?estado=&tipo=&zona=&precio_min=&precio_max=&dormitorios=` |
 | GET/POST/PUT/DELETE | /api/ventas/propiedades[/:id] | CRUD. POST/PUT validan `referencia` única (409). DELETE→409 si tiene visitas |
 | POST | /api/ventas/propiedades/importar | Excel Idealista (`archivo`); upsert referencia, no pisa estado/notas/descripcion |
+| GET/POST/PUT/DELETE | /api/ventas/propiedades/:id/fotos[/:foto_id] | Galería (tabla `propiedad_fotos`, calcada de fotos de Alojamientos). POST multipart campo `fotos` |
+| POST | /api/ventas/propiedades/:id/fotos/reordenar | `{orden:[id1,id2,...]}` |
 | POST | /api/ventas/propiedades/:id/vender | `{fecha_venta, fecha_escritura, precio_venta_final, comprador_*}`. estado='Vendida' |
 | GET/POST/PUT/DELETE | /api/ventas/clientes[/:id] | Clientes compradores. DELETE→409 si tiene visitas |
 | GET | /api/ventas/visitas | `?fecha=&estado=&cliente_id=&propiedad_id=`. Cada visita lleva `propiedades[]` |

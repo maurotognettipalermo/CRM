@@ -11,6 +11,7 @@ const Ventas = (() => {
   let subirSeleccionVenta = []; // File[] pendientes de subir en el modal de galería
   let dragFotoIdVenta = null;  // foto que se está arrastrando (reordenar)
   let lightboxIdxVenta = -1;   // índice de la foto abierta en el lightbox
+  let galeriaCargadaVenta = false; // ya cargada la galería para esta ficha
 
   function esAdmin() { return (((typeof Auth !== 'undefined' && Auth.sesion && Auth.sesion()) || {}).rol) === 'administrador'; }
 
@@ -319,12 +320,18 @@ const Ventas = (() => {
           <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
       </header>
+      <div class="rsv-subtabs" id="vta-d-subtabs">
+        <button class="rsv-subtab activo" data-asub="datos">Datos</button>
+        <button class="rsv-subtab" data-asub="galeria">Galería</button>
+      </div>
       <div id="vta-d-cuerpo" class="panel-cuerpo"></div>`;
     document.body.appendChild(fondo);
     document.body.appendChild(panel);
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
+    panel.querySelectorAll('.rsv-subtab').forEach((b) =>
+      b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
@@ -340,6 +347,13 @@ const Ventas = (() => {
     document.getElementById('vta-panel')?.classList.remove('abierto');
     fichaActual = null;
   }
+  function activarSubVenta(sub) {
+    document.querySelectorAll('#vta-d-subtabs .rsv-subtab').forEach((b) =>
+      b.classList.toggle('activo', b.dataset.asub === sub));
+    document.querySelectorAll('#vta-d-cuerpo .rsv-subpanel').forEach((p) =>
+      p.classList.toggle('activo', p.dataset.asubpanel === sub));
+    if (sub === 'galeria' && !galeriaCargadaVenta) cargarGaleriaVenta();
+  }
 
   async function abrirFicha(id) {
     crearPanel();
@@ -347,10 +361,12 @@ const Ventas = (() => {
     try { d = await API.get('/api/ventas/propiedades/' + id); }
     catch (e) { return toast(e.message, 'error'); }
     fichaActual = d;
+    galeriaCargadaVenta = false;
     document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
     document.getElementById('vta-d-badges').innerHTML =
       `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
     renderCuerpo(d);
+    activarSubVenta('datos');
     abrirPanel();
   }
   // Recarga la ficha tras editar sin cerrar el panel.
@@ -493,8 +509,9 @@ const Ventas = (() => {
         </div>`;
     }
 
-    document.getElementById('vta-d-cuerpo').innerHTML = ventaSec + datos + galeriaSec + propietario + notas + histVisitas;
-    cargarGaleriaVenta();
+    document.getElementById('vta-d-cuerpo').innerHTML = `
+      <div class="rsv-subpanel activo" data-asubpanel="datos">${ventaSec + datos + propietario + notas + histVisitas}</div>
+      <div class="rsv-subpanel" data-asubpanel="galeria">${galeriaSec}</div>`;
 
     const btnEscritura = document.getElementById('vta-add-escritura');
     if (btnEscritura) btnEscritura.addEventListener('click', () => modalAnadirEscritura(d));
@@ -582,6 +599,7 @@ const Ventas = (() => {
   async function cargarGaleriaVenta() {
     const id = fichaActual && fichaActual.id;
     if (id == null) return;
+    galeriaCargadaVenta = true;
     const grid = document.getElementById('vta-gal-grid');
     if (grid) grid.innerHTML = skeletonGaleriaVenta();
     try {
