@@ -335,7 +335,8 @@ const Ventas = (() => {
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       const modalAbierto = !document.getElementById('modal-fondo').classList.contains('oculto');
-      if (!modalAbierto && panel.classList.contains('abierto')) cerrarPanel();
+      const lightboxAbierto = document.getElementById('venta-lightbox')?.classList.contains('abierto');
+      if (!modalAbierto && !lightboxAbierto && panel.classList.contains('abierto')) cerrarPanel();
     }, true);
   }
   function abrirPanel() {
@@ -643,9 +644,9 @@ const Ventas = (() => {
         ${f.descripcion ? `<div class="alo-gal-desc">${esc(f.descripcion)}</div>` : ''}
       </div>`).join('') + '</div>';
 
-    // Clic en imagen → lightbox (ignora clics en botones del overlay).
+    // Clic en la celda → lightbox (los botones del overlay hacen stopPropagation).
     grid.querySelectorAll('.alo-gal-item').forEach((it) => {
-      it.querySelector('img').addEventListener('click', () => abrirLightboxVenta(Number(it.dataset.idx)));
+      it.addEventListener('click', () => abrirLightboxVenta(Number(it.dataset.idx)));
       conectarDragItemVenta(it);
     });
     grid.querySelectorAll('[data-borrar-foto-venta]').forEach((b) =>
