@@ -151,7 +151,7 @@ const Ventas = (() => {
         else if (d !== Number(fDorm)) return false;
       }
       if (q) {
-        const txt = `${p.referencia || ''} ${p.calle || ''} ${p.zona || ''} ${p.localidad || ''}`.toLowerCase();
+        const txt = `${p.referencia || ''} ${p.apartamento_nombre || ''} ${p.calle || ''} ${p.zona || ''} ${p.localidad || ''}`.toLowerCase();
         if (!txt.includes(q)) return false;
       }
       return true;
