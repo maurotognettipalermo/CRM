@@ -1205,8 +1205,10 @@ const Personal = (() => {
       if (h.pagada) totPagado += Number(h.importe) || 0;
       let acc = '';
       if (admin) {
-        if (!h.pagada) acc += `<button class="btn-icono" data-pago="${h.id}" title="Registrar pago">💰</button>`;
-        else acc += `<button class="btn-icono" data-desmarcar="${h.id}" title="Desmarcar pago">↩️</button>`;
+        if (!h.pagada) {
+          acc += `<button class="btn-icono" data-edit="${h.id}" title="Editar">✏️</button>`;
+          acc += `<button class="btn-icono" data-pago="${h.id}" title="Registrar pago">💰</button>`;
+        } else acc += `<button class="btn-icono" data-desmarcar="${h.id}" title="Desmarcar pago">↩️</button>`;
         acc += `<button class="btn-icono" data-borrar="${h.id}" title="Eliminar">🗑</button>`;
       } else if (!h.pagada) {
         acc += `<button class="btn-icono" data-edit="${h.id}" title="Editar">✏️</button>`;
@@ -1216,9 +1218,7 @@ const Personal = (() => {
       // "Otro concepto" (horas=0): sin horas, el importe se muestra directamente.
       const esOtro = Number(h.horas) === 0;
       const horasCel = esOtro ? '—' : `${h.horas} h`;
-      const importeCel = esOtro
-        ? euro(h.importe)
-        : (h.pagada ? euro(h.importe) : '—');
+      const importeCel = (h.importe != null) ? euro(h.importe) : '—';
       return `
         <tr>
           <td data-lbl="Fecha">${fechaES(h.fecha)}</td>
