@@ -353,13 +353,13 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   border-bottom: 2px solid #9ca3af;
 }
 
-/* Columna izquierda: 160px, sticky */
+/* Columna izquierda: 230px, sticky */
 .celda-apto {
   position: sticky;
   left: 0;
   z-index: 4;
-  width: 160px;
-  min-width: 160px;
+  width: 230px;
+  min-width: 230px;
   background: #ffffff;
   border-right: 2px solid #d1d5db;
   padding: 6px 12px;

@@ -5,7 +5,7 @@ const Planning = (() => {
   // Vista continua de días (estilo Avantio). El nº de días visibles se calcula
   // según el ancho disponible; las columnas no se atan a un mes fijo.
   const ANCHO_DIA = 28;   // px por columna de día (debe coincidir con .dia width en el CSS)
-  const CELDA_APTO = 160; // px de la columna izquierda fija (debe coincidir con .celda-apto width)
+  const CELDA_APTO = 230; // px de la columna izquierda fija (debe coincidir con .celda-apto width)
   const MIN_DIAS = 7;     // nunca mostramos menos de una semana
 
   let fechaInicio = hoy(); // primer día visible (Date a medianoche local)
@@ -27,6 +27,7 @@ const Planning = (() => {
   ];
   let tiposSel = new Set(TIPOS_CLAS.map((t) => t.key)); // por defecto, todos marcados
   let portalSel = null;        // id del portal seleccionado (null = todos)
+  let busquedaApto = '';       // texto del buscador de apartamento (filtro cliente, sin re-fetch)
   let portalesFiltroListos = false; // el select de portal ya se pobló
   let apartamentosCache = [];  // apartamentos cargados (para filtrar sin re-fetch)
   let reservasCache = [];
@@ -158,11 +159,12 @@ const Planning = (() => {
     renderSinAsignar(sinAsignar);
   }
 
-  // Filtra por tipo de clasificación y por portal seleccionado (los sin clasificar -> '__sin__').
+  // Filtra por tipo de clasificación, portal seleccionado y texto de búsqueda (los sin clasificar -> '__sin__').
   function filtrarApartamentos(lista) {
     return lista.filter((a) =>
       tiposSel.has(a.tipo_clasificacion || '__sin__')
-      && (portalSel === null || a.portal_id === portalSel));
+      && (portalSel === null || a.portal_id === portalSel)
+      && (!busquedaApto || a.nombre.toLowerCase().includes(busquedaApto.toLowerCase())));
   }
 
   // Re-renderiza el grid con el filtro actual, sin volver a pedir datos al backend.
@@ -572,6 +574,23 @@ const Planning = (() => {
     });
   }
 
+  // ---- Buscador de apartamento (input libre, sobre los apartamentos ya cargados) ----
+  function construirBuscadorApto() {
+    const filtros = document.querySelector('#vista-planning .filtros');
+    if (!filtros || document.getElementById('buscador-apto')) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'buscador-apto';
+    input.className = 'select-filtro';
+    input.placeholder = 'Buscar apartamento...';
+    const importar = document.getElementById('btn-importar');
+    if (importar) filtros.insertBefore(input, importar); else filtros.appendChild(input);
+    input.addEventListener('input', () => {
+      busquedaApto = input.value.trim();
+      reaplicarFiltro();
+    });
+  }
+
   // Rellena las opciones del select con los portales activos (una sola vez).
   function poblarFiltroPortal(portales) {
     const sel = document.getElementById('filtro-portal');
@@ -838,6 +857,7 @@ const Planning = (() => {
 
     construirFiltroClasificacion();
     construirFiltroPortal();
+    construirBuscadorApto();
 
     // Color del estado "Bloqueado" para las barras de bloqueo (no bloquea el render).
     API.get('/api/ajustes/estados-reserva').then((ests) => {
