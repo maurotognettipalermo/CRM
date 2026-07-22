@@ -139,16 +139,23 @@
         <div class="nav-mes">
           <button id="nav-anterior" class="btn-icono" title="Retroceder una semana">◀</button>
           <button id="nav-siguiente" class="btn-icono" title="Avanzar una semana">▶</button>
-          <label class="nav-fecha" for="fecha-inicio">Fecha inicio</label>
-          <input type="date" id="fecha-inicio" class="input-fecha" />
-          <label class="nav-fecha" for="fecha-fin">Fecha fin</label>
-          <input type="date" id="fecha-fin" class="input-fecha" />
-          <button id="fecha-fin-limpiar" class="btn-icono oculto" title="Quitar rango personalizado">✕</button>
+          <div class="cls-filtro fechas-filtro" id="fechas-filtro">
+            <button type="button" class="btn-sec cls-filtro-btn fechas-filtro-btn" id="fechas-filtro-btn" aria-haspopup="true" aria-expanded="false">
+              <span id="fechas-filtro-label">📅 Fechas</span><span class="cls-flecha">▾</span>
+            </button>
+            <div class="cls-dropdown fechas-dropdown oculto" id="fechas-dropdown">
+              <label class="nav-fecha" for="fecha-inicio">Fecha inicio</label>
+              <input type="date" id="fecha-inicio" class="input-fecha" />
+              <label class="nav-fecha" for="fecha-fin">Fecha fin</label>
+              <input type="date" id="fecha-fin" class="input-fecha" />
+              <button id="fecha-fin-limpiar" class="btn-icono oculto" title="Quitar rango personalizado">✕</button>
+            </div>
+          </div>
           <button id="nav-hoy" class="btn-sec">Hoy</button>
         </div>
         <div class="filtros">
           <div id="filtro-tih" class="filtro-tih-btns" role="group" aria-label="Filtro por tipo de clasificación"></div>
-          <button id="btn-importar" class="btn-pri">Importar reservas</button>
+          <button id="btn-importar" class="btn-mini" title="Importar reservas">⬇️ Importar</button>
           <input type="file" id="input-archivo" accept=".xlsx,.xls,.csv" hidden />
         </div>
       </div>

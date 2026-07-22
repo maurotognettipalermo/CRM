@@ -803,6 +803,36 @@ const Planning = (() => {
     if (inputFin) inputFin.value = fechaFin ? iso(fechaFin) : '';
     const btnLimpiar = document.getElementById('fecha-fin-limpiar');
     if (btnLimpiar) btnLimpiar.classList.toggle('oculto', !fechaFin);
+    actualizarLabelFechas();
+  }
+
+  // Resumen corto del rango actual para el botón "📅 Fechas" ("22 jul - 9 ago" o "desde 22 jul").
+  function fechaCorta(d) {
+    return `${d.getDate()} ${MESES_ABREV[d.getMonth()].toLowerCase()}`;
+  }
+  function actualizarLabelFechas() {
+    const label = document.getElementById('fechas-filtro-label');
+    if (!label) return;
+    label.textContent = fechaFin
+      ? `📅 ${fechaCorta(fechaInicio)} - ${fechaCorta(fechaFin)}`
+      : `📅 desde ${fechaCorta(fechaInicio)}`;
+  }
+
+  // ---- Dropdown de fechas (mismo mecanismo abrir/cerrar que el filtro de clasificación) ----
+  function construirDropdownFechas() {
+    const cont = document.getElementById('fechas-filtro');
+    const btn = document.getElementById('fechas-filtro-btn');
+    const dd = document.getElementById('fechas-dropdown');
+    if (!cont || !btn || !dd) return;
+    const abrir = (v) => {
+      dd.classList.toggle('oculto', !v);
+      cont.classList.toggle('abierto', v);
+      btn.setAttribute('aria-expanded', v ? 'true' : 'false');
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); abrir(dd.classList.contains('oculto')); });
+    dd.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => abrir(false));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') abrir(false); });
   }
 
   function init() {
@@ -855,6 +885,7 @@ const Planning = (() => {
       cargar();
     });
 
+    construirDropdownFechas();
     construirFiltroClasificacion();
     construirFiltroPortal();
     construirBuscadorApto();
