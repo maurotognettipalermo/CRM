@@ -174,6 +174,15 @@ const Planning = (() => {
 
   function render(apartamentos, reservas, desdeISO) {
     const cont = document.getElementById('planning');
+
+    // El buscador vive en la cabecera fija, que se recrea de cero en cada render (incluso
+    // por cada tecla, vía reaplicarFiltro). Si el usuario está escribiendo, guarda la
+    // posición del cursor para restaurar el foco tras reconstruir el grid.
+    const buscadorActivo = document.getElementById('buscador-apto');
+    const focoBuscador = (buscadorActivo && document.activeElement === buscadorActivo)
+      ? { inicio: buscadorActivo.selectionStart, fin: buscadorActivo.selectionEnd }
+      : null;
+
     cont.innerHTML = '';
 
     actualizarBannerRestricciones(desdeISO, iso(addDias(fechaInicio, nDias - 1)));
@@ -181,10 +190,12 @@ const Planning = (() => {
     const hoyISO = iso(hoy());
     const { cols, xDia, anchoTotal } = construirColumnas();
 
-    // Cabecera: nº de día + letra del día de la semana + label de mes sobre el día 1.
+    // Cabecera: buscador de apartamento + nº de día/letra del día de la semana + label de mes sobre el día 1.
     const cab = document.createElement('div');
     cab.className = 'fila-planning fila-cabecera';
-    let cabHTML = '<div class="celda-apto">Apartamento</div>' +
+    let cabHTML = '<div class="celda-apto celda-apto-buscador">' +
+      `<input type="text" id="buscador-apto" class="input-buscar" placeholder="Buscar apartamento..." value="${esc(busquedaApto)}" />` +
+      '</div>' +
       `<div class="dias" style="width:${anchoTotal}px">`;
     for (const col of cols) {
       const clases = ['dia'];
@@ -198,6 +209,16 @@ const Planning = (() => {
     cabHTML += '</div>';
     cab.innerHTML = cabHTML;
     cont.appendChild(cab);
+
+    const inputBuscador = cab.querySelector('#buscador-apto');
+    inputBuscador.addEventListener('input', () => {
+      busquedaApto = inputBuscador.value.trim();
+      reaplicarFiltro();
+    });
+    if (focoBuscador) {
+      inputBuscador.focus();
+      inputBuscador.setSelectionRange(focoBuscador.inicio, focoBuscador.fin);
+    }
 
     if (apartamentos.length === 0) {
       const aviso = document.createElement('div');
@@ -574,23 +595,6 @@ const Planning = (() => {
     });
   }
 
-  // ---- Buscador de apartamento (input libre, sobre los apartamentos ya cargados) ----
-  function construirBuscadorApto() {
-    const filtros = document.querySelector('#vista-planning .filtros');
-    if (!filtros || document.getElementById('buscador-apto')) return;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = 'buscador-apto';
-    input.className = 'select-filtro';
-    input.placeholder = 'Buscar apartamento...';
-    const importar = document.getElementById('btn-importar');
-    if (importar) filtros.insertBefore(input, importar); else filtros.appendChild(input);
-    input.addEventListener('input', () => {
-      busquedaApto = input.value.trim();
-      reaplicarFiltro();
-    });
-  }
-
   // Rellena las opciones del select con los portales activos (una sola vez).
   function poblarFiltroPortal(portales) {
     const sel = document.getElementById('filtro-portal');
@@ -888,7 +892,6 @@ const Planning = (() => {
     construirDropdownFechas();
     construirFiltroClasificacion();
     construirFiltroPortal();
-    construirBuscadorApto();
 
     // Color del estado "Bloqueado" para las barras de bloqueo (no bloquea el render).
     API.get('/api/ajustes/estados-reserva').then((ests) => {

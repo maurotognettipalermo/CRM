@@ -377,6 +377,18 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+.celda-apto-buscador {
+  padding: 4px 8px;
+}
+.celda-apto-buscador .input-buscar {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
 
 /* Columna izquierda siempre en blanco sólido (no sigue el tinte alterno de la fila). */
 .fila-aptos:nth-child(odd)  .celda-apto { background: #ffffff; }
