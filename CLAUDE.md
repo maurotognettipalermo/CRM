@@ -29,6 +29,7 @@ npm start   # node server.js — puerto 3000, escucha 0.0.0.0
 | `nodemailer ^8` | Email SMTP |
 | `flatpickr ^4` | Date picker — **copiado a `public/lib/`** (sin CDN, LAN sin internet) |
 | `jimp ^1` | Recorte de imágenes (auto-crop del margen en blanco/transparente de firma_url al subirla) — pura JS, sin binarios nativos |
+| `dotenv ^17` | Carga `.env` (fuera del repo, gitignored) — hoy solo `WP_URL`/`WP_USER`/`WP_APP_PASSWORD` para publicar propiedades en WordPress. `require('dotenv').config()` es la primera línea de `server.js` |
 
 ## Arquitectura
 
@@ -80,7 +81,7 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `limpieza.js` | `Limpieza` | Tareas del día (cards, mobile-first) + sub-pestaña Reportes |
 | `propietarios.js` | `Propietarios` | Lista + ficha en panel lateral con edición inline + modal alta/edición por pestañas + importación Excel |
 | `tarifas.js` | `Tarifas` | Sub-pestañas: temporadas (calendario anual), modificadores por `tipo_clasificacion`, descuentos, propietario (tabla de referencia informativa), comparar (`GET /api/tarifas/comparar`, solo lectura) |
-| `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime |
+| `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime. Botón "🌐 Publicar en la web" en el listado de Propiedades (junto a "Importar Idealista") → `sincronizarWeb()`, confirma, llama `POST /sincronizar-web` y muestra el resumen en un modal (`mostrarResumenSincronizacion`) |
 | `personal.js` | `Personal` | `init/cargar`; sub-pestañas inyectadas en runtime |
 | `leads.js` | `Leads` | `init/cargar/abrirFicha` |
 | `clientes-alquiler.js` | `ClientesAlquiler` | `init/cargar/abrirFicha` (IIFE distinto de clientes de Ventas) |
@@ -116,7 +117,7 @@ Variables: `--nav:#1a1a2e` · `--green:#10b981` · `--blue:#3b82f6` · `--red:#e
 - **pagos_propietario**: CRUD en `routes/apartamentos.js`. El endpoint `generar-factura` llama `crearAutofacturaPago` exportado por `routes/facturas.js` (dependencia cruzada entre routers).
 - **contrato_fechas_propietario**: `generarBloqueosContrato()` en `routes/contratos.js` — idempotente, regenera en el planning reservas "Bloqueado"/"De propietario" al POST/PUT contrato o POST/DELETE fechas-propietario.
 - **visitas_venta**: campo `propiedad_id` directo es legado (compat = 1ª propiedad). Propiedades reales en N:M `visitas_propiedades`.
-- **propiedades_venta**: `numero_puerta` (TEXT) independiente de `numero` (nº de calle) — usar `numero_puerta` para autorrellenar "puerta" en Arras/Autorización, `numero` sigue siendo el de la calle. `fecha_escritura`: editable/borrable (PUT con `null`) solo admin desde la ficha de Vendidos.
+- **propiedades_venta**: `numero_puerta` (TEXT) independiente de `numero` (nº de calle) — usar `numero_puerta` para autorrellenar "puerta" en Arras/Autorización, `numero` sigue siendo el de la calle. `fecha_escritura`: editable/borrable (PUT con `null`) solo admin desde la ficha de Vendidos. `wp_post_id` (INTEGER): ID del post ya publicado en WordPress (hectorinmobiliaria.com) — se rellena/limpia solo desde `POST /api/ventas/propiedades/sincronizar-web` (`routes/ventas.js`, funciones `publicarPropiedadEnWeb`/`despublicarPropiedadEnWeb`), nunca a mano. `WP_URL`/`WP_USER`/`WP_APP_PASSWORD` viven en un `.env` fuera del repo (gitignored, cargado por `dotenv` como primera línea de `server.js`); sin esas variables el endpoint responde 500.
 - **usuarios**: password_hash = sha256 (sin bcrypt). Roles: administrador/usuario/limpieza/mantenimiento. Admin por defecto: `admin` / `admin1234`.
 - **fichajes**: estado del día derivado de la secuencia de eventos (sin tabla de estado separada).
 - **extras_items**: `stock_total NULL = ilimitado`. `disponible` = stock − Σpréstamos + Σdevoluciones, calculado en API.
@@ -231,6 +232,8 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | GET/POST/PUT/DELETE | /api/ventas/propiedades/:id/fotos[/:foto_id] | Galería (tabla `propiedad_fotos`, calcada de fotos de Alojamientos). POST multipart campo `fotos` |
 | POST | /api/ventas/propiedades/:id/fotos/reordenar | `{orden:[id1,id2,...]}` |
 | POST | /api/ventas/propiedades/:id/vender | `{fecha_venta, fecha_escritura, precio_venta_final, comprador_*}`. estado='Vendida' |
+| POST | /api/ventas/propiedades/:id/publicar-web | Publica/actualiza UNA propiedad en WordPress (hectorinmobiliaria.com). Mantenido para uso puntual; el flujo principal es `/sincronizar-web` |
+| POST | /api/ventas/propiedades/sincronizar-web | Sincroniza TODAS de golpe (botón único en el listado, ya no hay botón por ficha): publica/actualiza las `estado='Disponible'`, retira (borrador en WP, sin borrar) las que tengan `wp_post_id` y ya no estén Disponibles. Uno a uno, no en paralelo. `{ publicadas, actualizadas, retiradas, errores:[{referencia,mensaje}] }` |
 | GET/POST/PUT/DELETE | /api/ventas/clientes[/:id] | Clientes compradores. DELETE→409 si tiene visitas |
 | GET | /api/ventas/visitas | `?fecha=&estado=&cliente_id=&propiedad_id=`. Cada visita lleva `propiedades[]` |
 | GET | /api/ventas/visitas/hoy | Programadas hoy, con `propiedades[]`. **Antes de /:id** |

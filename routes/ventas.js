@@ -972,17 +972,16 @@ router.post('/propiedades/:id/vender', (req, res) => {
 // ============================================================
 // Publicar propiedad en la web (WordPress, hectorinmobiliaria.com)
 // ============================================================
-// POST /api/ventas/propiedades/:id/publicar-web — publica o actualiza la propiedad en
-// WordPress (endpoint POST /wp-json/hector/v1/publicar-propiedad, auth por contraseña de
-// aplicación). Si la propiedad ya tiene wp_post_id guardado, se envía para que WordPress
-// actualice esa misma entrada en vez de crear una nueva.
-router.post('/propiedades/:id/publicar-web', async (req, res) => {
-  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
-  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
 
+// Construye el payload y llama a WordPress para crear/actualizar la propiedad (endpoint
+// POST /wp-json/hector/v1/publicar-propiedad, auth por contraseña de aplicación). Si `prop`
+// ya tiene wp_post_id guardado, se envía para que WordPress actualice esa misma entrada en
+// vez de crear una nueva. Actualiza wp_post_id en BD si sale bien. Compartida por el
+// endpoint individual y por la sincronización masiva.
+async function publicarPropiedadEnWeb(prop) {
   const { WP_URL, WP_USER, WP_APP_PASSWORD } = process.env;
   if (!WP_URL || !WP_USER || !WP_APP_PASSWORD) {
-    return res.status(500).json({ error: 'Faltan las variables WP_URL/WP_USER/WP_APP_PASSWORD en el servidor (.env)' });
+    return { ok: false, status: 500, error: 'Faltan las variables WP_URL/WP_USER/WP_APP_PASSWORD en el servidor (.env)' };
   }
 
   const fotos = db.prepare('SELECT * FROM propiedad_fotos WHERE propiedad_id = ? ORDER BY orden, id').all(prop.id);
@@ -1021,19 +1020,94 @@ router.post('/propiedades/:id/publicar-web', async (req, res) => {
     });
     wpBody = await wpRes.json().catch(() => null);
   } catch (e) {
-    return res.status(502).json({ error: 'No se pudo conectar con WordPress: ' + e.message });
+    return { ok: false, error: 'No se pudo conectar con WordPress: ' + e.message };
   }
 
   if (!wpRes.ok || !wpBody || !wpBody.ok) {
     const msg = (wpBody && (wpBody.message || wpBody.error)) || `WordPress respondió con el estado ${wpRes.status}`;
-    return res.status(502).json({ error: msg });
+    return { ok: false, error: msg };
   }
 
   db.prepare("UPDATE propiedades_venta SET wp_post_id = ?, updated_at = datetime('now') WHERE id = ?")
     .run(wpBody.wp_post_id, prop.id);
+  return { ok: true, url: wpBody.url };
+}
+
+// Pone la entrada de WordPress ya publicada en borrador (no la borra) y libera el
+// wp_post_id local — si la propiedad vuelve a estar Disponible más adelante, se publicará
+// como una entrada nueva en vez de reutilizar la antigua.
+async function despublicarPropiedadEnWeb(prop) {
+  const { WP_URL, WP_USER, WP_APP_PASSWORD } = process.env;
+  if (!WP_URL || !WP_USER || !WP_APP_PASSWORD) {
+    return { ok: false, status: 500, error: 'Faltan las variables WP_URL/WP_USER/WP_APP_PASSWORD en el servidor (.env)' };
+  }
+
+  const auth = 'Basic ' + Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
+  let wpRes, wpBody;
+  try {
+    wpRes = await fetch(`${WP_URL}/wp-json/hector/v1/despublicar-propiedad/${prop.wp_post_id}`, {
+      method: 'POST',
+      headers: { Authorization: auth },
+    });
+    wpBody = await wpRes.json().catch(() => null);
+  } catch (e) {
+    return { ok: false, error: 'No se pudo conectar con WordPress: ' + e.message };
+  }
+
+  if (!wpRes.ok || !wpBody || !wpBody.ok) {
+    const msg = (wpBody && (wpBody.message || wpBody.error)) || `WordPress respondió con el estado ${wpRes.status}`;
+    return { ok: false, error: msg };
+  }
+
+  db.prepare("UPDATE propiedades_venta SET wp_post_id = NULL, updated_at = datetime('now') WHERE id = ?").run(prop.id);
+  return { ok: true };
+}
+
+// POST /api/ventas/propiedades/sincronizar-web — sincroniza TODAS las propiedades de golpe:
+// publica/actualiza las Disponibles y retira (borrador en WordPress) las que ya se hubieran
+// publicado antes pero ahora tengan otro estado. Uno por uno, no en paralelo (muchas fotos
+// en base64 a la vez saturarían WordPress y la memoria del servidor).
+router.post('/propiedades/sincronizar-web', async (req, res) => {
+  const disponibles = db.prepare("SELECT * FROM propiedades_venta WHERE estado = 'Disponible'").all();
+  const aRetirar = db.prepare("SELECT * FROM propiedades_venta WHERE estado <> 'Disponible' AND wp_post_id IS NOT NULL").all();
+
+  let publicadas = 0;
+  let actualizadas = 0;
+  let retiradas = 0;
+  const errores = [];
+
+  for (const prop of disponibles) {
+    const eraNueva = !prop.wp_post_id;
+    const r = await publicarPropiedadEnWeb(prop);
+    if (r.ok) { if (eraNueva) publicadas++; else actualizadas++; }
+    else errores.push({ referencia: prop.referencia, mensaje: r.error });
+  }
+
+  for (const prop of aRetirar) {
+    const r = await despublicarPropiedadEnWeb(prop);
+    if (r.ok) retiradas++;
+    else errores.push({ referencia: prop.referencia, mensaje: r.error });
+  }
+
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', null,
+    `Sincronización web: ${publicadas} publicadas, ${actualizadas} actualizadas, ${retiradas} retiradas` +
+    (errores.length ? `, ${errores.length} error(es)` : ''));
+  res.json({ ok: true, publicadas, actualizadas, retiradas, errores });
+});
+
+// POST /api/ventas/propiedades/:id/publicar-web — publica o actualiza UNA propiedad
+// (mantenido por si se necesita disparar una sola, aunque el flujo principal ahora es
+// /propiedades/sincronizar-web desde el listado).
+router.post('/propiedades/:id/publicar-web', async (req, res) => {
+  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+
+  const resultado = await publicarPropiedadEnWeb(prop);
+  if (!resultado.ok) return res.status(resultado.status || 502).json({ error: resultado.error });
+
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
     `Publicada en la web (${prop.referencia})`);
-  res.json({ ok: true, url: wpBody.url });
+  res.json({ ok: true, url: resultado.url });
 });
 
 // ============================================================

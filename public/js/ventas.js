@@ -316,8 +316,6 @@ const Ventas = (() => {
           <span id="vta-d-badges"></span>
         </div>
         <div class="panel-cabecera-acciones">
-          <a id="vta-d-ver-web" class="btn-sec" style="display:none;text-decoration:none" target="_blank" rel="noopener">🔗 Ver en la web</a>
-          <button id="vta-d-publicar-web" class="btn-sec">📤 Publicar en la web</button>
           <button id="vta-d-editar" class="btn-sec">✏️ Editar</button>
           <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -332,7 +330,6 @@ const Ventas = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
-    panel.querySelector('#vta-d-publicar-web').addEventListener('click', publicarEnWeb);
     panel.querySelectorAll('.rsv-subtab').forEach((b) =>
       b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
@@ -369,7 +366,6 @@ const Ventas = (() => {
     document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
     document.getElementById('vta-d-badges').innerHTML =
       `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
-    actualizarBotonPublicarWeb(d);
     renderCuerpo(d);
     activarSubVenta('datos');
     abrirPanel();
@@ -378,36 +374,6 @@ const Ventas = (() => {
   async function recargarFicha() {
     if (!fichaActual) return;
     await abrirFicha(fichaActual.id);
-  }
-
-  // Texto del botón y enlace "Ver en la web" según si la propiedad ya tiene wp_post_id.
-  function actualizarBotonPublicarWeb(d) {
-    const btn = document.getElementById('vta-d-publicar-web');
-    if (btn) btn.textContent = d.wp_post_id ? '🔄 Actualizar en la web' : '📤 Publicar en la web';
-    const link = document.getElementById('vta-d-ver-web');
-    if (link) link.style.display = 'none';
-  }
-
-  // Publica (o actualiza) la ficha actual en WordPress vía POST /publicar-web.
-  async function publicarEnWeb() {
-    if (!fichaActual) return;
-    const btn = document.getElementById('vta-d-publicar-web');
-    const textoOriginal = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Publicando…';
-    try {
-      const r = await API.post(`/api/ventas/propiedades/${fichaActual.id}/publicar-web`, {});
-      fichaActual.wp_post_id = true; // el servidor ya lo guardó; el valor real se recupera al reabrir la ficha
-      toast('Publicado en la web correctamente', 'ok');
-      const link = document.getElementById('vta-d-ver-web');
-      if (link && r.url) { link.href = r.url; link.style.display = ''; }
-      btn.disabled = false;
-      btn.textContent = '🔄 Actualizar en la web';
-    } catch (e) {
-      toast(e.message, 'error');
-      btn.disabled = false;
-      btn.textContent = textoOriginal;
-    }
   }
 
   function dato(etq, valor) {
@@ -1066,6 +1032,47 @@ const Ventas = (() => {
     } catch (e) {
       toast(e.message, 'error'); // 409 → "tiene visitas registradas"
     }
+  }
+
+  // ==================== Publicar en la web (sincronización masiva) ====================
+  // Publica/actualiza en WordPress todas las propiedades Disponibles y retira (borrador,
+  // sin borrar) las que ya se hubieran publicado antes pero ahora tengan otro estado.
+  async function sincronizarWeb() {
+    const btn = document.getElementById('vta-sincronizar-web');
+    if (!confirm('Se van a publicar/actualizar en la web todas las propiedades Disponibles, y se retirarán (quedan en borrador en WordPress, sin borrarse) las que hayan dejado de estarlo.\n\nSi hay muchas propiedades con fotos puede tardar varios minutos. ¿Continuar?')) return;
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Sincronizando…';
+    try {
+      const r = await API.post('/api/ventas/propiedades/sincronizar-web', {});
+      mostrarResumenSincronizacion(r);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  }
+
+  function mostrarResumenSincronizacion(r) {
+    const errores = r.errores || [];
+    const erroresHTML = errores.length ? `
+      <div class="vta-d-titulo-sec" style="color:#b91c1c">⚠️ Errores (${errores.length})</div>
+      <div style="max-height:220px;overflow-y:auto">
+        ${errores.map((e) => `<div class="vta-d-linea"><b>${esc(e.referencia)}</b>: ${esc(e.mensaje)}</div>`).join('')}
+      </div>` : '';
+    abrirModal(`
+      <h3>🌐 Sincronización con la web</h3>
+      <div class="vta-d-grid" style="margin-top:10px">
+        ${dato('Publicadas', r.publicadas)}
+        ${dato('Actualizadas', r.actualizadas)}
+        ${dato('Retiradas', r.retiradas)}
+      </div>
+      ${erroresHTML}
+      <div class="vta-d-guardar-wrap"><button class="btn-pri" id="sw-cerrar">Cerrar</button></div>
+    `);
+    document.getElementById('sw-cerrar').addEventListener('click', cerrarModal);
+    toast(errores.length ? `Sincronizado con ${errores.length} error(es)` : 'Sincronizado con la web correctamente', errores.length ? 'error' : 'ok');
   }
 
   // ==================== Modal importar Idealista ====================
@@ -3997,6 +4004,7 @@ const Ventas = (() => {
     document.getElementById('vta-buscar')?.addEventListener('input', (e) => { busqueda = e.target.value; renderTabla(); });
     document.getElementById('vta-nueva')?.addEventListener('click', () => modalFormulario(null));
     document.getElementById('vta-importar')?.addEventListener('click', modalImportar);
+    document.getElementById('vta-sincronizar-web')?.addEventListener('click', sincronizarWeb);
 
     // Toggle del panel de filtros.
     const fbtn = document.getElementById('vta-filtros-btn');
