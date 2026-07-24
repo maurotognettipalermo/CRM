@@ -970,6 +970,73 @@ router.post('/propiedades/:id/vender', (req, res) => {
 });
 
 // ============================================================
+// Publicar propiedad en la web (WordPress, hectorinmobiliaria.com)
+// ============================================================
+// POST /api/ventas/propiedades/:id/publicar-web — publica o actualiza la propiedad en
+// WordPress (endpoint POST /wp-json/hector/v1/publicar-propiedad, auth por contraseña de
+// aplicación). Si la propiedad ya tiene wp_post_id guardado, se envía para que WordPress
+// actualice esa misma entrada en vez de crear una nueva.
+router.post('/propiedades/:id/publicar-web', async (req, res) => {
+  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+
+  const { WP_URL, WP_USER, WP_APP_PASSWORD } = process.env;
+  if (!WP_URL || !WP_USER || !WP_APP_PASSWORD) {
+    return res.status(500).json({ error: 'Faltan las variables WP_URL/WP_USER/WP_APP_PASSWORD en el servidor (.env)' });
+  }
+
+  const fotos = db.prepare('SELECT * FROM propiedad_fotos WHERE propiedad_id = ? ORDER BY orden, id').all(prop.id);
+  const fotosPayload = [];
+  for (const f of fotos) {
+    try {
+      const buf = fs.readFileSync(path.join(PUBLIC_DIR, f.url));
+      fotosPayload.push({ nombre_archivo: f.nombre_archivo, contenido_base64: buf.toString('base64') });
+    } catch (e) { /* archivo no encontrado en disco: se omite esa foto */ }
+  }
+
+  const payload = { fotos: fotosPayload };
+  const set = (clave, valor) => { if (valor !== null && valor !== undefined && valor !== '') payload[clave] = valor; };
+  set('titulo', prop.apartamento_nombre || prop.referencia);
+  set('descripcion', prop.descripcion);
+  set('precio', prop.precio);
+  set('dormitorios', prop.dormitorios);
+  set('banos', prop.banos);
+  set('area', prop.metros_cuadrados);
+  set('anio_construccion', prop.anio_construccion); // columna no existe hoy en propiedades_venta: queda omitido
+  set('direccion', [prop.calle, prop.numero].filter(Boolean).join(' '));
+  set('referencia', prop.referencia);
+  if (prop.aire_acondicionado) set('aire_acondicionado', 'Sí'); // columna no existe hoy: nunca se envía
+  if (prop.piscina_privada) set('piscina', 'Sí'); // columna no existe hoy: nunca se envía
+  set('tipo', prop.tipo);
+  set('zona', prop.zona);
+  if (prop.wp_post_id) payload.wp_post_id = prop.wp_post_id;
+
+  const auth = 'Basic ' + Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
+  let wpRes, wpBody;
+  try {
+    wpRes = await fetch(`${WP_URL}/wp-json/hector/v1/publicar-propiedad`, {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    wpBody = await wpRes.json().catch(() => null);
+  } catch (e) {
+    return res.status(502).json({ error: 'No se pudo conectar con WordPress: ' + e.message });
+  }
+
+  if (!wpRes.ok || !wpBody || !wpBody.ok) {
+    const msg = (wpBody && (wpBody.message || wpBody.error)) || `WordPress respondió con el estado ${wpRes.status}`;
+    return res.status(502).json({ error: msg });
+  }
+
+  db.prepare("UPDATE propiedades_venta SET wp_post_id = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(wpBody.wp_post_id, prop.id);
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
+    `Publicada en la web (${prop.referencia})`);
+  res.json({ ok: true, url: wpBody.url });
+});
+
+// ============================================================
 // Propietarios de venta (cartera de ventas / inmobiliaria)
 // ============================================================
 const PRV_CAMPOS = [

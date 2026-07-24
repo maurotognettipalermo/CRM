@@ -230,6 +230,8 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   // Nº de puerta, independiente de calle/numero/planta (p. ej. "3A", "Bajo B") — para
   // documentos de Arras/Autorización que necesitan el nº de puerta real, no el de la calle.
   numero_puerta: 'TEXT',
+  // ID del post ya publicado en WordPress (para actualizar en vez de duplicar al republicar).
+  wp_post_id: 'INTEGER',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

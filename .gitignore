@@ -25,3 +25,4 @@ public/uploads/limpieza/*
 public/uploads/mantenimiento/*
 !public/uploads/mantenimiento/.gitkeep
 Logo/
+.env

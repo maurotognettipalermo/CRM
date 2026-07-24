@@ -316,6 +316,8 @@ const Ventas = (() => {
           <span id="vta-d-badges"></span>
         </div>
         <div class="panel-cabecera-acciones">
+          <a id="vta-d-ver-web" class="btn-sec" style="display:none;text-decoration:none" target="_blank" rel="noopener">🔗 Ver en la web</a>
+          <button id="vta-d-publicar-web" class="btn-sec">📤 Publicar en la web</button>
           <button id="vta-d-editar" class="btn-sec">✏️ Editar</button>
           <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -330,6 +332,7 @@ const Ventas = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
+    panel.querySelector('#vta-d-publicar-web').addEventListener('click', publicarEnWeb);
     panel.querySelectorAll('.rsv-subtab').forEach((b) =>
       b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
@@ -366,6 +369,7 @@ const Ventas = (() => {
     document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
     document.getElementById('vta-d-badges').innerHTML =
       `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
+    actualizarBotonPublicarWeb(d);
     renderCuerpo(d);
     activarSubVenta('datos');
     abrirPanel();
@@ -374,6 +378,36 @@ const Ventas = (() => {
   async function recargarFicha() {
     if (!fichaActual) return;
     await abrirFicha(fichaActual.id);
+  }
+
+  // Texto del botón y enlace "Ver en la web" según si la propiedad ya tiene wp_post_id.
+  function actualizarBotonPublicarWeb(d) {
+    const btn = document.getElementById('vta-d-publicar-web');
+    if (btn) btn.textContent = d.wp_post_id ? '🔄 Actualizar en la web' : '📤 Publicar en la web';
+    const link = document.getElementById('vta-d-ver-web');
+    if (link) link.style.display = 'none';
+  }
+
+  // Publica (o actualiza) la ficha actual en WordPress vía POST /publicar-web.
+  async function publicarEnWeb() {
+    if (!fichaActual) return;
+    const btn = document.getElementById('vta-d-publicar-web');
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Publicando…';
+    try {
+      const r = await API.post(`/api/ventas/propiedades/${fichaActual.id}/publicar-web`, {});
+      fichaActual.wp_post_id = true; // el servidor ya lo guardó; el valor real se recupera al reabrir la ficha
+      toast('Publicado en la web correctamente', 'ok');
+      const link = document.getElementById('vta-d-ver-web');
+      if (link && r.url) { link.href = r.url; link.style.display = ''; }
+      btn.disabled = false;
+      btn.textContent = '🔄 Actualizar en la web';
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 
   function dato(etq, valor) {

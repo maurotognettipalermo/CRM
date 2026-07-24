@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // Servidor Express del CRM de alquiler vacacional.
 // Arranca con: node server.js  ->  accesible en http://<IP-del-servidor>:3000
 const express = require('express');
@@ -9,6 +11,10 @@ require('./db/database'); // inicializa la base de datos al arrancar
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Límite de tamaño de cuerpo más alto solo para publicar-web (fotos en base64); tiene que
+// registrarse ANTES del express.json() genérico para que sea éste el que procese el body
+// (body-parser no reprocesa un req.body ya parseado).
+app.use('/api/ventas/propiedades/:id/publicar-web', express.json({ limit: '50mb' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
