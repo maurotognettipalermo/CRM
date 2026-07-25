@@ -58,8 +58,8 @@ router.get('/', (req, res) => {
   res.json(fotos);
 });
 
-// POST /api/ventas/propiedades/:id/fotos — sube hasta 10 fotos (multipart, campo "fotos").
-router.post('/', upload.array('fotos', 10), async (req, res) => {
+// POST /api/ventas/propiedades/:id/fotos — sube hasta 20 fotos (multipart, campo "fotos").
+router.post('/', upload.array('fotos', 20), async (req, res) => {
   const propiedad = getPropiedad(req.params.id);
   if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
   if (!req.files || !req.files.length) {

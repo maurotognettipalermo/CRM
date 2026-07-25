@@ -813,7 +813,7 @@ const Ventas = (() => {
       <div class="alo-dropzone" id="vta-dropzone">
         <div class="alo-dropzone-icono">📷</div>
         <div>Arrastra fotos aquí o <strong>haz clic para seleccionar</strong></div>
-        <div class="alo-dropzone-sub">Hasta 10 a la vez · JPG, PNG, WEBP</div>
+        <div class="alo-dropzone-sub">Hasta 20 a la vez · JPG, PNG, WEBP</div>
         <input type="file" id="vta-file-input" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
       </div>
       <div id="vta-preview" class="alo-preview"></div>
@@ -840,7 +840,7 @@ const Ventas = (() => {
     const nuevos = Array.from(fileList).filter((f) => EXT_FOTO_VENTA.includes((f.name.split('.').pop() || '').toLowerCase()));
     if (Array.from(fileList).length && !nuevos.length) toast('Formato no admitido (solo JPG, PNG, WEBP)', 'error');
     for (const f of nuevos) {
-      if (subirSeleccionVenta.length >= 10) { toast('Máximo 10 fotos a la vez', 'aviso'); break; }
+      if (subirSeleccionVenta.length >= 20) { toast('Máximo 20 fotos a la vez', 'aviso'); break; }
       subirSeleccionVenta.push(f);
     }
     renderPreviewVenta();
