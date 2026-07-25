@@ -635,7 +635,7 @@ const Ventas = (() => {
     grid.innerHTML = '<div class="alo-gal-grid">' + galeriaFotosVenta.map((f, i) => `
       <div class="alo-gal-celda">
         <div class="alo-gal-item" draggable="true" data-foto="${f.id}" data-idx="${i}">
-          <img src="${esc(f.url)}" alt="${esc(f.descripcion || '')}" loading="lazy">
+          <img src="${esc(f.url_thumbnail || f.url)}" alt="${esc(f.descripcion || '')}" loading="lazy">
           <div class="alo-gal-overlay">
             <button class="alo-gal-ov-btn" data-borrar-foto-venta="${f.id}" title="Eliminar">🗑</button>
             <button class="alo-gal-ov-btn" data-editar-foto-venta="${f.id}" title="Editar descripción">✏️</button>
@@ -678,13 +678,34 @@ const Ventas = (() => {
     const [movida] = arr.splice(iO, 1);
     arr.splice(iD, 0, movida);
     galeriaFotosVenta = arr;
-    renderGaleriaVenta(); // feedback inmediato
+    reordenarDomGaleriaVenta(arr); // feedback inmediato: mueve los <img> ya existentes, no los recrea
     try {
       await API.post(`/api/ventas/propiedades/${fichaActual.id}/fotos/reordenar`, { orden: arr.map((f) => f.id) });
     } catch (e) {
       toast(e.message, 'error');
       cargarGaleriaVenta(); // revertir desde servidor
     }
+  }
+
+  // Reordena las celdas del grid según `arr` moviendo los nodos DOM ya existentes
+  // (appendChild reordena sin desmontar el nodo, así el navegador no re-decodifica las
+  // miniaturas ya cargadas). Actualiza data-idx para que el clic siga abriendo el lightbox
+  // en el índice correcto tras el reorden.
+  function reordenarDomGaleriaVenta(arr) {
+    const grid = document.querySelector('#vta-gal-grid .alo-gal-grid');
+    if (!grid) return renderGaleriaVenta();
+    const celdas = new Map();
+    grid.querySelectorAll('.alo-gal-celda').forEach((celda) => {
+      const item = celda.querySelector('.alo-gal-item');
+      if (item) celdas.set(Number(item.dataset.foto), celda);
+    });
+    arr.forEach((f, i) => {
+      const celda = celdas.get(f.id);
+      if (!celda) return;
+      grid.appendChild(celda);
+      const item = celda.querySelector('.alo-gal-item');
+      if (item) item.dataset.idx = i;
+    });
   }
 
   // ---- Lightbox ----

@@ -469,6 +469,7 @@ CREATE TABLE IF NOT EXISTS propiedad_fotos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   propiedad_id INTEGER NOT NULL REFERENCES propiedades_venta(id) ON DELETE CASCADE,
   url TEXT NOT NULL,
+  url_thumbnail TEXT,
   nombre_archivo TEXT NOT NULL,
   descripcion TEXT,
   orden INTEGER DEFAULT 0,

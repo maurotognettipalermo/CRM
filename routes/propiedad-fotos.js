@@ -5,6 +5,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { Jimp } = require('jimp');
 const db = require('../db/database');
 const { registrarActividad } = require('../services/actividadService');
 
@@ -13,6 +14,29 @@ const router = express.Router({ mergeParams: true });
 const UPLOAD_BASE = path.join(__dirname, '..', 'public', 'uploads', 'propiedades');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const EXT_PERMITIDAS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+// Ancho máximo de la miniatura del grid (mantiene proporción).
+const THUMB_ANCHO = 500;
+const THUMB_CALIDAD = 80;
+
+// Genera una miniatura JPEG a partir del buffer original y la escribe en disco junto a él
+// (mismo directorio, sufijo "-thumb.jpg"). Nunca lanza: si Jimp no puede decodificar el
+// formato (p. ej. webp, que esta versión no soporta) o el archivo está corrupto, devuelve
+// null y la subida del original sigue igualmente (el frontend cae de vuelta al original).
+async function generarMiniatura(buffer, destino, nombreBase) {
+  try {
+    const img = await Jimp.read(buffer);
+    if (img.width > THUMB_ANCHO) {
+      img.resize({ w: THUMB_ANCHO });
+    }
+    const bufferThumb = await img.getBuffer('image/jpeg', { quality: THUMB_CALIDAD });
+    const nombreThumb = `${nombreBase}-thumb.jpg`;
+    fs.writeFileSync(path.join(destino, nombreThumb), bufferThumb);
+    return nombreThumb;
+  } catch (e) {
+    return null;
+  }
+}
 
 // Las fotos se reciben en memoria y se escriben con el nombre definitivo.
 const upload = multer({
@@ -35,7 +59,7 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/ventas/propiedades/:id/fotos — sube hasta 10 fotos (multipart, campo "fotos").
-router.post('/', upload.array('fotos', 10), (req, res) => {
+router.post('/', upload.array('fotos', 10), async (req, res) => {
   const propiedad = getPropiedad(req.params.id);
   if (!propiedad) return res.status(404).json({ error: 'Propiedad no encontrada' });
   if (!req.files || !req.files.length) {
@@ -59,20 +83,34 @@ router.post('/', upload.array('fotos', 10), (req, res) => {
     .get(propiedad.id).m;
 
   const insertar = db.prepare(`
-    INSERT INTO propiedad_fotos (propiedad_id, url, nombre_archivo, orden)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO propiedad_fotos (propiedad_id, url, url_thumbnail, nombre_archivo, orden)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const ts = Date.now();
+
+  // Escribe cada original y su miniatura (Jimp es async, por eso va fuera de la
+  // transacción síncrona de better-sqlite3). El INSERT llega después, ya con las dos rutas.
+  const preparadas = [];
+  for (let index = 0; index < req.files.length; index++) {
+    const f = req.files[index];
+    const ext = path.extname(f.originalname).toLowerCase();
+    const nombreArchivo = `${propiedad.id}-${ts}-${index}${ext}`;
+    fs.writeFileSync(path.join(destino, nombreArchivo), f.buffer);
+    const nombreBase = path.basename(nombreArchivo, ext);
+    const nombreThumb = await generarMiniatura(f.buffer, destino, nombreBase);
+    preparadas.push({
+      nombreArchivo,
+      url: `/uploads/propiedades/${propiedad.id}/${nombreArchivo}`,
+      url_thumbnail: nombreThumb ? `/uploads/propiedades/${propiedad.id}/${nombreThumb}` : null,
+    });
+  }
+
   const creadas = [];
   const tx = db.transaction(() => {
-    req.files.forEach((f, index) => {
-      const ext = path.extname(f.originalname).toLowerCase();
-      const nombreArchivo = `${propiedad.id}-${ts}-${index}${ext}`;
-      fs.writeFileSync(path.join(destino, nombreArchivo), f.buffer);
-      const url = `/uploads/propiedades/${propiedad.id}/${nombreArchivo}`;
+    preparadas.forEach((p) => {
       orden += 1;
-      const info = insertar.run(propiedad.id, url, nombreArchivo, orden);
-      creadas.push({ id: info.lastInsertRowid, url, nombre_archivo: nombreArchivo, orden });
+      const info = insertar.run(propiedad.id, p.url, p.url_thumbnail, p.nombreArchivo, orden);
+      creadas.push({ id: info.lastInsertRowid, url: p.url, url_thumbnail: p.url_thumbnail, nombre_archivo: p.nombreArchivo, orden });
     });
   });
   tx();
@@ -132,6 +170,9 @@ router.delete('/:foto_id', (req, res) => {
 
   db.prepare('DELETE FROM propiedad_fotos WHERE id = ?').run(foto.id);
   try { fs.unlinkSync(path.join(PUBLIC_DIR, foto.url)); } catch (e) { /* puede no existir */ }
+  if (foto.url_thumbnail) {
+    try { fs.unlinkSync(path.join(PUBLIC_DIR, foto.url_thumbnail)); } catch (e) { /* puede no existir */ }
+  }
 
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre,
     'eliminar', 'propiedad-foto', foto.id, foto.nombre_archivo);

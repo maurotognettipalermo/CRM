@@ -209,6 +209,11 @@ const COLUMNAS_HORAS_EXTRA = {
   hora_fin: 'TEXT',      // 'HH:MM'
 };
 
+// Columna extra de propiedad_fotos (miniatura generada al subir). ALTER si falta.
+const COLUMNAS_PROPIEDAD_FOTOS = {
+  url_thumbnail: 'TEXT',
+};
+
 // Columnas extra de propiedades_venta (datos de la venta cerrada). ALTER si faltan.
 const COLUMNAS_PROPIEDADES_VENTA = {
   apartamento_nombre: 'TEXT',
@@ -257,6 +262,7 @@ function init() {
   migrarPropiedadesVenta();
   migrarVisitasPropiedades();
   migrarHorasExtra();
+  migrarPropiedadFotos();
   seedAdmin();
   seedPortales();
   seedModificadores();
@@ -416,6 +422,12 @@ function migrarPropiedadesVenta() {
 // Migración de horas_extra: añade el rango horario opcional (hora_inicio/hora_fin) si falta.
 function migrarHorasExtra() {
   anadirColumnasFaltantes('horas_extra', COLUMNAS_HORAS_EXTRA);
+}
+
+// Migración de propiedad_fotos: añade url_thumbnail si falta (BD creadas antes de la
+// miniatura). El backfill de las filas ya existentes lo hace scripts/backfill-thumbnails-propiedades.js.
+function migrarPropiedadFotos() {
+  anadirColumnasFaltantes('propiedad_fotos', COLUMNAS_PROPIEDAD_FOTOS);
 }
 
 // Backfill de la tabla N:M visitas_propiedades (creada por schema.sql). Para cada visita
