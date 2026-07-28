@@ -3132,6 +3132,26 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-muted { color: var(--muted); }
 .vta-cargando, .vta-vacio { text-align: center; color: var(--muted); padding: 28px 8px; }
 #tabla-propiedades tbody tr[data-ficha] { cursor: pointer; }
+
+/* Destacados web */
+.vta-dest-wrap { padding: 16px 4px; }
+.vta-dest-ayuda { color: var(--muted); font-size: 13px; margin-bottom: 16px; max-width: 640px; }
+.vta-dest-slots { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 16px; }
+.vta-dest-slot { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #fff; }
+.vta-dest-puesto { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.vta-dest-card { display: flex; flex-direction: column; gap: 8px; }
+.vta-dest-foto { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; background: var(--border-soft); }
+.vta-dest-sin-foto { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+.vta-dest-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.vta-dest-info strong { font-size: 14px; }
+.vta-dest-vacio { display: flex; flex-direction: column; gap: 8px; }
+.vta-dest-vacio .input-buscar { width: 100%; }
+.vta-dest-resultados { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.vta-dest-resultado { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 6px; }
+.vta-dest-sinresultados { font-size: 13px; color: var(--muted); padding: 6px 2px; }
+@media (max-width: 720px) {
+  .vta-dest-slots { grid-template-columns: 1fr; }
+}
 #tabla-propiedades tbody tr[data-ficha]:hover { background: #f9fafb; }
 
 /* Badges de estado */

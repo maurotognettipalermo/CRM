@@ -237,6 +237,13 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   numero_puerta: 'TEXT',
   // ID del post ya publicado en WordPress (para actualizar en vez de duplicar al republicar).
   wp_post_id: 'INTEGER',
+  // URL real que devuelve WordPress al publicar (antes se descartaba) — hace falta para
+  // enlazar la ficha pública desde destacados.json de la home estática.
+  wp_url: 'TEXT',
+  // "Destacados web" (máx. 3 activas, ver validación en PUT /propiedades/:id/destacado):
+  // solo se puede activar sobre una propiedad ya publicada (Disponible + wp_url).
+  destacado_web: 'INTEGER DEFAULT 0',
+  destacado_orden: 'INTEGER',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

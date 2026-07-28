@@ -837,6 +837,20 @@ router.get('/propiedades', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// GET /api/ventas/propiedades/destacados-web — las 3 (o menos) activas ahora mismo, en orden.
+// Antes de /:id para que no lo capture.
+router.get('/propiedades/destacados-web', (req, res) => {
+  const activos = db.prepare(`
+    SELECT p.*,
+           (SELECT COALESCE(url_thumbnail, url) FROM propiedad_fotos
+            WHERE propiedad_id = p.id ORDER BY orden, id LIMIT 1) AS foto_url
+    FROM propiedades_venta p
+    WHERE p.destacado_web = 1
+    ORDER BY p.destacado_orden
+  `).all();
+  res.json(activos);
+});
+
 // GET /api/ventas/propiedades/:id — ficha + historial de visitas.
 router.get('/propiedades/:id', (req, res) => {
   const prop = db.prepare(`
@@ -920,6 +934,52 @@ router.put('/propiedades/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// PUT /api/ventas/propiedades/:id/destacado — marcar/quitar "destacado web" con su puesto (1-3).
+// Solo se puede activar sobre una propiedad ya publicada (Disponible + wp_url), porque el
+// "link" del destacado en la home es esa misma URL de WordPress. Máx. 3 activas a la vez;
+// dos propiedades no pueden compartir el mismo puesto. Regenera destacados.json al guardar.
+router.put('/propiedades/:id/destacado', (req, res) => {
+  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  const b = req.body || {};
+  const activar = !!b.destacado_web;
+
+  if (!activar) {
+    db.prepare('UPDATE propiedades_venta SET destacado_web = 0, destacado_orden = NULL WHERE id = ?').run(prop.id);
+    regenerarDestacadosJson();
+    registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
+      `Quitada de destacados web (${prop.referencia})`);
+    return res.json({ ok: true });
+  }
+
+  if (prop.estado !== 'Disponible' || !prop.wp_url) {
+    return res.status(400).json({ error: 'Solo se puede destacar una propiedad ya publicada en la web (Disponible y sincronizada con WordPress)' });
+  }
+
+  const orden = parseInt(b.destacado_orden, 10);
+  if (![1, 2, 3].includes(orden)) {
+    return res.status(400).json({ error: 'El puesto debe ser 1, 2 o 3' });
+  }
+
+  const otrasActivas = db.prepare(
+    'SELECT id, referencia, destacado_orden FROM propiedades_venta WHERE destacado_web = 1 AND id <> ?'
+  ).all(prop.id);
+
+  const chocaPuesto = otrasActivas.find((a) => a.destacado_orden === orden);
+  if (chocaPuesto) {
+    return res.status(409).json({ error: `El puesto ${orden} ya lo tiene "${chocaPuesto.referencia}" — quítale ese puesto primero` });
+  }
+  if (otrasActivas.length >= 3) {
+    return res.status(409).json({ error: 'Ya hay 3 propiedades destacadas. Quita una antes de añadir otra.' });
+  }
+
+  db.prepare('UPDATE propiedades_venta SET destacado_web = 1, destacado_orden = ? WHERE id = ?').run(orden, prop.id);
+  regenerarDestacadosJson();
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
+    `Destacada en la web, puesto ${orden} (${prop.referencia})`);
+  res.json({ ok: true });
+});
+
 // DELETE /api/ventas/propiedades/:id — 409 si tiene visitas.
 router.delete('/propiedades/:id', (req, res) => {
   const prop = db.prepare('SELECT id, referencia FROM propiedades_venta WHERE id = ?').get(req.params.id);
@@ -970,8 +1030,108 @@ router.post('/propiedades/:id/vender', (req, res) => {
 });
 
 // ============================================================
+// Destacados web (home estática de hectorinmobiliaria.com, servida por Caddy en el
+// mismo VPS que este CRM — por eso la escritura es un simple fs local, sin red).
+// ============================================================
+
+// Carpeta del repo de la home estática. Configurable por si algún día el CRM no corre en
+// el mismo filesystem que Caddy; en producción (VPS 167.233.62.89) es la ruta real.
+const DESTACADOS_WEB_DIR = process.env.DESTACADOS_WEB_DIR || '/var/www/hectorinmobiliaria-home';
+
+// Copia la foto principal de la propiedad (la de menor `orden`) a img/destacados/ dentro
+// del repo de la home, con nombre fijo por propiedad (se sobreescribe si cambia la foto).
+// Nunca lanza: si no hay foto o falla la copia, la propiedad queda sin `foto` en el JSON.
+function copiarFotoDestacadoPropiedad(propiedadId) {
+  const foto = db.prepare(
+    'SELECT url, url_thumbnail FROM propiedad_fotos WHERE propiedad_id = ? ORDER BY orden, id LIMIT 1'
+  ).get(propiedadId);
+  if (!foto) return null;
+  const origenUrl = foto.url_thumbnail || foto.url;
+  try {
+    const origen = path.join(PUBLIC_DIR, origenUrl);
+    const ext = path.extname(origenUrl) || '.jpg';
+    const nombreDestino = `destacado-${propiedadId}${ext}`;
+    const imgDir = path.join(DESTACADOS_WEB_DIR, 'img', 'destacados');
+    fs.mkdirSync(imgDir, { recursive: true });
+    fs.copyFileSync(origen, path.join(imgDir, nombreDestino));
+    return `/img/destacados/${nombreDestino}`;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Regenera /var/www/hectorinmobiliaria-home/data/destacados.json con las propiedades
+// activas (máx. 3, en su orden). Solo campos seguros de mostrar en público: nunca
+// propietario/comisión/notas/datos de cliente. Escritura atómica (tmp + rename) para que
+// la home nunca lea un JSON a medias. Defensivo: un fallo aquí no debe romper el guardado.
+function regenerarDestacadosJson() {
+  try {
+    const activos = db.prepare(
+      'SELECT * FROM propiedades_venta WHERE destacado_web = 1 ORDER BY destacado_orden'
+    ).all();
+    const items = activos.map((p) => ({
+      tipo: 'venta',
+      ref: p.referencia,
+      zona: p.zona || '',
+      nombre: p.apartamento_nombre || p.referencia,
+      precio: formatearEuros(p.precio),
+      habitaciones: p.dormitorios || undefined,
+      banos: p.banos || undefined,
+      foto: copiarFotoDestacadoPropiedad(p.id) || '',
+      link: p.wp_url || '/property/',
+    }));
+
+    const dataDir = path.join(DESTACADOS_WEB_DIR, 'data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const destino = path.join(dataDir, 'destacados.json');
+    const tmp = destino + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(items, null, 2));
+    fs.renameSync(tmp, destino);
+  } catch (e) {
+    console.error('No se pudo regenerar destacados.json:', e.message);
+  }
+}
+
+// ============================================================
 // Publicar propiedad en la web (WordPress, hectorinmobiliaria.com)
 // ============================================================
+
+// Espera ms milisegundos. Usado entre propiedades en la sincronización masiva y entre
+// reintentos a WordPress, para no saturar el hosting gestionado.
+function esperar(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// Ancho máx. y calidad de la copia comprimida en memoria que se manda a WordPress al
+// publicar. El hosting gestionado (WordPress.com) tiene límite de tiempo de ejecución por
+// petición; mandar fotos a tamaño completo en base64, una detrás de otra, lo satura
+// (502/503/504). Es una TERCERA versión generada al vuelo solo para este envío — no toca
+// el original que gestiona el CRM ni la miniatura del grid (`url_thumbnail`).
+const WP_FOTO_ANCHO = 1600;
+const WP_FOTO_CALIDAD = 82;
+async function comprimirFotoParaWordPress(buffer) {
+  try {
+    const img = await Jimp.read(buffer);
+    if (img.width > WP_FOTO_ANCHO) img.resize({ w: WP_FOTO_ANCHO });
+    return await img.getBuffer('image/jpeg', { quality: WP_FOTO_CALIDAD });
+  } catch (e) {
+    return buffer; // Jimp no pudo decodificar (p. ej. webp): se manda el original sin comprimir
+  }
+}
+
+// Reintenta hasta 2 veces más (3 intentos en total) si WordPress responde 502/503/504 —
+// sobrecarga transitoria del hosting compartido, no un error de datos. Cualquier otro
+// código (400, 401, 500 de validación, etc.) se devuelve tal cual al primer intento:
+// reintentarlo no lo arregla.
+const WP_REINTENTOS = 2;
+const WP_ESPERA_REINTENTO_MS = 4000;
+async function fetchWordPressConReintento(url, opciones) {
+  let wpRes;
+  for (let intento = 0; intento <= WP_REINTENTOS; intento++) {
+    wpRes = await fetch(url, opciones);
+    if (![502, 503, 504].includes(wpRes.status) || intento === WP_REINTENTOS) return wpRes;
+    await esperar(WP_ESPERA_REINTENTO_MS);
+  }
+  return wpRes;
+}
 
 // Construye el payload y llama a WordPress para crear/actualizar la propiedad (endpoint
 // POST /wp-json/hector/v1/publicar-propiedad, auth por contraseña de aplicación). Si `prop`
@@ -989,7 +1149,8 @@ async function publicarPropiedadEnWeb(prop) {
   for (const f of fotos) {
     try {
       const buf = fs.readFileSync(path.join(PUBLIC_DIR, f.url));
-      fotosPayload.push({ nombre_archivo: f.nombre_archivo, contenido_base64: buf.toString('base64') });
+      const bufComprimido = await comprimirFotoParaWordPress(buf);
+      fotosPayload.push({ nombre_archivo: f.nombre_archivo, contenido_base64: bufComprimido.toString('base64') });
     } catch (e) { /* archivo no encontrado en disco: se omite esa foto */ }
   }
 
@@ -1013,7 +1174,7 @@ async function publicarPropiedadEnWeb(prop) {
   const auth = 'Basic ' + Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
   let wpRes, wpBody;
   try {
-    wpRes = await fetch(`${WP_URL}/wp-json/hector/v1/publicar-propiedad`, {
+    wpRes = await fetchWordPressConReintento(`${WP_URL}/wp-json/hector/v1/publicar-propiedad`, {
       method: 'POST',
       headers: { Authorization: auth, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1028,8 +1189,8 @@ async function publicarPropiedadEnWeb(prop) {
     return { ok: false, error: msg };
   }
 
-  db.prepare("UPDATE propiedades_venta SET wp_post_id = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(wpBody.wp_post_id, prop.id);
+  db.prepare("UPDATE propiedades_venta SET wp_post_id = ?, wp_url = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(wpBody.wp_post_id, wpBody.url || null, prop.id);
   return { ok: true, url: wpBody.url };
 }
 
@@ -1045,7 +1206,7 @@ async function despublicarPropiedadEnWeb(prop) {
   const auth = 'Basic ' + Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
   let wpRes, wpBody;
   try {
-    wpRes = await fetch(`${WP_URL}/wp-json/hector/v1/despublicar-propiedad/${prop.wp_post_id}`, {
+    wpRes = await fetchWordPressConReintento(`${WP_URL}/wp-json/hector/v1/despublicar-propiedad/${prop.wp_post_id}`, {
       method: 'POST',
       headers: { Authorization: auth },
     });
@@ -1059,14 +1220,23 @@ async function despublicarPropiedadEnWeb(prop) {
     return { ok: false, error: msg };
   }
 
-  db.prepare("UPDATE propiedades_venta SET wp_post_id = NULL, updated_at = datetime('now') WHERE id = ?").run(prop.id);
+  db.prepare(`UPDATE propiedades_venta SET wp_post_id = NULL, wp_url = NULL, destacado_web = 0,
+    destacado_orden = NULL, updated_at = datetime('now') WHERE id = ?`).run(prop.id);
+  // Si estaba destacada, deja de estarlo (su link ya no existe) — regenerar para no dejar
+  // un destacado apuntando a una ficha retirada.
+  if (prop.destacado_web) regenerarDestacadosJson();
   return { ok: true };
 }
 
+// Pausa entre propiedades de la sincronización masiva (no entre reintentos, ver
+// WP_ESPERA_REINTENTO_MS): da respiro al hosting gestionado de WordPress entre peticiones.
+const WP_PAUSA_ENTRE_PROPIEDADES_MS = 1500;
+
 // POST /api/ventas/propiedades/sincronizar-web — sincroniza TODAS las propiedades de golpe:
 // publica/actualiza las Disponibles y retira (borrador en WordPress) las que ya se hubieran
-// publicado antes pero ahora tengan otro estado. Uno por uno, no en paralelo (muchas fotos
-// en base64 a la vez saturarían WordPress y la memoria del servidor).
+// publicado antes pero ahora tengan otro estado. Uno por uno, no en paralelo, con una pausa
+// entre cada una (muchas fotos en base64 seguidas, sin descanso, saturan el hosting
+// gestionado de WordPress con 502/503/504 — ver comprimirFotoParaWordPress/fetchWordPressConReintento).
 router.post('/propiedades/sincronizar-web', async (req, res) => {
   const disponibles = db.prepare("SELECT * FROM propiedades_venta WHERE estado = 'Disponible'").all();
   const aRetirar = db.prepare("SELECT * FROM propiedades_venta WHERE estado <> 'Disponible' AND wp_post_id IS NOT NULL").all();
@@ -1081,12 +1251,14 @@ router.post('/propiedades/sincronizar-web', async (req, res) => {
     const r = await publicarPropiedadEnWeb(prop);
     if (r.ok) { if (eraNueva) publicadas++; else actualizadas++; }
     else errores.push({ referencia: prop.referencia, mensaje: r.error });
+    await esperar(WP_PAUSA_ENTRE_PROPIEDADES_MS);
   }
 
   for (const prop of aRetirar) {
     const r = await despublicarPropiedadEnWeb(prop);
     if (r.ok) retiradas++;
     else errores.push({ referencia: prop.referencia, mensaje: r.error });
+    await esperar(WP_PAUSA_ENTRE_PROPIEDADES_MS);
   }
 
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', null,

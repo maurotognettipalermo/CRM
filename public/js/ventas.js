@@ -3017,6 +3017,143 @@ const Ventas = (() => {
   }
 
   // ============================================================
+  //                    SUB-PESTAÑA DESTACADOS WEB
+  // ============================================================
+  // Hasta 3 propiedades en puestos 1/2/3, mostradas en la home estática de
+  // hectorinmobiliaria.com. Solo se puede destacar una propiedad Disponible ya publicada
+  // en WordPress (tiene wp_url) — si no, el backend rechaza con 400.
+  let destConstruido = false;
+  let destActivos = [];      // GET /propiedades/destacados-web (las que ya están puestas)
+  let destCandidatas = null; // cache de GET /propiedades?estado=Disponible, para buscar
+
+  function construirDestacados() {
+    if (destConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="destacados"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="vta-dest-wrap">
+        <p class="vta-dest-ayuda">
+          Hasta 3 propiedades destacadas en la home de hectorinmobiliaria.com. Solo se pueden
+          destacar propiedades <strong>Disponibles</strong> ya publicadas en la web (botón
+          "Publicar en la web" del listado).
+        </p>
+        <div class="vta-dest-slots">
+          <div class="vta-dest-slot" data-slot="1"></div>
+          <div class="vta-dest-slot" data-slot="2"></div>
+          <div class="vta-dest-slot" data-slot="3"></div>
+        </div>
+      </div>`;
+    destConstruido = true;
+  }
+
+  async function cargarDestacados() {
+    const cont = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="destacados"] .vta-dest-slots');
+    if (cont) cont.innerHTML = '<div class="vta-cargando">Cargando destacados…</div>';
+    try { destActivos = await API.get('/api/ventas/propiedades/destacados-web'); }
+    catch (e) {
+      if (cont) cont.innerHTML = '<div class="vta-cargando">No se pudieron cargar los destacados.</div>';
+      return toast(e.message, 'error');
+    }
+    renderDestacados();
+  }
+
+  function renderDestacados() {
+    const wrap = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="destacados"] .vta-dest-slots');
+    if (!wrap) return;
+    wrap.innerHTML = [1, 2, 3].map((n) => {
+      const p = destActivos.find((x) => x.destacado_orden === n);
+      return `<div class="vta-dest-slot" data-slot="${n}">${p ? htmlSlotOcupado(n, p) : htmlSlotVacio(n)}</div>`;
+    }).join('');
+
+    destActivos.forEach((p) => {
+      wrap.querySelector(`[data-quitar-dest="${p.id}"]`)?.addEventListener('click', () => quitarDestacado(p));
+    });
+    [1, 2, 3].forEach((n) => {
+      const input = wrap.querySelector(`[data-slot-buscar="${n}"]`);
+      if (input) input.addEventListener('input', (e) => renderResultadosSlot(n, e.target.value));
+    });
+  }
+
+  function htmlSlotOcupado(n, p) {
+    const foto = p.foto_url
+      ? `<img class="vta-dest-foto" src="${esc(p.foto_url)}" alt="">`
+      : '<div class="vta-dest-foto vta-dest-sin-foto">Sin foto</div>';
+    return `
+      <div class="vta-dest-puesto">Puesto ${n}</div>
+      <div class="vta-dest-card">
+        ${foto}
+        <div class="vta-dest-info">
+          <strong>${esc(p.apartamento_nombre || p.referencia)}</strong>
+          <span>${esc(p.referencia)}${p.zona ? ' · ' + esc(p.zona) : ''}</span>
+          <span>${euro(p.precio)}</span>
+        </div>
+        <button type="button" class="btn-peligro" data-quitar-dest="${p.id}">Quitar</button>
+      </div>`;
+  }
+
+  function htmlSlotVacio(n) {
+    return `
+      <div class="vta-dest-puesto">Puesto ${n} · vacío</div>
+      <div class="vta-dest-vacio">
+        <input type="search" class="input-buscar" placeholder="Buscar propiedad publicada..." data-slot-buscar="${n}" autocomplete="off">
+        <div class="vta-dest-resultados" data-slot-resultados="${n}"></div>
+      </div>`;
+  }
+
+  async function candidatasDestacado() {
+    if (destCandidatas) return destCandidatas;
+    destCandidatas = await API.get('/api/ventas/propiedades?estado=Disponible');
+    return destCandidatas;
+  }
+
+  async function renderResultadosSlot(n, texto) {
+    const cont = document.querySelector(`[data-slot-resultados="${n}"]`);
+    if (!cont) return;
+    const q = texto.trim().toLowerCase();
+    if (!q) { cont.innerHTML = ''; return; }
+
+    let candidatas;
+    try { candidatas = await candidatasDestacado(); }
+    catch (e) { cont.innerHTML = ''; return toast(e.message, 'error'); }
+
+    const ocupadosIds = new Set(destActivos.map((p) => p.id));
+    const lista = candidatas
+      .filter((p) => p.wp_url && !ocupadosIds.has(p.id))
+      .filter((p) => `${p.apartamento_nombre || ''} ${p.referencia || ''} ${p.zona || ''}`.toLowerCase().includes(q))
+      .slice(0, 8);
+
+    if (!lista.length) {
+      cont.innerHTML = '<div class="vta-dest-sinresultados">Sin propiedades publicadas que coincidan.</div>';
+      return;
+    }
+    cont.innerHTML = lista.map((p) => `
+      <div class="vta-dest-resultado" data-elegir-dest="${p.id}">
+        <span><strong>${esc(p.apartamento_nombre || p.referencia)}</strong> — ${esc(p.referencia)}${p.zona ? ' · ' + esc(p.zona) : ''}</span>
+        <button type="button" class="btn-pri" data-elegir-dest-btn="${p.id}" data-slot="${n}">Destacar aquí</button>
+      </div>`).join('');
+    cont.querySelectorAll('[data-elegir-dest-btn]').forEach((b) =>
+      b.addEventListener('click', () => marcarDestacado(Number(b.dataset.elegirDestBtn), Number(b.dataset.slot))));
+  }
+
+  async function marcarDestacado(propiedadId, orden) {
+    try {
+      await API.put(`/api/ventas/propiedades/${propiedadId}/destacado`, { destacado_web: true, destacado_orden: orden });
+    } catch (e) { return toast(e.message, 'error'); }
+    toast('Propiedad destacada', 'ok');
+    destCandidatas = null;
+    await cargarDestacados();
+  }
+
+  async function quitarDestacado(p) {
+    if (!confirm(`¿Quitar "${p.apartamento_nombre || p.referencia}" de destacados web?`)) return;
+    try { await API.put(`/api/ventas/propiedades/${p.id}/destacado`, { destacado_web: false }); }
+    catch (e) { return toast(e.message, 'error'); }
+    toast('Quitada de destacados', 'ok');
+    destCandidatas = null;
+    await cargarDestacados();
+  }
+
+  // ============================================================
   //                    SUB-PESTAÑA PROPIETARIOS
   // ============================================================
   function nomPrv(p) { return [p.nombre, p.apellidos].filter(Boolean).join(' '); }
@@ -4060,6 +4197,7 @@ const Ventas = (() => {
     inyectarSub('vendidos', 'Vendidos');
     inyectarSub('arras', 'Arras');
     inyectarSub('autorizacion', 'Autorización');
+    inyectarSub('destacados', 'Destacados web');
 
     // Sub-pestañas Propiedades / Clientes / Visitas / Calendario / Vendidos.
     document.querySelectorAll('#vta-subtabs .subtab').forEach((b) =>
@@ -4074,6 +4212,7 @@ const Ventas = (() => {
         if (b.dataset.sub === 'vendidos') { construirVendidos(); cargarVendidos(); }
         if (b.dataset.sub === 'arras') { construirAutorizacion(); }
         if (b.dataset.sub === 'autorizacion') { construirAutVenta(); }
+        if (b.dataset.sub === 'destacados') { construirDestacados(); cargarDestacados(); }
       }));
   }
 
