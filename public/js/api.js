@@ -77,9 +77,13 @@ async function error(r) {
 
 // ===== Toast =====
 let toastTimer = null;
-function toast(mensaje, tipo = 'ok') {
+function toast(mensaje, tipo = 'ok', urlEnlace) {
   const el = document.getElementById('toast');
-  el.textContent = mensaje;
+  if (urlEnlace) {
+    el.innerHTML = `${esc(mensaje)} <a href="${esc(urlEnlace)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;font-weight:600">🔗 Ver en la web</a>`;
+  } else {
+    el.textContent = mensaje;
+  }
   el.className = 'toast ' + tipo;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('oculto'), 3500);

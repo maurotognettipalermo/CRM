@@ -316,6 +316,7 @@ const Ventas = (() => {
           <span id="vta-d-badges"></span>
         </div>
         <div class="panel-cabecera-acciones">
+          <button id="vta-d-publicar-web" class="btn-sec">🌐 Publicar en la web</button>
           <button id="vta-d-editar" class="btn-sec">✏️ Editar</button>
           <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -330,6 +331,7 @@ const Ventas = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
+    panel.querySelector('#vta-d-publicar-web').addEventListener('click', publicarPropiedadIndividual);
     panel.querySelectorAll('.rsv-subtab').forEach((b) =>
       b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
@@ -366,6 +368,8 @@ const Ventas = (() => {
     document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
     document.getElementById('vta-d-badges').innerHTML =
       `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
+    const btnPubWeb = document.getElementById('vta-d-publicar-web');
+    if (btnPubWeb) btnPubWeb.textContent = d.wp_post_id ? '🔄 Actualizar en la web' : '🌐 Publicar en la web';
     renderCuerpo(d);
     activarSubVenta('datos');
     abrirPanel();
@@ -1072,6 +1076,27 @@ const Ventas = (() => {
     } finally {
       btn.disabled = false;
       btn.textContent = textoOriginal;
+    }
+  }
+
+  // Publica/actualiza SOLO la propiedad abierta en la ficha (a diferencia de sincronizarWeb,
+  // que recorre todas) — mismo endpoint individual que ya existía antes del botón masivo.
+  async function publicarPropiedadIndividual() {
+    if (!fichaActual) return;
+    const id = fichaActual.id;
+    const btn = document.getElementById('vta-d-publicar-web');
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Publicando…';
+    try {
+      const r = await API.post(`/api/ventas/propiedades/${id}/publicar-web`, {});
+      toast('Publicada en la web correctamente', 'ok', r.url);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+      if (fichaActual && fichaActual.id === id) await recargarFicha();
     }
   }
 
