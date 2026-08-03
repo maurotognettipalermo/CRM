@@ -20,8 +20,10 @@ const Ventas = (() => {
   // Las Vendidas viven en la sub-pestaña "Vendidos"; no se filtran ni listan aquí.
   const ESTADOS_FILTRO = ['Disponible', 'Reservada', 'Retirada'];
   const TIPOS = ['Piso', 'Ático', 'Casa', 'Villa', 'Otros'];
+  const OPERACIONES = ['venta', 'alquiler'];
   let fEstado = new Set(ESTADOS_FILTRO);
   let fTipo = new Set();        // vacío = todos los tipos
+  let fOperacion = new Set();   // vacío = todas las operaciones
   let fPrecioMin = '';
   let fPrecioMax = '';
   let fDorm = '';              // '', '1','2','3','4' (4 = 4+)
@@ -67,6 +69,10 @@ const Ventas = (() => {
       Vendida: 'vta-bdg-vend', Retirada: 'vta-bdg-ret',
     };
     return `<span class="vta-bdg ${map[e] || 'vta-bdg-ret'}">${esc(e || '—')}</span>`;
+  }
+  function operacionBadge(o) {
+    const alquiler = o === 'alquiler';
+    return `<span class="vta-bdg ${alquiler ? 'vta-bdg-op-alquiler' : 'vta-bdg-disp'}">${alquiler ? 'Alquiler' : 'Venta'}</span>`;
   }
   function textoFacEstado(e) {
     return { borrador: 'Borrador', emitida: 'Emitida', parcialmente_pagada: 'Parcialmente pagada', pagada: 'Pagada', anulada: 'Anulada' }[e] || e || '—';
@@ -143,6 +149,7 @@ const Ventas = (() => {
         const t = TIPOS.includes(p.tipo) ? p.tipo : 'Otros';
         if (!fTipo.has(t)) return false;
       }
+      if (fOperacion.size && !fOperacion.has(p.operacion || 'venta')) return false;
       if (fPrecioMin !== '' && Number(p.precio) < Number(fPrecioMin)) return false;
       if (fPrecioMax !== '' && Number(p.precio) > Number(fPrecioMax)) return false;
       if (fDorm !== '') {
@@ -200,7 +207,7 @@ const Ventas = (() => {
       <tr data-ficha="${p.id}">
         <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
         <td>${esc(p.apartamento_nombre) || '—'}</td>
-        <td>${esc(p.tipo) || '—'}</td>
+        <td>${esc(p.tipo) || '—'} ${operacionBadge(p.operacion)}</td>
         <td>${esc(dir)}</td>
         <td>${esc(p.zona) || '—'}</td>
         <td class="vta-precio">${euro(p.precio)}</td>
@@ -226,6 +233,7 @@ const Ventas = (() => {
     let n = 0;
     if (fEstado.size !== ESTADOS_FILTRO.length) n++;
     if (fTipo.size) n++;
+    if (fOperacion.size) n++;
     if (fPrecioMin !== '' || fPrecioMax !== '') n++;
     if (fDorm !== '') n++;
     return n;
@@ -245,6 +253,8 @@ const Ventas = (() => {
       `<label class="rsv-f-op"><input type="checkbox" data-f="estado" value="${e}" checked><span class="rsv-f-op-label">${e}</span></label>`).join('');
     const tipoItems = TIPOS.map((t) =>
       `<label class="rsv-f-op"><input type="checkbox" data-f="tipo" value="${t}"><span class="rsv-f-op-label">${t}</span></label>`).join('');
+    const opItems = OPERACIONES.map((o) =>
+      `<label class="rsv-f-op"><input type="checkbox" data-f="operacion" value="${o}"><span class="rsv-f-op-label">${o === 'alquiler' ? 'Alquiler' : 'Venta'}</span></label>`).join('');
     panel.innerHTML = `
       <div class="rsv-f-grupo">
         <div class="rsv-f-titulo">Estado</div>
@@ -253,6 +263,10 @@ const Ventas = (() => {
       <div class="rsv-f-grupo">
         <div class="rsv-f-titulo">Tipo</div>
         <div class="rsv-f-ops">${tipoItems}</div>
+      </div>
+      <div class="rsv-f-grupo">
+        <div class="rsv-f-titulo">Operación</div>
+        <div class="rsv-f-ops">${opItems}</div>
       </div>
       <div class="rsv-f-grupo">
         <div class="rsv-f-titulo">Rango de precio (€)</div>
@@ -274,7 +288,8 @@ const Ventas = (() => {
     panel.addEventListener('change', (e) => {
       const chk = e.target.closest('input[type="checkbox"][data-f]');
       if (!chk) return;
-      const set = chk.dataset.f === 'estado' ? fEstado : fTipo;
+      const sets = { estado: fEstado, tipo: fTipo, operacion: fOperacion };
+      const set = sets[chk.dataset.f];
       if (chk.checked) set.add(chk.value); else set.delete(chk.value);
       renderTabla();
     });
@@ -287,11 +302,13 @@ const Ventas = (() => {
   function resetFiltros() {
     fEstado = new Set(ESTADOS_FILTRO);
     fTipo = new Set();
+    fOperacion = new Set();
     fPrecioMin = ''; fPrecioMax = ''; fDorm = '';
     const panel = document.getElementById('vta-filtros-panel');
     if (panel) {
       panel.querySelectorAll('input[data-f="estado"]').forEach((c) => { c.checked = true; });
       panel.querySelectorAll('input[data-f="tipo"]').forEach((c) => { c.checked = false; });
+      panel.querySelectorAll('input[data-f="operacion"]').forEach((c) => { c.checked = false; });
       const pmin = panel.querySelector('#vta-f-pmin'); if (pmin) pmin.value = '';
       const pmax = panel.querySelector('#vta-f-pmax'); if (pmax) pmax.value = '';
       const dorm = panel.querySelector('#vta-f-dorm'); if (dorm) dorm.value = '';
@@ -367,7 +384,7 @@ const Ventas = (() => {
     galeriaCargadaVenta = false;
     document.getElementById('vta-d-titulo').textContent = d.referencia || 'Propiedad';
     document.getElementById('vta-d-badges').innerHTML =
-      `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
+      `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${operacionBadge(d.operacion)} ${estadoBadge(d.estado)}`;
     const btnPubWeb = document.getElementById('vta-d-publicar-web');
     if (btnPubWeb) {
       if (d.estado === 'Disponible') {
@@ -919,6 +936,7 @@ const Ventas = (() => {
     const optTipo = ['', 'Piso', 'Ático', 'Casa', 'Villa', 'Otros']
       .map((t) => `<option value="${t}"${(p.tipo || '') === t ? ' selected' : ''}>${t || '— Tipo —'}</option>`).join('');
     const optEstado = ESTADOS.map((e) => `<option value="${e}"${(p.estado || 'Disponible') === e ? ' selected' : ''}>${e}</option>`).join('');
+    const opOperacion = (op) => `<option value="${op}"${(p.operacion || 'venta') === op ? ' selected' : ''}>${op === 'alquiler' ? 'Alquiler' : 'Venta'}</option>`;
 
     abrirModal(`
       <h3>${esNueva ? '＋ Nueva propiedad' : '✏️ Editar propiedad'}</h3>
@@ -926,6 +944,9 @@ const Ventas = (() => {
       <div class="fila-campos">
         <div class="campo"><label>Referencia${esNueva ? '' : ' *'}</label><input id="vf-referencia" value="${esc(p.referencia)}"${esNueva ? ' disabled placeholder="Se asignará automáticamente al guardar"' : ''}></div>
         <div class="campo"><label>Tipo</label><select id="vf-tipo">${optTipo}</select></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Operación</label><select id="vf-operacion">${opOperacion('venta')}${opOperacion('alquiler')}</select></div>
       </div>
       <div class="fila-campos">
         <div class="campo"><label>Calle</label><input id="vf-calle" value="${esc(p.calle)}"></div>
@@ -1025,7 +1046,7 @@ const Ventas = (() => {
 
   const CAMPOS_FORM = [
     'apartamento_nombre',
-    'referencia', 'tipo', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad', 'precio', 'estado',
+    'referencia', 'tipo', 'operacion', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad', 'precio', 'estado',
     'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje',
     'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
     'descripcion', 'notas',

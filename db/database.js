@@ -235,6 +235,10 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   // Nº de puerta, independiente de calle/numero/planta (p. ej. "3A", "Bajo B") — para
   // documentos de Arras/Autorización que necesitan el nº de puerta real, no el de la calle.
   numero_puerta: 'TEXT',
+  // 'venta' o 'alquiler' — determina la taxonomía es_category (En venta/En renta) al
+  // publicar en WordPress. Default 'venta': todas las propiedades existentes antes de este
+  // campo son ventas.
+  operacion: "TEXT DEFAULT 'venta'",
   // ID del post ya publicado en WordPress (para actualizar en vez de duplicar al republicar).
   wp_post_id: 'INTEGER',
   // URL real que devuelve WordPress al publicar (antes se descartaba) — hace falta para
