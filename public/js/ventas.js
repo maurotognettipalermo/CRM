@@ -331,7 +331,7 @@ const Ventas = (() => {
     fondo.addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
-    panel.querySelector('#vta-d-publicar-web').addEventListener('click', publicarPropiedadIndividual);
+    panel.querySelector('#vta-d-publicar-web').addEventListener('click', manejarClicWebIndividual);
     panel.querySelectorAll('.rsv-subtab').forEach((b) =>
       b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
@@ -369,7 +369,17 @@ const Ventas = (() => {
     document.getElementById('vta-d-badges').innerHTML =
       `${d.tipo ? `<span class="vta-badge-tipo">${esc(d.tipo)}</span>` : ''} ${estadoBadge(d.estado)}`;
     const btnPubWeb = document.getElementById('vta-d-publicar-web');
-    if (btnPubWeb) btnPubWeb.textContent = d.wp_post_id ? '🔄 Actualizar en la web' : '🌐 Publicar en la web';
+    if (btnPubWeb) {
+      if (d.estado === 'Disponible') {
+        btnPubWeb.style.display = '';
+        btnPubWeb.textContent = d.wp_post_id ? '🔄 Actualizar en la web' : '🌐 Publicar en la web';
+      } else if (d.wp_post_id) {
+        btnPubWeb.style.display = '';
+        btnPubWeb.textContent = '🚫 Retirar de la web';
+      } else {
+        btnPubWeb.style.display = 'none'; // nunca se publicó y ya no está Disponible: nada que hacer
+      }
+    }
     renderCuerpo(d);
     activarSubVenta('datos');
     abrirPanel();
@@ -1079,6 +1089,16 @@ const Ventas = (() => {
     }
   }
 
+  // Botón único de la ficha: decide publicar o retirar según el estado ya cargado en
+  // fichaActual, igual que /sincronizar-web decide por lote (ver renderizado del botón en
+  // abrirFicha, mismo criterio: Disponible → publicar/actualizar; cualquier otro estado →
+  // retirar si ya estaba publicada).
+  function manejarClicWebIndividual() {
+    if (!fichaActual) return;
+    if (fichaActual.estado === 'Disponible') return publicarPropiedadIndividual();
+    if (fichaActual.wp_post_id) return despublicarPropiedadIndividual();
+  }
+
   // Publica/actualiza SOLO la propiedad abierta en la ficha (a diferencia de sincronizarWeb,
   // que recorre todas) — mismo endpoint individual que ya existía antes del botón masivo.
   async function publicarPropiedadIndividual() {
@@ -1091,6 +1111,28 @@ const Ventas = (() => {
     try {
       const r = await API.post(`/api/ventas/propiedades/${id}/publicar-web`, {});
       toast('Publicada en la web correctamente', 'ok', r.url);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+      if (fichaActual && fichaActual.id === id) await recargarFicha();
+    }
+  }
+
+  // Retira SOLO la propiedad abierta en la ficha (contrapartida individual de
+  // publicarPropiedadIndividual) — borrador en WordPress, no se borra.
+  async function despublicarPropiedadIndividual() {
+    if (!fichaActual) return;
+    if (!confirm('¿Retirar esta propiedad de la web? Dejará de verse en hectorinmobiliaria.com (queda como borrador en WordPress, no se borra).')) return;
+    const id = fichaActual.id;
+    const btn = document.getElementById('vta-d-publicar-web');
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Retirando…';
+    try {
+      const r = await API.post(`/api/ventas/propiedades/${id}/despublicar-web`, {});
+      toast(r.sin_cambios ? 'La propiedad no estaba publicada' : 'Retirada de la web correctamente', 'ok');
     } catch (e) {
       toast(e.message, 'error');
     } finally {

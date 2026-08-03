@@ -1282,6 +1282,22 @@ router.post('/propiedades/:id/publicar-web', async (req, res) => {
   res.json({ ok: true, url: resultado.url });
 });
 
+// POST /api/ventas/propiedades/:id/despublicar-web — retira UNA propiedad de la web
+// (borrador en WordPress, no se borra). Contrapartida individual de publicar-web, para que
+// la ficha pueda ofrecer "Retirar de la web" igual que ya hace la sincronización masiva.
+router.post('/propiedades/:id/despublicar-web', async (req, res) => {
+  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  if (!prop.wp_post_id) return res.json({ ok: true, sin_cambios: true });
+
+  const resultado = await despublicarPropiedadEnWeb(prop);
+  if (!resultado.ok) return res.status(resultado.status || 502).json({ error: resultado.error });
+
+  registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id,
+    `Retirada de la web (${prop.referencia})`);
+  res.json({ ok: true });
+});
+
 // ============================================================
 // Propietarios de venta (cartera de ventas / inmobiliaria)
 // ============================================================
