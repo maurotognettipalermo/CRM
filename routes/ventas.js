@@ -1171,6 +1171,10 @@ async function publicarPropiedadEnWeb(prop) {
   set('zona', prop.zona);
   if (prop.wp_post_id) payload.wp_post_id = prop.wp_post_id;
 
+  // Cinturón de seguridad: numero_puerta es dato sensible (revela piso+puerta exactos) y
+  // NUNCA debe llegar a WordPress, ni aunque se cuele por error en el mapeo de arriba.
+  delete payload.numero_puerta;
+
   const auth = 'Basic ' + Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
   let wpRes, wpBody;
   try {
