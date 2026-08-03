@@ -1169,6 +1169,7 @@ async function publicarPropiedadEnWeb(prop) {
   if (prop.piscina_privada) set('piscina', 'Sí'); // columna no existe hoy: nunca se envía
   set('tipo', prop.tipo);
   set('zona', prop.zona);
+  set('planta', prop.planta);
   payload.operacion = prop.operacion || 'venta'; // propiedades antiguas sin valor: se tratan como venta
   if (prop.wp_post_id) payload.wp_post_id = prop.wp_post_id;
 
