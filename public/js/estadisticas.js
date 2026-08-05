@@ -1049,11 +1049,12 @@ const Estadisticas = (() => {
         <td>${fechaES(p.fecha_inicio)} – ${fechaES(p.fecha_fin)}</td>
         <td class="num">${euro(p.importe_total)}</td>
         <td class="num" title="Solo informativo, no afecta al precio calculado">${p.num_apartamentos != null ? p.num_apartamentos : '—'}</td>
+        <td class="num">${p.num_apartamentos != null ? euro((Number(p.importe_total) || 0) * p.num_apartamentos) : '—'}</td>
         <td class="acciones">
           <button class="btn-mini" data-edit-partida="${p.id}">✏️</button>
           <button class="btn-mini" data-del-partida="${p.id}">🗑</button>
         </td>
-      </tr>`).join('') || '<tr><td colspan="6" class="est-vacio">Sin partidas configuradas</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="7" class="est-vacio">Sin partidas configuradas</td></tr>';
 
     const tablaPartidas = `
       <div class="may-d-seccion">
@@ -1065,7 +1066,8 @@ const Estadisticas = (() => {
           <table class="tabla est-tabla">
             <thead><tr>
               <th>Nombre</th><th>Tipo</th><th>Fechas</th><th class="num">Importe pactado</th>
-              <th class="num" title="Solo informativo, no afecta al precio calculado">Nº aptos ⓘ</th><th></th>
+              <th class="num" title="Solo informativo, no afecta al precio calculado">Nº aptos ⓘ</th>
+              <th class="num">Precio total</th><th></th>
             </tr></thead>
             <tbody>${filasPartidas}</tbody>
           </table>
