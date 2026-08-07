@@ -470,7 +470,7 @@ function construirProforma(body) {
 
 // Crea una autofactura a partir de un pago a propietario suelto (concepto + importe).
 // Emisor = propietario activo del apartamento; receptor = la razón social indicada o, si no,
-// la predeterminada (primera por id). IVA 0%, retención 19% (IRPF propietario residente).
+// la predeterminada (routes/ajustes.js: predeterminada DESC, id). IVA 21%, retención 19% (IRPF propietario residente).
 // Devuelve { id, numero } o lanza Error. Reutilizada por routes/apartamentos.js.
 function crearAutofacturaPago({ apartamento_id, concepto, importe, razon_social_id, anio, fecha_emision, created_by }) {
   const apto = db.prepare('SELECT * FROM apartamentos WHERE id = ?').get(intOrNull(apartamento_id));
@@ -478,7 +478,7 @@ function crearAutofacturaPago({ apartamento_id, concepto, importe, razon_social_
 
   let rs = razon_social_id != null && razon_social_id !== ''
     ? db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(razon_social_id)) : null;
-  if (!rs) rs = db.prepare('SELECT * FROM razones_sociales ORDER BY id LIMIT 1').get();
+  if (!rs) rs = db.prepare('SELECT * FROM razones_sociales ORDER BY predeterminada DESC, id LIMIT 1').get();
   if (!rs) throw new Error('No hay ninguna razón social configurada');
 
   const propietario = db.prepare(`

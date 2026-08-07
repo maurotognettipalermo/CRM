@@ -697,6 +697,7 @@ const Facturas = (() => {
     wiz = {
       paso: 1, tipo: null, razonId: null, anio: filtroAnio,
       propSel: null, contratoSel: null, cuotas: [], cuotaSel: [],
+      pagos: [], pagoSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
       modoAutofactura: 'contrato',
@@ -718,6 +719,7 @@ const Facturas = (() => {
     wiz = {
       paso: 2, tipo: 'autofactura', razonId: null, anio: filtroAnio,
       propSel: null, contratoSel: null, cuotas: [], cuotaSel: [],
+      pagos: [], pagoSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
       modoAutofactura: 'contrato',
@@ -738,6 +740,7 @@ const Facturas = (() => {
     const selContrato = document.getElementById('wiz-contrato');
     if (selContrato && contrato.tipo === 'precio_cerrado') selContrato.value = contratoId;
     await cargarCuotasWiz(contratoId);
+    await cargarPagosWiz(contrato.propietario_id);
   }
 
   function renderWizard() {
@@ -832,6 +835,9 @@ const Facturas = (() => {
         </div>
         <div id="wiz-cuotas"></div>
         <div id="wiz-cuotas-resumen" class="fac-resumen oculto"></div>
+        <div id="wiz-pagos"></div>
+        <div id="wiz-pagos-resumen" class="fac-resumen oculto"></div>
+        <div id="wiz-total-combo" class="fac-resumen oculto" style="font-weight:700"></div>
         ${camposFechasHTML()}`;
     } else if (wiz.tipo === 'gastos') {
       cuerpo = `
@@ -1017,8 +1023,9 @@ const Facturas = (() => {
         wiz.propSel = p.id;
         document.getElementById('wiz-prop-buscar').value = nombreProp(p);
         await cargarContratosWiz(p.id);
+        await cargarPagosWiz(p.id);
       },
-      () => { wiz.propSel = null; });
+      () => { wiz.propSel = null; cargarPagosWiz(null); });
 
     document.getElementById('wiz-contrato').addEventListener('change', (e) => cargarCuotasWiz(Number(e.target.value) || null));
   }
@@ -1045,6 +1052,7 @@ const Facturas = (() => {
     wiz.contratoSel = null; wiz.cuotas = []; wiz.cuotaSel = [];
     document.getElementById('wiz-cuotas').innerHTML = '';
     document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+    actualizarTotalComboWiz();
   }
 
   // Segunda vía para llegar al contrato en Autofactura/Propietario: buscar por apartamento
@@ -1065,6 +1073,7 @@ const Facturas = (() => {
           const c = lista[0];
           wiz.propSel = c.propietario_id;
           document.getElementById('wiz-prop-buscar').value = nombreProp({ nombre: c.propietario_nombre, apellidos: c.propietario_apellidos });
+          await cargarPagosWiz(c.propietario_id);
         }
       });
   }
@@ -1073,13 +1082,14 @@ const Facturas = (() => {
     wiz.contratoSel = contratoId;
     wiz.cuotas = []; wiz.cuotaSel = [];
     const cont = document.getElementById('wiz-cuotas');
-    if (!contratoId) { cont.innerHTML = ''; document.getElementById('wiz-cuotas-resumen').classList.add('oculto'); return; }
+    if (!contratoId) { cont.innerHTML = ''; document.getElementById('wiz-cuotas-resumen').classList.add('oculto'); actualizarTotalComboWiz(); return; }
     let c;
     try { c = await API.get('/api/contratos/' + contratoId); } catch (e) { return toast(e.message, 'error'); }
     wiz.cuotas = (c.cuotas || []).filter((q) => !q.pagado && !q.factura_id); // solo pendientes y sin facturar
     if (!wiz.cuotas.length) {
       cont.innerHTML = '<div class="fac-vacio">Este contrato no tiene cuotas pendientes.</div>';
       document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+      actualizarTotalComboWiz();
       return;
     }
     cont.innerHTML = '<div class="ficha-seccion-titulo">Cuotas pendientes</div>' + wiz.cuotas.map((q) => `
@@ -1097,6 +1107,51 @@ const Facturas = (() => {
     const tot = sel.reduce((s, q) => s + (Number(q.importe) || 0), 0);
     const el = document.getElementById('wiz-cuotas-resumen');
     el.textContent = `${sel.length} cuota(s) seleccionada(s) — ${euro(tot)}`;
+    el.classList.remove('oculto');
+    actualizarTotalComboWiz();
+  }
+
+  // ---- Pagos de alojamiento pendientes ("Pagos propietario", combinables con las cuotas) ----
+  async function cargarPagosWiz(propietarioId) {
+    wiz.pagos = []; wiz.pagoSel = [];
+    const cont = document.getElementById('wiz-pagos');
+    if (!cont) return;
+    if (!propietarioId) { cont.innerHTML = ''; document.getElementById('wiz-pagos-resumen').classList.add('oculto'); actualizarTotalComboWiz(); return; }
+    let data = [];
+    try { data = await API.get(`/api/propietarios/${propietarioId}/pagos-pendientes`); } catch (e) { data = []; }
+    wiz.pagos = data || [];
+    if (!wiz.pagos.length) {
+      cont.innerHTML = '';
+      document.getElementById('wiz-pagos-resumen').classList.add('oculto');
+      actualizarTotalComboWiz();
+      return;
+    }
+    cont.innerHTML = '<div class="ficha-seccion-titulo">Pagos de alojamiento pendientes</div>' + wiz.pagos.map((p) => `
+      <label class="fac-check"><input type="checkbox" data-pago="${p.id}"> ${esc(p.apartamento_nombre)} — ${esc(p.concepto)} — ${fechaES(p.fecha)} — ${euro(p.importe)}</label>`).join('');
+    cont.querySelectorAll('[data-pago]').forEach((cb) => cb.addEventListener('change', () => {
+      const id = Number(cb.dataset.pago);
+      if (cb.checked) { if (!wiz.pagoSel.includes(id)) wiz.pagoSel.push(id); }
+      else wiz.pagoSel = wiz.pagoSel.filter((x) => x !== id);
+      resumenPagos();
+    }));
+    resumenPagos();
+  }
+  function resumenPagos() {
+    const sel = wiz.pagos.filter((p) => wiz.pagoSel.includes(p.id));
+    const tot = sel.reduce((s, p) => s + (Number(p.importe) || 0), 0);
+    const el = document.getElementById('wiz-pagos-resumen');
+    el.textContent = `${sel.length} pago(s) seleccionado(s) — ${euro(tot)}`;
+    el.classList.remove('oculto');
+    actualizarTotalComboWiz();
+  }
+  // Total combinado cuotas + pagos, visible solo cuando hay algo marcado de cualquiera.
+  function actualizarTotalComboWiz() {
+    const el = document.getElementById('wiz-total-combo');
+    if (!el) return;
+    const totCuotas = wiz.cuotas.filter((q) => wiz.cuotaSel.includes(q.id)).reduce((s, q) => s + (Number(q.importe) || 0), 0);
+    const totPagos = wiz.pagos.filter((p) => wiz.pagoSel.includes(p.id)).reduce((s, p) => s + (Number(p.importe) || 0), 0);
+    if (!wiz.cuotaSel.length && !wiz.pagoSel.length) { el.classList.add('oculto'); return; }
+    el.textContent = `Total a facturar: ${euro(totCuotas + totPagos)}`;
     el.classList.remove('oculto');
   }
 
@@ -1187,9 +1242,10 @@ const Facturas = (() => {
       body.lineas = lineas;
     } else if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') {
       if (!wiz.contratoSel) return toast('Selecciona un contrato', 'error');
-      if (!wiz.cuotaSel.length) return toast('Selecciona al menos una cuota', 'error');
+      if (!wiz.cuotaSel.length && !wiz.pagoSel.length) return toast('Selecciona al menos una cuota o un pago', 'error');
       body.contrato_id = wiz.contratoSel;
       body.cuota_ids = wiz.cuotaSel;
+      body.pago_ids = wiz.pagoSel;
     } else if (wiz.tipo === 'gastos') {
       if (!wiz.aptoSel) return toast('Selecciona un apartamento', 'error');
       if (!wiz.gastoSel.length) return toast('Selecciona al menos un gasto', 'error');
