@@ -474,7 +474,7 @@ function crearAutofacturaPago({ apartamento_id, concepto, importe, razon_social_
   f.tipo = 'autofactura';
   f.apartamento_id = apto.id;
   f.propietario_id = propietario.id;
-  f.porcentaje_iva = 0;          // pagos a propietario sin IVA por defecto
+  f.porcentaje_iva = 21;         // IVA estándar
   f.porcentaje_retencion = 19;   // IRPF estándar propietario residente
   f.base_imponible = imp;
   // Autofactura: emisor = propietario, receptor = nuestra razón social.

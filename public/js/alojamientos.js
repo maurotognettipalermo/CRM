@@ -1257,7 +1257,7 @@ const Alojamientos = (() => {
   }
 
   async function generarFacturaPago(pagoId) {
-    if (!confirm('¿Generar autofactura de este pago? (IVA 0%, retención 19%)')) return;
+    if (!confirm('¿Generar autofactura de este pago? (IVA 21%, retención 19%)')) return;
     try {
       const r = await API.post(`/api/apartamentos/${fichaActual.id}/pagos-propietario/${pagoId}/generar-factura`, {});
       await cargarPagos();
