@@ -71,6 +71,21 @@ router.post('/importar', upload.single('archivo'), (req, res) => {
   }
 });
 
+// Pagos sueltos ("Pagos propietario") pendientes de facturar, de todos los apartamentos
+// donde este propietario es el activo. Usado por el wizard de autofactura por contrato para
+// combinarlos con las cuotas. Debe ir antes de /:id.
+router.get('/:id/pagos-pendientes', (req, res) => {
+  const pagos = db.prepare(`
+    SELECT pp.*, a.nombre AS apartamento_nombre
+    FROM pagos_propietario pp
+    JOIN apartamento_propietarios ap ON ap.apartamento_id = pp.apartamento_id AND ap.activo = 1
+    JOIN apartamentos a ON a.id = pp.apartamento_id
+    WHERE ap.propietario_id = ? AND pp.factura_id IS NULL
+    ORDER BY pp.fecha
+  `).all(req.params.id);
+  res.json(pagos);
+});
+
 // Ficha de un propietario con sus apartamentos asociados.
 router.get('/:id', (req, res) => {
   const propietario = db.prepare('SELECT * FROM propietarios WHERE id = ?').get(req.params.id);

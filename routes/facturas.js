@@ -175,24 +175,47 @@ function construirPropietario(body, autofactura) {
   const apto = db.prepare('SELECT nombre FROM apartamentos WHERE id = ?').get(contrato.apartamento_id) || {};
 
   const ids = Array.isArray(body.cuota_ids) ? body.cuota_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
-  if (!ids.length) return { error: 'Selecciona al menos una cuota' };
-  const cuotas = db.prepare(
-    `SELECT * FROM contrato_cuotas WHERE contrato_id = ? AND id IN (${ids.map(() => '?').join(',')}) ORDER BY numero_cuota`
-  ).all(contrato.id, ...ids);
-  if (!cuotas.length) return { error: 'No se encontraron cuotas válidas para ese contrato' };
+  const pagoIds = Array.isArray(body.pago_ids) ? body.pago_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
+  if (!ids.length && !pagoIds.length) return { error: 'Selecciona al menos una cuota o un pago' };
 
-  const yaFacturadas = cuotas.filter((c) => c.factura_id);
-  if (yaFacturadas.length) {
-    return {
-      error: `La(s) cuota(s) ${yaFacturadas.map((c) => c.numero_cuota).join(', ')} ya tienen una factura emitida`,
-      status: 409,
-    };
+  let cuotas = [];
+  if (ids.length) {
+    cuotas = db.prepare(
+      `SELECT * FROM contrato_cuotas WHERE contrato_id = ? AND id IN (${ids.map(() => '?').join(',')}) ORDER BY numero_cuota`
+    ).all(contrato.id, ...ids);
+    if (!cuotas.length) return { error: 'No se encontraron cuotas válidas para ese contrato' };
+
+    const yaFacturadas = cuotas.filter((c) => c.factura_id);
+    if (yaFacturadas.length) {
+      return {
+        error: `La(s) cuota(s) ${yaFacturadas.map((c) => c.numero_cuota).join(', ')} ya tienen una factura emitida`,
+        status: 409,
+      };
+    }
   }
 
-  const lineas = cuotas.map((c) => ({
-    descripcion: `Pago ${c.numero_cuota} — ${apto.nombre || 'Apartamento'} — ${mesDeFecha(c.fecha_prevista)}`,
-    cantidad: 1, precio_unitario: round2(c.importe), importe: round2(c.importe),
-  }));
+  // Pagos sueltos de "Pagos propietario" (routes/apartamentos.js): solo los que pertenezcan a
+  // un apartamento donde este mismo propietario sea el activo y no estén ya facturados —
+  // si alguno no cumple (facturado desde otro sitio justo antes), se ignora en silencio.
+  let pagos = [];
+  if (pagoIds.length) {
+    pagos = db.prepare(`
+      SELECT pp.* FROM pagos_propietario pp
+      JOIN apartamento_propietarios ap ON ap.apartamento_id = pp.apartamento_id AND ap.activo = 1
+      WHERE pp.id IN (${pagoIds.map(() => '?').join(',')}) AND pp.factura_id IS NULL AND ap.propietario_id = ?
+    `).all(...pagoIds, contrato.propietario_id);
+  }
+
+  const lineas = [
+    ...cuotas.map((c) => ({
+      descripcion: `Pago ${c.numero_cuota} — ${apto.nombre || 'Apartamento'} — ${mesDeFecha(c.fecha_prevista)}`,
+      cantidad: 1, precio_unitario: round2(c.importe), importe: round2(c.importe),
+    })),
+    ...pagos.map((p) => ({
+      descripcion: p.concepto, cantidad: 1, precio_unitario: round2(p.importe), importe: round2(p.importe),
+    })),
+  ];
+  if (!lineas.length) return { error: 'No se encontraron cuotas ni pagos válidos para facturar' };
 
   const f = nuevaFactura();
   f.tipo = autofactura ? 'autofactura' : 'propietario';
@@ -221,7 +244,7 @@ function construirPropietario(body, autofactura) {
     f.receptor_direccion = direccionPropietario(propietario);
     f.receptor_email = propietario.email || null;
   }
-  return { f, lineas, cuotaIds: cuotas.map((c) => c.id) };
+  return { f, lineas, cuotaIds: cuotas.map((c) => c.id), pagoPropietarioIds: pagos.map((p) => p.id) };
 }
 
 function construirGastos(body) {
@@ -724,6 +747,10 @@ router.post('/', (req, res) => {
         const ph = construido.cuotaIds.map(() => '?').join(',');
         db.prepare(`UPDATE contrato_cuotas SET factura_id = ? WHERE id IN (${ph})`).run(creada.id, ...construido.cuotaIds);
       }
+      if (Array.isArray(construido.pagoPropietarioIds) && construido.pagoPropietarioIds.length) {
+        const ph = construido.pagoPropietarioIds.map(() => '?').join(',');
+        db.prepare(`UPDATE pagos_propietario SET factura_id = ? WHERE id IN (${ph})`).run(creada.id, ...construido.pagoPropietarioIds);
+      }
       return creada;
     })();
   } catch (e) {
@@ -955,9 +982,10 @@ router.put('/:id/anular', (req, res) => {
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
   db.transaction(() => {
     db.prepare("UPDATE facturas SET estado = 'anulada' WHERE id = ?").run(req.params.id);
-    // Libera las cuotas de contrato facturadas por esta autofactura/factura de propietario,
-    // para que puedan volver a facturarse.
+    // Libera las cuotas de contrato y los pagos sueltos facturados por esta autofactura/factura
+    // de propietario, para que puedan volver a facturarse.
     db.prepare('UPDATE contrato_cuotas SET factura_id = NULL WHERE factura_id = ?').run(req.params.id);
+    db.prepare('UPDATE pagos_propietario SET factura_id = NULL WHERE factura_id = ?').run(req.params.id);
   })();
   registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'editar', 'factura', factura.id, `Anulada ${factura.numero}`);
   res.json({ ok: true });
