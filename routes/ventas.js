@@ -1312,6 +1312,145 @@ const PRV_CAMPOS = [
   'direccion', 'ciudad', 'codigo_postal', 'notas',
 ];
 
+// Devuelve true si `nombre` (en mayúsculas) tiene pinta de razón social (S.L./S.A./C.B.,
+// con o sin puntos, como última palabra o pegado al final sin espacio) — en ese caso no se
+// reparte en nombre/apellidos.
+function esRazonSocial(nombreMayus) {
+  const palabras = nombreMayus.split(/\s+/).filter(Boolean);
+  const ultima = palabras[palabras.length - 1] || '';
+  if (/^S\.?L\.?$/.test(ultima) || /^S\.?A\.?$/.test(ultima) || /^C\.?B\.?$/.test(ultima)) return true;
+  return nombreMayus.endsWith('S.L.') || nombreMayus.endsWith('S.A.') || nombreMayus.endsWith('C.B.');
+}
+
+// Reparte un NOMBRE completo del CSV en {nombre, apellidos} con criterio español
+// best-effort: 3+ palabras → últimas 2 apellidos; 2 palabras → última apellido; 1 palabra o
+// razón social → todo en nombre, apellidos vacío.
+function partirNombrePropietario(nombreCompleto) {
+  const n = nombreCompleto.trim();
+  const mayus = n.toUpperCase();
+  if (esRazonSocial(mayus)) return { nombre: n, apellidos: null };
+  const palabras = n.split(/\s+/).filter(Boolean);
+  if (palabras.length >= 3) return { nombre: palabras.slice(0, -2).join(' '), apellidos: palabras.slice(-2).join(' ') };
+  if (palabras.length === 2) return { nombre: palabras[0], apellidos: palabras[1] };
+  return { nombre: n, apellidos: null };
+}
+
+// Línea de notas "EDIFICIO BLOQUE PISO LETRA" para una fila del CSV, omitiendo los campos
+// vacíos (para no dejar huecos raros tipo "BAHIA PARK  4 167" cuando falta BLOQUE).
+function lineaPisoCsv(f) {
+  return [f.edificio, f.bloque, f.piso, f.letra].filter(Boolean).join(' ');
+}
+
+// Clave de comparación de una persona: mayúsculas + espacios múltiples colapsados a uno
+// solo. El CSV trae dobles espacios sueltos (p. ej. "ISABEL  MARTINEZ LOSAS") que
+// partirNombrePropietario ya normaliza a uno solo al reconstruir nombre+apellidos para
+// guardar — sin colapsar aquí también, la comparación entre CSV crudo y el registro ya
+// guardado no coincide y el reimport duplica.
+function clavePersona(nombre) {
+  return nombre.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+// Importa el CSV "EDIFICIO;BLOQUE;PISO;LETRA;NOMBRE;TELEFONO1;TELEFONO2" de un programa
+// antiguo (exportado en Windows-1252/Latin-1, no UTF-8 — de ahí el decode con 'latin1').
+// Agrupa filas por NOMBRE exacto (una persona puede tener varios pisos) y crea un
+// propietario_venta por persona nueva; si ya existe uno con el mismo nombre+apellidos, no
+// duplica, solo añade a sus notas los pisos nuevos que no estuvieran ya.
+function importarPropietariosCsv(buffer) {
+  const texto = buffer.toString('latin1');
+  const lineas = texto.split(/\r\n|\r|\n/);
+
+  const filas = [];
+  let filasProcesadas = 0;
+  let filasDescartadas = 0;
+
+  for (let i = 1; i < lineas.length; i++) { // i=0 es la cabecera
+    const linea = lineas[i];
+    if (!linea || !linea.trim()) continue; // línea completamente vacía: ni cuenta ni descarta
+    filasProcesadas++;
+    const campos = linea.split(';');
+    const nombre = (campos[4] || '').trim();
+    if (!nombre) { filasDescartadas++; continue; }
+    filas.push({
+      edificio: (campos[0] || '').trim(),
+      bloque: (campos[1] || '').trim(),
+      piso: (campos[2] || '').trim(),
+      letra: (campos[3] || '').trim(),
+      nombre,
+      telefono: (campos[5] || '').trim(),
+      telefono2: (campos[6] || '').trim(),
+    });
+  }
+
+  // Agrupa por nombre exacto, insensible a mayúsculas/minúsculas.
+  const grupos = new Map(); // clave normalizada -> { nombreOriginal, filas[] }
+  for (const f of filas) {
+    const clave = clavePersona(f.nombre);
+    if (!grupos.has(clave)) grupos.set(clave, { nombreOriginal: f.nombre, filas: [] });
+    grupos.get(clave).filas.push(f);
+  }
+
+  // Índice de propietarios_venta existentes por nombre+apellidos completo (mismo criterio).
+  const existentes = new Map(); // clave normalizada -> { id, notas }
+  for (const pv of db.prepare('SELECT id, nombre, apellidos, notas FROM propietarios_venta').all()) {
+    const completo = pv.apellidos ? `${pv.nombre} ${pv.apellidos}` : pv.nombre;
+    existentes.set(clavePersona(completo), { id: pv.id, notas: pv.notas });
+  }
+
+  const insertar = db.prepare(`
+    INSERT INTO propietarios_venta (nombre, apellidos, telefono, telefono2, notas)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const actualizarNotas = db.prepare(`UPDATE propietarios_venta SET notas = ?, updated_at = datetime('now') WHERE id = ?`);
+
+  let creados = 0;
+  let yaExistentes = 0;
+
+  for (const grupo of grupos.values()) {
+    const lineasPiso = [];
+    for (const f of grupo.filas) {
+      const l = lineaPisoCsv(f);
+      if (l && !lineasPiso.includes(l)) lineasPiso.push(l);
+    }
+    const telefono = grupo.filas.map((f) => f.telefono).find((t) => t) || null;
+    const telefono2 = grupo.filas.map((f) => f.telefono2).find((t) => t) || null;
+
+    const clave = clavePersona(grupo.nombreOriginal);
+    const existente = existentes.get(clave);
+    if (existente) {
+      yaExistentes++;
+      const notasPrevias = existente.notas || '';
+      const yaTiene = new Set(notasPrevias.split('\n').map((l) => l.trim()).filter(Boolean));
+      const nuevas = lineasPiso.filter((l) => !yaTiene.has(l));
+      if (nuevas.length) {
+        const notas = notasPrevias ? `${notasPrevias}\n${nuevas.join('\n')}` : nuevas.join('\n');
+        actualizarNotas.run(notas, existente.id);
+      }
+      continue;
+    }
+
+    const { nombre, apellidos } = partirNombrePropietario(grupo.nombreOriginal);
+    insertar.run(nombre, apellidos, telefono, telefono2, lineasPiso.join('\n') || null);
+    creados++;
+  }
+
+  return { creados, ya_existentes: yaExistentes, filas_descartadas: filasDescartadas, filas_procesadas: filasProcesadas };
+}
+
+// POST /api/ventas/propietarios-venta/importar-csv — CSV del programa antiguo (declarar
+// ANTES de /:id). Campo de archivo "archivo", igual que /propiedades/importar.
+router.post('/propietarios-venta/importar-csv', upload.single('archivo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+  try {
+    const resumen = importarPropietariosCsv(req.file.buffer);
+    registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'importar', 'propietario-venta', null,
+      `${resumen.creados} nuevos / ${resumen.ya_existentes} ya existentes`);
+    res.json(resumen);
+  } catch (e) {
+    console.error('Error importando propietarios CSV:', e);
+    res.status(500).json({ error: 'No se pudo procesar el archivo: ' + e.message });
+  }
+});
+
 // GET /api/ventas/propietarios-venta — lista con búsqueda opcional + nº de propiedades.
 router.get('/propietarios-venta', (req, res) => {
   const buscar = txt(req.query.buscar);

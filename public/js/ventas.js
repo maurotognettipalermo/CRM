@@ -3259,6 +3259,8 @@ const Ventas = (() => {
         </div>
         <div class="vta-prop-acciones">
           <button id="prv-importar" class="btn-sec">📥 Importar de alquileres</button>
+          <button id="prv-importar-csv" class="btn-sec">📥 Importar CSV</button>
+          <input type="file" id="prv-csv-input" accept=".csv" hidden>
           <button id="prv-nuevo" class="btn-pri">＋ Nuevo propietario</button>
         </div>
       </div>
@@ -3273,7 +3275,31 @@ const Ventas = (() => {
     document.getElementById('prv-buscar').addEventListener('input', (e) => { prvBusqueda = e.target.value; renderTablaPrv(); });
     document.getElementById('prv-nuevo').addEventListener('click', () => modalPropvent(null));
     document.getElementById('prv-importar').addEventListener('click', modalImportarAlquiler);
+    document.getElementById('prv-importar-csv').addEventListener('click', () => document.getElementById('prv-csv-input').click());
+    document.getElementById('prv-csv-input').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (f) importarPropventCsv(f);
+    });
     prvConstruido = true;
+  }
+
+  // ---- Importar CSV del programa antiguo (EDIFICIO;BLOQUE;PISO;LETRA;NOMBRE;TELEFONO1;TELEFONO2) ----
+  async function importarPropventCsv(file) {
+    let res;
+    try { res = await API.subirArchivo('/api/ventas/propietarios-venta/importar-csv', file); }
+    catch (e) { return toast(e.message, 'error'); }
+    abrirModal(`
+      <h3>📥 Importación completada</h3>
+      <div class="vta-import-resumen">
+        <p>✅ <strong>${res.creados}</strong> propietario${res.creados === 1 ? '' : 's'} nuevo${res.creados === 1 ? '' : 's'}</p>
+        <p>↩️ <strong>${res.ya_existentes}</strong> ya existente${res.ya_existentes === 1 ? '' : 's'} (no duplicado${res.ya_existentes === 1 ? '' : 's'})</p>
+        <p>🗑️ <strong>${res.filas_descartadas}</strong> fila${res.filas_descartadas === 1 ? '' : 's'} descartada${res.filas_descartadas === 1 ? '' : 's'} (sin nombre)</p>
+        <p class="vta-muted">${res.filas_procesadas} filas procesadas en total</p>
+      </div>
+      <div class="modal-acciones"><button class="btn-pri" id="prv-csv-cerrar">Cerrar</button></div>`);
+    document.getElementById('prv-csv-cerrar').addEventListener('click', cerrarModal);
+    await cargarPropvent();
   }
 
   // ---- Carga + tabla ----
