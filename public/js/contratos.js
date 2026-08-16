@@ -28,6 +28,13 @@ const Contratos = (() => {
     return (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 }) + '%';
   }
   function nombrePropietario(c) {
+    // Apartamento con 2+ propietarios activos: muestra el reparto real (nombre + %) en vez de
+    // un solo nombre — contrato.propietario_id es un valor legado que solo tiene sentido con
+    // un único propietario. Con 1 solo activo (el caso normal), sin cambios.
+    const activos = c.propietarios_activos || [];
+    if (activos.length >= 2) {
+      return activos.map((p) => `${p.nombre} (${pct(p.porcentaje)})`).join(', ');
+    }
     const nom = [c.propietario_nombre, c.propietario_apellidos, c.propietario_segundo_apellido].filter(Boolean).join(' ');
     return nom || '—';
   }

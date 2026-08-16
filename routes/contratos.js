@@ -224,6 +224,29 @@ router.get('/', (req, res) => {
     ORDER BY c.anio DESC, a.nombre
   `).all(...params);
 
+  // propietarios_activos: TODOS los propietarios activos del apartamento (N:M), no solo el
+  // contrato.propietario_id legado (un único valor que puede no reflejar la titularidad
+  // actual si el apartamento se repartió entre varios). Solo visual — no cambia qué
+  // propietario_id tiene guardado el contrato ni la lógica de facturación (que ya usa
+  // apartamento_propietarios activos, ver construirAutofacturaPorContrato).
+  const aptoIds = [...new Set(filas.map((c) => c.apartamento_id))];
+  if (aptoIds.length) {
+    const ph = aptoIds.map(() => '?').join(',');
+    const activos = db.prepare(`
+      SELECT ap.apartamento_id, ap.porcentaje, p.nombre, p.apellidos, p.segundo_apellido
+      FROM apartamento_propietarios ap
+      JOIN propietarios p ON p.id = ap.propietario_id
+      WHERE ap.apartamento_id IN (${ph}) AND ap.activo = 1
+      ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+    `).all(...aptoIds);
+    const porApto = {};
+    for (const a of activos) {
+      const lista = porApto[a.apartamento_id] || (porApto[a.apartamento_id] = []);
+      lista.push({ nombre: [a.nombre, a.apellidos, a.segundo_apellido].filter(Boolean).join(' '), porcentaje: a.porcentaje });
+    }
+    filas.forEach((c) => { c.propietarios_activos = porApto[c.apartamento_id] || []; });
+  }
+
   res.json(filas);
 });
 
@@ -787,6 +810,19 @@ router.get('/:id', (req, res) => {
       contrato.propietario_segundo_apellido = activo.segundo_apellido;
     }
   }
+
+  // propietarios_activos: TODOS los propietarios activos del apartamento (N:M) — igual que en
+  // el listado, solo visual, no toca contrato.propietario_id ni la lógica de facturación.
+  contrato.propietarios_activos = db.prepare(`
+    SELECT p.nombre, p.apellidos, p.segundo_apellido, ap.porcentaje
+    FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ? AND ap.activo = 1
+    ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC
+  `).all(contrato.apartamento_id).map((p) => ({
+    nombre: [p.nombre, p.apellidos, p.segundo_apellido].filter(Boolean).join(' '),
+    porcentaje: p.porcentaje,
+  }));
 
   // facturada_reparto: la cuota ya está cubierta por una autofactura repartida entre varios
   // propietarios (contrato_cuota_facturas) con al menos un vínculo vigente (factura no anulada).
