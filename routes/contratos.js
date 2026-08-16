@@ -788,9 +788,45 @@ router.get('/:id', (req, res) => {
     }
   }
 
-  contrato.cuotas = db.prepare(
-    'SELECT * FROM contrato_cuotas WHERE contrato_id = ? ORDER BY numero_cuota'
-  ).all(contrato.id);
+  // facturada_reparto: la cuota ya está cubierta por una autofactura repartida entre varios
+  // propietarios (contrato_cuota_facturas) con al menos un vínculo vigente (factura no anulada).
+  // No confundir con factura_id (caso de un solo propietario, FK 1:1 de siempre).
+  contrato.cuotas = db.prepare(`
+    SELECT q.*,
+      EXISTS(
+        SELECT 1 FROM contrato_cuota_facturas ccf
+        JOIN facturas f ON f.id = ccf.factura_id
+        WHERE ccf.cuota_id = q.id AND f.estado != 'anulada'
+      ) AS facturada_reparto
+    FROM contrato_cuotas q WHERE q.contrato_id = ? ORDER BY q.numero_cuota
+  `).all(contrato.id);
+
+  // Para las cuotas facturadas por reparto, adjunta el detalle de cada autofactura (número,
+  // propietario, importe) — lo usa el modal "Ver (N)" del plan de pagos en el frontend.
+  const cuotaIdsReparto = contrato.cuotas.filter((q) => q.facturada_reparto).map((q) => q.id);
+  if (cuotaIdsReparto.length) {
+    const ph = cuotaIdsReparto.map(() => '?').join(',');
+    const filas = db.prepare(`
+      SELECT ccf.cuota_id, f.id AS factura_id, f.numero, ccf.importe, ccf.porcentaje,
+             p.nombre, p.apellidos, p.segundo_apellido
+      FROM contrato_cuota_facturas ccf
+      JOIN facturas f ON f.id = ccf.factura_id
+      JOIN propietarios p ON p.id = ccf.propietario_id
+      WHERE ccf.cuota_id IN (${ph}) AND f.estado != 'anulada'
+      ORDER BY ccf.porcentaje DESC, f.numero
+    `).all(...cuotaIdsReparto);
+    const porCuota = {};
+    for (const fi of filas) {
+      const lista = porCuota[fi.cuota_id] || (porCuota[fi.cuota_id] = []);
+      lista.push({
+        factura_id: fi.factura_id,
+        numero: fi.numero,
+        importe: fi.importe,
+        propietario_nombre: [fi.nombre, fi.apellidos, fi.segundo_apellido].filter(Boolean).join(' '),
+      });
+    }
+    contrato.cuotas.forEach((q) => { if (q.facturada_reparto) q.facturas_reparto = porCuota[q.id] || []; });
+  }
 
   res.json(contrato);
 });

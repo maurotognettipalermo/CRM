@@ -345,6 +345,13 @@ const Contratos = (() => {
       Facturas.abrirFicha(Number(el.dataset.verFactura));
     }));
 
+    // Cuota facturada por reparto (2+ propietarios activos): pequeño listado en modal en vez
+    // de saltar directo a una ficha, porque hay varias facturas (una por propietario).
+    document.querySelectorAll('#cnt-cuerpo [data-ver-reparto]').forEach((el) => el.addEventListener('click', () => {
+      const cuota = (c.cuotas || []).find((q) => q.id === Number(el.dataset.verReparto));
+      if (cuota) mostrarModalReparto(cuota);
+    }));
+
     // Botones de marcar/desmarcar pago (solo precio cerrado).
     document.querySelectorAll('#cnt-cuerpo [data-pagar]').forEach((b) =>
       b.addEventListener('click', () => modalPago(c.id, Number(b.dataset.pagar))));
@@ -377,7 +384,12 @@ const Contratos = (() => {
       const badge = q.pagado
         ? '<span class="badge-estado activo">Pagado</span>'
         : '<span class="badge-estado" style="background:#fff7ed;color:#c2410c">Pendiente</span>';
-      const factura = q.factura_id ? `<span class="cnt-link" data-ver-factura="${q.factura_id}">Facturado</span>` : '—';
+      let factura = '—';
+      if (q.factura_id) {
+        factura = `<span class="cnt-link" data-ver-factura="${q.factura_id}">Facturado</span>`;
+      } else if (q.facturada_reparto && Array.isArray(q.facturas_reparto) && q.facturas_reparto.length) {
+        factura = `<span class="cnt-link" data-ver-reparto="${q.id}">Ver (${q.facturas_reparto.length})</span>`;
+      }
       const accion = q.pagado
         ? `<button class="btn-mini" data-despagar="${q.id}">Desmarcar</button>`
         : `<button class="btn-mini" data-pagar="${q.id}">✓ Marcar pagado</button>`;
@@ -457,6 +469,27 @@ const Contratos = (() => {
   }
 
   // ---- Mini modal: marcar cuota como pagada (con fecha) ----
+  // Listado de las N autofacturas (una por propietario) generadas por reparto sobre una cuota.
+  function mostrarModalReparto(cuota) {
+    const filas = (cuota.facturas_reparto || []).map((f) => `
+      <div class="rsv-dato" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div class="val">${esc(f.propietario_nombre)} — <span class="cnt-link" data-ver-reparto-factura="${f.factura_id}">${esc(f.numero)}</span></div>
+        <div class="val" style="font-weight:700">${euro(f.importe)}</div>
+      </div>`).join('');
+    abrirModal(`
+      <h3>Cuota ${cuota.numero_cuota} — facturada por reparto</h3>
+      <div class="rsv-seccion-titulo" style="margin-top:4px">${(cuota.facturas_reparto || []).length} autofactura(s), una por propietario activo</div>
+      ${filas}
+      <div class="modal-acciones"><button class="btn-pri" id="cnt-reparto-cerrar">Cerrar</button></div>`);
+    document.getElementById('cnt-reparto-cerrar').addEventListener('click', cerrarModal);
+    document.querySelectorAll('[data-ver-reparto-factura]').forEach((el) => el.addEventListener('click', () => {
+      cerrarModal();
+      cerrarPanel();
+      activarTab('facturacion');
+      Facturas.abrirFicha(Number(el.dataset.verRepartoFactura));
+    }));
+  }
+
   function modalPago(contratoId, cuotaId) {
     const hoy = new Date().toISOString().slice(0, 10);
     abrirModal(`

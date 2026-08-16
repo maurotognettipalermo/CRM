@@ -693,6 +693,10 @@ const Facturas = (() => {
 
   function nombreProp(p) { return [p.nombre, p.apellidos, p.segundo_apellido].filter(Boolean).join(' '); }
 
+  // Autofactura en modo "según contrato" (no libre): el único caso donde el backend reparte
+  // entre varios propietarios activos si el apartamento tiene 2+.
+  function esAutofacturaContrato() { return wiz.tipo === 'autofactura' && wiz.modoAutofactura !== 'libre'; }
+
   async function abrirWizard() {
     wiz = {
       paso: 1, tipo: null, razonId: null, anio: filtroAnio,
@@ -700,7 +704,7 @@ const Facturas = (() => {
       pagos: [], pagoSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
-      modoAutofactura: 'contrato',
+      modoAutofactura: 'contrato', repartoActivos: [], repartoMulti: false,
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
     // Preselección de razón social: la predeterminada si está marcada; en su defecto, la
@@ -722,7 +726,7 @@ const Facturas = (() => {
       pagos: [], pagoSel: [],
       aptoSel: null, gastos: [], gastoSel: [], reservaSel: null,
       libreLineas: [{ descripcion: '', cantidad: 1, precio_unitario: 0 }], libreIva: 21, libreRet: 0,
-      modoAutofactura: 'contrato',
+      modoAutofactura: 'contrato', repartoActivos: [], repartoMulti: false,
     };
     try { await ensureRazones(); } catch (e) { return toast(e.message, 'error'); }
     const lista = razonesCache || [];
@@ -835,6 +839,7 @@ const Facturas = (() => {
         </div>
         <div id="wiz-cuotas"></div>
         <div id="wiz-cuotas-resumen" class="fac-resumen oculto"></div>
+        <div id="wiz-reparto-aviso" class="fac-resumen oculto"></div>
         <div id="wiz-pagos"></div>
         <div id="wiz-pagos-resumen" class="fac-resumen oculto"></div>
         <div id="wiz-total-combo" class="fac-resumen oculto" style="font-weight:700"></div>
@@ -1050,8 +1055,11 @@ const Facturas = (() => {
       sel.disabled = false;
     }
     wiz.contratoSel = null; wiz.cuotas = []; wiz.cuotaSel = [];
+    wiz.repartoActivos = []; wiz.repartoMulti = false;
     document.getElementById('wiz-cuotas').innerHTML = '';
     document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+    renderRepartoAviso(0);
+    aplicarBloqueoPagosReparto();
     actualizarTotalComboWiz();
   }
 
@@ -1081,14 +1089,35 @@ const Facturas = (() => {
   async function cargarCuotasWiz(contratoId) {
     wiz.contratoSel = contratoId;
     wiz.cuotas = []; wiz.cuotaSel = [];
+    wiz.repartoActivos = []; wiz.repartoMulti = false;
     const cont = document.getElementById('wiz-cuotas');
-    if (!contratoId) { cont.innerHTML = ''; document.getElementById('wiz-cuotas-resumen').classList.add('oculto'); actualizarTotalComboWiz(); return; }
+    if (!contratoId) {
+      cont.innerHTML = '';
+      document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+      renderRepartoAviso(0);
+      actualizarTotalComboWiz();
+      return;
+    }
     let c;
     try { c = await API.get('/api/contratos/' + contratoId); } catch (e) { return toast(e.message, 'error'); }
-    wiz.cuotas = (c.cuotas || []).filter((q) => !q.pagado && !q.factura_id); // solo pendientes y sin facturar
+    wiz.cuotas = (c.cuotas || []).filter((q) => !q.pagado && !q.factura_id && !q.facturada_reparto); // solo pendientes y sin facturar
+
+    // Autofactura por contrato: averigua si el apartamento tiene 2+ propietarios activos
+    // (reparto) para avisar antes de emitir y bloquear la combinación con pagos sueltos.
+    if (esAutofacturaContrato()) {
+      try {
+        const apto = await API.get('/api/apartamentos/' + c.apartamento_id);
+        wiz.repartoActivos = (apto.propietarios || []).filter((p) => p.activo === 1)
+          .sort((a, b) => b.porcentaje - a.porcentaje);
+      } catch (e) { wiz.repartoActivos = []; }
+      wiz.repartoMulti = wiz.repartoActivos.length > 1;
+    }
+    aplicarBloqueoPagosReparto();
+
     if (!wiz.cuotas.length) {
       cont.innerHTML = '<div class="fac-vacio">Este contrato no tiene cuotas pendientes.</div>';
       document.getElementById('wiz-cuotas-resumen').classList.add('oculto');
+      renderRepartoAviso(0);
       actualizarTotalComboWiz();
       return;
     }
@@ -1109,6 +1138,40 @@ const Facturas = (() => {
     el.textContent = `${sel.length} cuota(s) seleccionada(s) — ${euro(tot)}`;
     el.classList.remove('oculto');
     actualizarTotalComboWiz();
+    renderRepartoAviso(tot);
+  }
+
+  // Aviso previo (paso 2, autofactura por contrato): si el apartamento tiene 2+ propietarios
+  // activos, muestra cuántas facturas van a salir y cuánto le toca a cada uno sobre el total
+  // de cuotas marcadas. Es una previsualización (redondeo simple por propietario); el reparto
+  // exacto final (con el ajuste de céntimos) lo calcula el backend al emitir.
+  function renderRepartoAviso(totalCuotas) {
+    const el = document.getElementById('wiz-reparto-aviso');
+    if (!el) return;
+    if (!wiz.repartoMulti || !totalCuotas) { el.classList.add('oculto'); el.innerHTML = ''; return; }
+    const filas = wiz.repartoActivos.map((p) => {
+      const importe = Math.round(totalCuotas * (p.porcentaje / 100) * 100) / 100;
+      return `<div class="fac-check">${esc(nombreProp(p))} — ${p.porcentaje}% — <b>${euro(importe)}</b></div>`;
+    }).join('');
+    el.innerHTML = `<div class="ficha-seccion-titulo">⚠️ Este apartamento tiene ${wiz.repartoActivos.length} propietarios activos: se emitirán ${wiz.repartoActivos.length} autofacturas independientes</div>${filas}`;
+    el.classList.remove('oculto');
+  }
+
+  // Con 2+ propietarios activos el backend no admite pagos sueltos combinados en la
+  // autofactura (solo cuotas del contrato) — oculta esa sección en vez de dejar que el
+  // usuario llegue al 409. Con 1 solo propietario, la deja como estaba.
+  function aplicarBloqueoPagosReparto() {
+    const contPagos = document.getElementById('wiz-pagos');
+    const resumenPagosEl = document.getElementById('wiz-pagos-resumen');
+    if (!contPagos) return;
+    if (wiz.repartoMulti) {
+      wiz.pagos = []; wiz.pagoSel = [];
+      contPagos.innerHTML = '<div class="fac-vacio">Varios propietarios activos: los pagos sueltos de propietario no se pueden combinar en esta autofactura, solo cuotas del contrato.</div>';
+      if (resumenPagosEl) resumenPagosEl.classList.add('oculto');
+      actualizarTotalComboWiz();
+    } else if (esAutofacturaContrato() && wiz.propSel) {
+      cargarPagosWiz(wiz.propSel);
+    }
   }
 
   // ---- Pagos de alojamiento pendientes ("Pagos propietario", combinables con las cuotas) ----
@@ -1243,6 +1306,7 @@ const Facturas = (() => {
     } else if (wiz.tipo === 'propietario' || wiz.tipo === 'autofactura') {
       if (!wiz.contratoSel) return toast('Selecciona un contrato', 'error');
       if (!wiz.cuotaSel.length && !wiz.pagoSel.length) return toast('Selecciona al menos una cuota o un pago', 'error');
+      if (wiz.repartoMulti && wiz.pagoSel.length) return toast('Este apartamento tiene varios propietarios activos: no se pueden incluir pagos sueltos, factura solo cuotas del contrato', 'error');
       body.contrato_id = wiz.contratoSel;
       body.cuota_ids = wiz.cuotaSel;
       body.pago_ids = wiz.pagoSel;
@@ -1287,11 +1351,41 @@ const Facturas = (() => {
       const res = await API.post('/api/facturas', body);
       cerrarModal();
       await cargar();
-      toast(`Factura ${res.numero} ${estado === 'borrador' ? 'guardada como borrador' : 'emitida correctamente'}`, 'ok');
-      await abrirFicha(res.id);
+      if (Array.isArray(res)) {
+        // Autofactura repartida entre varios propietarios: N facturas de golpe, no una sola
+        // ficha que abrir — mismo patrón que mostrarResumenSincronizacion en ventas.js.
+        mostrarResumenReparto(res, estado);
+      } else {
+        toast(`Factura ${res.numero} ${estado === 'borrador' ? 'guardada como borrador' : 'emitida correctamente'}`, 'ok');
+        await abrirFicha(res.id);
+      }
     } catch (e) {
       toast(e.message, 'error');
     }
+  }
+
+  // Resumen tras emitir una autofactura repartida: lista cada factura generada (propietario,
+  // número, importe) con un botón para abrir su ficha; no auto-abre ninguna porque hay varias.
+  function mostrarResumenReparto(creadas, estado) {
+    const filas = creadas.map((r) => `
+      <div class="rsv-dato" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div class="val">${esc(r.propietario_nombre)} — <b>${esc(r.numero)}</b></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="val" style="font-weight:700">${euro(r.importe)}</span>
+          <button class="btn-sec" data-ver-reparto-fac="${r.id}">Ver</button>
+        </div>
+      </div>`).join('');
+    abrirModal(`
+      <h3>📑 Autofactura repartida — ${creadas.length} facturas ${estado === 'borrador' ? 'guardadas como borrador' : 'emitidas'}</h3>
+      <div class="fac-wiz-paso">Una factura independiente por propietario activo, según su % de propiedad.</div>
+      <div style="margin-top:10px">${filas}</div>
+      <div class="modal-acciones"><button class="btn-pri" id="reparto-cerrar">Cerrar</button></div>`);
+    document.getElementById('reparto-cerrar').addEventListener('click', cerrarModal);
+    document.querySelectorAll('[data-ver-reparto-fac]').forEach((b) => b.addEventListener('click', () => {
+      cerrarModal();
+      abrirFicha(Number(b.dataset.verRepartoFac));
+    }));
+    toast(`${creadas.length} autofacturas ${estado === 'borrador' ? 'guardadas' : 'emitidas'} correctamente`, 'ok');
   }
 
   // ==================== Init ====================

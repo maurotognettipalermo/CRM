@@ -164,19 +164,40 @@ const insertarFactura = db.transaction((f, lineas) => {
 
 // ==================== Constructores por tipo ====================
 
+// Una cuota se considera ya facturada si está vinculada 1:1 (contrato_cuotas.factura_id,
+// caso normal / autofactura de un solo propietario) o si tiene algún vínculo N:M vigente
+// en contrato_cuota_facturas (autofactura repartida entre varios propietarios, con alguna
+// de sus facturas todavía sin anular).
+function cuotaYaFacturada(cuotaId) {
+  const cc = db.prepare('SELECT factura_id FROM contrato_cuotas WHERE id = ?').get(cuotaId);
+  if (cc && cc.factura_id) return true;
+  const row = db.prepare(`
+    SELECT 1 FROM contrato_cuota_facturas ccf
+    JOIN facturas f ON f.id = ccf.factura_id
+    WHERE ccf.cuota_id = ? AND f.estado != 'anulada' LIMIT 1
+  `).get(cuotaId);
+  return !!row;
+}
+
 function construirPropietario(body, autofactura) {
   const contratoId = intOrNull(body.contrato_id);
   const contrato = contratoId != null ? db.prepare('SELECT * FROM contratos WHERE id = ?').get(contratoId) : null;
   if (!contrato) return { error: 'Contrato no encontrado' };
   const rs = db.prepare('SELECT * FROM razones_sociales WHERE id = ?').get(intOrNull(body.razon_social_id));
   if (!rs) return { error: 'Razón social no válida' };
-  const propietario = contrato.propietario_id ? db.prepare('SELECT * FROM propietarios WHERE id = ?').get(contrato.propietario_id) : null;
-  if (!propietario) return { error: 'El contrato no tiene propietario asociado' };
   const apto = db.prepare('SELECT nombre FROM apartamentos WHERE id = ?').get(contrato.apartamento_id) || {};
 
   const ids = Array.isArray(body.cuota_ids) ? body.cuota_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
   const pagoIds = Array.isArray(body.pago_ids) ? body.pago_ids.map((x) => intOrNull(x)).filter((x) => x != null) : [];
   if (!ids.length && !pagoIds.length) return { error: 'Selecciona al menos una cuota o un pago' };
+
+  // Autofactura por contrato: si el apartamento tiene 2+ propietarios activos, reparte entre
+  // todos ellos (una autofactura independiente por cada uno). La factura normal a propietario
+  // (tipo 'propietario') sigue igual que siempre, con contrato.propietario_id, sin reparto.
+  if (autofactura) return construirAutofacturaPorContrato(contrato, rs, apto, ids, pagoIds);
+
+  const propietario = contrato.propietario_id ? db.prepare('SELECT * FROM propietarios WHERE id = ?').get(contrato.propietario_id) : null;
+  if (!propietario) return { error: 'El contrato no tiene propietario asociado' };
 
   let cuotas = [];
   if (ids.length) {
@@ -185,7 +206,7 @@ function construirPropietario(body, autofactura) {
     ).all(contrato.id, ...ids);
     if (!cuotas.length) return { error: 'No se encontraron cuotas válidas para ese contrato' };
 
-    const yaFacturadas = cuotas.filter((c) => c.factura_id);
+    const yaFacturadas = cuotas.filter((c) => cuotaYaFacturada(c.id));
     if (yaFacturadas.length) {
       return {
         error: `La(s) cuota(s) ${yaFacturadas.map((c) => c.numero_cuota).join(', ')} ya tienen una factura emitida`,
@@ -218,33 +239,136 @@ function construirPropietario(body, autofactura) {
   if (!lineas.length) return { error: 'No se encontraron cuotas ni pagos válidos para facturar' };
 
   const f = nuevaFactura();
-  f.tipo = autofactura ? 'autofactura' : 'propietario';
+  f.tipo = 'propietario';
   f.contrato_id = contrato.id;
   f.apartamento_id = contrato.apartamento_id;
   f.propietario_id = contrato.propietario_id;
   f.porcentaje_iva = contrato.aplica_iva ? 21 : 0;
   f.porcentaje_retencion = num(contrato.porcentaje_retencion);
   f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+  Object.assign(f, emisorDeRazon(rs));
+  f.receptor_nombre = nombrePropietario(propietario);
+  f.receptor_cif = cifPropietario(propietario);
+  f.receptor_direccion = direccionPropietario(propietario);
+  f.receptor_email = propietario.email || null;
 
-  if (autofactura) {
-    // Emisor = propietario, receptor = nuestra razón social.
-    f.razon_social_id = rs.id;
-    f.emisor_nombre = nombrePropietario(propietario);
-    f.emisor_cif = cifPropietario(propietario);
-    f.emisor_direccion = direccionPropietario(propietario);
-    f.emisor_logo_url = null;
-    f.receptor_nombre = rs.razon_social || rs.nombre_comercial || '';
-    f.receptor_cif = rs.cif_nif || null;
-    f.receptor_direccion = direccionRazon(rs);
-    f.receptor_email = rs.email_contacto || null;
-  } else {
-    Object.assign(f, emisorDeRazon(rs));
-    f.receptor_nombre = nombrePropietario(propietario);
-    f.receptor_cif = cifPropietario(propietario);
-    f.receptor_direccion = direccionPropietario(propietario);
-    f.receptor_email = propietario.email || null;
-  }
   return { f, lineas, cuotaIds: cuotas.map((c) => c.id), pagoPropietarioIds: pagos.map((p) => p.id) };
+}
+
+// Emisor de una autofactura para un propietario dado (emisor=propietario, receptor=razón social).
+function nuevaAutofactura(contrato, rs, propietario) {
+  const f = nuevaFactura();
+  f.tipo = 'autofactura';
+  f.contrato_id = contrato.id;
+  f.apartamento_id = contrato.apartamento_id;
+  f.propietario_id = propietario.id;
+  f.porcentaje_iva = contrato.aplica_iva ? 21 : 0;
+  f.porcentaje_retencion = num(contrato.porcentaje_retencion);
+  f.razon_social_id = rs.id;
+  f.emisor_nombre = nombrePropietario(propietario);
+  f.emisor_cif = cifPropietario(propietario);
+  f.emisor_direccion = direccionPropietario(propietario);
+  f.emisor_logo_url = null;
+  f.receptor_nombre = rs.razon_social || rs.nombre_comercial || '';
+  f.receptor_cif = rs.cif_nif || null;
+  f.receptor_direccion = direccionRazon(rs);
+  f.receptor_email = rs.email_contacto || null;
+  return f;
+}
+
+// Autofactura por contrato: consulta los propietarios ACTIVOS del apartamento (fuente única
+// de verdad, no contrato.propietario_id que puede haber quedado desactualizado si la
+// titularidad cambió tras firmar el contrato). Con 1 solo activo, factura normal de siempre.
+// Con 2+, reparte el importe de cada cuota según su % de propiedad y emite una autofactura
+// independiente por propietario (mismo contrato, misma IVA/retención del contrato para todas).
+function construirAutofacturaPorContrato(contrato, rs, apto, ids, pagoIds) {
+  const activos = db.prepare(`
+    SELECT p.*, ap.id AS relacion_id, ap.porcentaje AS porcentaje_propiedad
+    FROM apartamento_propietarios ap
+    JOIN propietarios p ON p.id = ap.propietario_id
+    WHERE ap.apartamento_id = ? AND ap.activo = 1
+    ORDER BY ap.porcentaje DESC, ap.fecha_inicio ASC, ap.id ASC
+  `).all(contrato.apartamento_id);
+  if (!activos.length) return { error: 'El apartamento no tiene propietarios activos' };
+
+  if (activos.length > 1 && pagoIds.length) {
+    return { error: 'Los pagos sueltos de propietario no se pueden incluir en la autofactura cuando el apartamento tiene varios propietarios activos: factura solo cuotas del contrato en ese caso' };
+  }
+
+  let cuotas = [];
+  if (ids.length) {
+    cuotas = db.prepare(
+      `SELECT * FROM contrato_cuotas WHERE contrato_id = ? AND id IN (${ids.map(() => '?').join(',')}) ORDER BY numero_cuota`
+    ).all(contrato.id, ...ids);
+    if (!cuotas.length) return { error: 'No se encontraron cuotas válidas para ese contrato' };
+
+    const yaFacturadas = cuotas.filter((c) => cuotaYaFacturada(c.id));
+    if (yaFacturadas.length) {
+      return {
+        error: `La(s) cuota(s) ${yaFacturadas.map((c) => c.numero_cuota).join(', ')} ya tienen una factura emitida`,
+        status: 409,
+      };
+    }
+  }
+
+  // --- Un solo propietario activo: comportamiento idéntico al de siempre, una única factura ---
+  if (activos.length === 1) {
+    const propietario = activos[0];
+    let pagos = [];
+    if (pagoIds.length) {
+      pagos = db.prepare(`
+        SELECT * FROM pagos_propietario WHERE id IN (${pagoIds.map(() => '?').join(',')}) AND factura_id IS NULL AND apartamento_id = ?
+      `).all(...pagoIds, contrato.apartamento_id);
+    }
+    const lineas = [
+      ...cuotas.map((c) => ({
+        descripcion: `Pago ${c.numero_cuota} — ${apto.nombre || 'Apartamento'} — ${mesDeFecha(c.fecha_prevista)}`,
+        cantidad: 1, precio_unitario: round2(c.importe), importe: round2(c.importe),
+      })),
+      ...pagos.map((p) => ({
+        descripcion: p.concepto, cantidad: 1, precio_unitario: round2(p.importe), importe: round2(p.importe),
+      })),
+    ];
+    if (!lineas.length) return { error: 'No se encontraron cuotas ni pagos válidos para facturar' };
+
+    const f = nuevaAutofactura(contrato, rs, propietario);
+    f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+    return { f, lineas, cuotaIds: cuotas.map((c) => c.id), pagoPropietarioIds: pagos.map((p) => p.id) };
+  }
+
+  // --- 2+ propietarios activos: reparto proporcional, una autofactura por propietario ---
+  if (!cuotas.length) return { error: 'Selecciona al menos una cuota para repartir entre los propietarios' };
+
+  // Reparto por cuota (no por total) para que cada cuota cuadre exacta: cada propietario salvo
+  // el principal (mayor %) se redondea a 2 decimales; el principal se lleva el resto exacto,
+  // así la suma de las partes siempre coincide con cuota.importe sin descuadres de céntimos.
+  const splitsPorPropietario = activos.map(() => []);
+  for (const c of cuotas) {
+    let acumulado = 0;
+    activos.forEach((p, idx) => {
+      if (idx === 0) return;
+      const importe = round2(c.importe * (p.porcentaje_propiedad / 100));
+      acumulado += importe;
+      splitsPorPropietario[idx].push({ cuota: c, importe });
+    });
+    splitsPorPropietario[0].push({ cuota: c, importe: round2(c.importe - acumulado) });
+  }
+
+  const items = activos.map((propietario, idx) => {
+    const splits = splitsPorPropietario[idx];
+    const lineas = splits.map(({ cuota, importe }) => ({
+      descripcion: `Pago ${cuota.numero_cuota} — ${apto.nombre || 'Apartamento'} — ${mesDeFecha(cuota.fecha_prevista)} (${propietario.porcentaje_propiedad}% propiedad)`,
+      cantidad: 1, precio_unitario: importe, importe,
+    }));
+    const f = nuevaAutofactura(contrato, rs, propietario);
+    f.base_imponible = lineas.reduce((s, l) => s + l.importe, 0);
+    return {
+      f, lineas, propietario_id: propietario.id, propietario_nombre: nombrePropietario(propietario),
+      splits: splits.map(({ cuota, importe }) => ({ cuota_id: cuota.id, porcentaje: propietario.porcentaje_propiedad, importe })),
+    };
+  });
+
+  return { reparto: true, items, cuotaIds: cuotas.map((c) => c.id) };
 }
 
 function construirGastos(body) {
@@ -726,6 +850,46 @@ router.post('/', (req, res) => {
   else construido = construirHuesped(body);
 
   if (construido.error) return res.status(construido.status || 400).json({ error: construido.error });
+
+  // Autofactura repartida entre 2+ propietarios activos: N facturas independientes en una
+  // sola transacción, vinculadas a sus cuotas vía contrato_cuota_facturas (N:M).
+  if (construido.reparto) {
+    const fechaEmision = String(body.fecha_emision || '').trim() || hoyISO();
+    const anio = intOrNull(body.anio) || parseInt(fechaEmision.slice(0, 4), 10);
+    const estado = ESTADOS.includes(body.estado) ? body.estado : 'emitida';
+    for (const item of construido.items) {
+      item.f.serie = String(body.serie || 'F'); // insertarFactura la recalcula con serieAutofactura()
+      item.f.fecha_emision = fechaEmision;
+      item.f.anio = anio;
+      item.f.estado = estado;
+      item.f.fecha_vencimiento = txt(body.fecha_vencimiento);
+      if (body.notas) item.f.notas = item.f.notas ? `${item.f.notas}\n${body.notas}` : String(body.notas);
+      item.f.created_by = (req.usuario && req.usuario.username) || null;
+      calcularImportes(item.f);
+    }
+
+    let creadas;
+    try {
+      creadas = db.transaction(() => {
+        const insCcf = db.prepare(
+          'INSERT INTO contrato_cuota_facturas (cuota_id, factura_id, propietario_id, porcentaje, importe) VALUES (?, ?, ?, ?, ?)'
+        );
+        return construido.items.map((item) => {
+          const creada = insertarFactura(item.f, item.lineas);
+          for (const s of item.splits) insCcf.run(s.cuota_id, creada.id, item.propietario_id, s.porcentaje, s.importe);
+          return { id: creada.id, numero: creada.numero, propietario_nombre: item.propietario_nombre, importe: item.f.total };
+        });
+      })();
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+
+    for (const r of creadas) {
+      registrarActividad(db, req.usuario && req.usuario.id, req.usuario && req.usuario.nombre, 'crear', 'factura', r.id, `${r.numero} (autofactura reparto)`);
+    }
+    return res.status(201).json(creadas);
+  }
+
   const { f, lineas } = construido;
 
   // Metadatos comunes del body.

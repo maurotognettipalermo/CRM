@@ -210,6 +210,21 @@ CREATE TABLE IF NOT EXISTS contrato_cuotas (
   notas          TEXT
 );
 
+-- Vínculo N:M cuota↔factura, solo para autofacturas repartidas entre 2+ propietarios activos
+-- de un mismo apartamento (contrato_cuotas.factura_id es FK única y no sirve para ese caso).
+-- Con un solo propietario activo se sigue usando contrato_cuotas.factura_id como siempre.
+CREATE TABLE IF NOT EXISTS contrato_cuota_facturas (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  cuota_id       INTEGER NOT NULL REFERENCES contrato_cuotas(id) ON DELETE CASCADE,
+  factura_id     INTEGER NOT NULL REFERENCES facturas(id) ON DELETE CASCADE,
+  propietario_id INTEGER NOT NULL REFERENCES propietarios(id) ON DELETE CASCADE,
+  porcentaje     REAL NOT NULL,   -- % de propiedad aplicado en el reparto
+  importe        REAL NOT NULL,   -- parte de cuota.importe facturada a este propietario
+  created_at     TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ccf_cuota ON contrato_cuota_facturas(cuota_id);
+CREATE INDEX IF NOT EXISTS idx_ccf_factura ON contrato_cuota_facturas(factura_id);
+
 -- Fechas de uso del propietario dentro de un contrato (generan reservas "De propietario";
 -- el resto de la temporada fuera del contrato se rellena con bloqueos automáticos).
 CREATE TABLE IF NOT EXISTS contrato_fechas_propietario (
