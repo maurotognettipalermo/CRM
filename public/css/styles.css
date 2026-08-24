@@ -3715,6 +3715,8 @@ thead .aus-cal-emp { z-index: 3; background: #f9fafb; }
 .lead-bdg-esperando  { background: #fefce8; color: #a16207; }
 .lead-bdg-reservado  { background: #f0fdf4; color: #047857; }
 .lead-bdg-descartado { background: #fef2f2; color: #b91c1c; }
+.lead-bdg-interesado { background: #fff7ed; color: #c2410c; }
+.lead-bdg-captado    { background: #f0fdf4; color: #047857; }
 
 /* Banner convertido en reserva */
 .lead-banner-reservado {

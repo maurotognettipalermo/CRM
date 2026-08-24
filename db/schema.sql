@@ -912,6 +912,35 @@ CREATE TABLE IF NOT EXISTS lead_notas (
 CREATE INDEX IF NOT EXISTS idx_lead_notas_lead ON lead_notas(lead_id);
 
 -- ===========================================================================
+-- Captación — pipeline de pisos candidatos a captar como propietarios nuevos.
+-- Independiente de leads (que es captación de clientes/inquilinos, no de propietarios).
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS captaciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Piso candidato: información temprana, puede estar incompleta.
+  nombre_piso TEXT,
+  direccion TEXT,
+  m2 REAL,
+  capacidad INTEGER,
+  -- Propietario potencial.
+  propietario_nombre TEXT NOT NULL,
+  propietario_telefono TEXT,
+  propietario_email TEXT,
+  fuente TEXT,        -- referido / idealista / panfleto / redes / otro (texto libre)
+  fase TEXT DEFAULT 'contactado' CHECK(fase IN ('contactado', 'interesado', 'captado', 'descartado')),
+  motivo_descarte TEXT,
+  notas TEXT,
+  atendido_por TEXT,   -- responsable del equipo (mismo patrón que leads.atendido_por)
+  created_by TEXT,
+  -- Se rellenan al convertir en alojamiento real (POST /:id/convertir).
+  apartamento_id INTEGER REFERENCES apartamentos(id) ON DELETE SET NULL,
+  propietario_id INTEGER REFERENCES propietarios(id) ON DELETE SET NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_captaciones_fase ON captaciones(fase);
+
+-- ===========================================================================
 -- Clientes (huéspedes/inquilinos) — importables del export de Avantio.
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS clientes (

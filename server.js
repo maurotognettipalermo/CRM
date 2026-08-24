@@ -56,6 +56,7 @@ app.use('/api/ventas', require('./routes/ventas'));
 app.use('/api/mayoristas', require('./routes/mayoristas'));
 app.use('/api/personal', require('./routes/personal'));
 app.use('/api/leads', require('./routes/leads'));
+app.use('/api/captaciones', require('./routes/captaciones'));
 app.use('/api/clientes', require('./routes/clientes'));
 app.use('/api/restricciones', require('./routes/restricciones'));
 app.use('/api/extras', require('./routes/extras-inventario'));

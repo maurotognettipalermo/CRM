@@ -84,6 +84,7 @@ Orden de carga: `api.js` → `auth.js` → módulos → `app.js` (último). Los 
 | `ventas.js` | `Ventas` | `init/cargar/abrirFicha`; sub-pestañas 2-5 inyectadas en runtime. Botón "🌐 Publicar en la web" en el listado de Propiedades (junto a "Importar Idealista") → `sincronizarWeb()`, confirma, llama `POST /sincronizar-web` y muestra el resumen en un modal (`mostrarResumenSincronizacion`). Sub-pestaña "Destacados web" (`construirDestacados`/`cargarDestacados`): 3 puestos, cada uno vacío (buscador de propiedades ya publicadas) u ocupado (tarjeta + botón Quitar) |
 | `personal.js` | `Personal` | `init/cargar`; sub-pestañas inyectadas en runtime |
 | `leads.js` | `Leads` | `init/cargar/abrirFicha` |
+| `captaciones.js` | `Captacion` | `init/cargar/abrirFicha`. Pipeline de pisos candidatos a captar como propietarios nuevos (independiente de Leads, que capta clientes/inquilinos). Cambio de fase por dropdown en cabecera de ficha (como Leads); pasar a "descartado" exige `motivo_descarte` (modal aparte). Botón "Convertir en Alojamiento" (oculto si descartada o ya convertida) llama `POST /:id/convertir` y redirige a la ficha del alojamiento nuevo |
 | `clientes-alquiler.js` | `ClientesAlquiler` | `init/cargar/abrirFicha` (IIFE distinto de clientes de Ventas) |
 | `extras-inventario.js` | `ExtrasInventario` | `init/cargar` |
 | `estadisticas.js` | — | solo admin; sub-pestañas 4-6 inyectadas en runtime |
@@ -294,6 +295,8 @@ Todas las rutas `/api/*` salvo `/api/auth/login` requieren header `X-Auth-Token`
 | POST/DELETE | /api/leads/:id/notas[/:nota_id] | Hilo de notas |
 | GET/POST | /api/leads/:id/propuestas | POST `{plantilla_id, apartamento_id, precio_propuesto, foto_ids[], email_destino, asunto, mensaje}` |
 | POST | /api/leads/:id/propuestas/:prop_id/enviar | Envía email; enviada=1 + lead→'propuesta_enviada' |
+| GET/POST/PUT/DELETE | /api/captaciones[/:id] | Pipeline de captación de propietarios (pisos candidatos). `?fase=&buscar=`. POST/PUT: `fase='descartado'` exige `motivo_descarte` (400 si falta). DELETE→409 si ya convertida (`apartamento_id` relleno) |
+| POST | /api/captaciones/:id/convertir | Crea `propietarios`+`apartamentos` reales (transacción), vincula en `apartamento_propietarios` al 100% activo, capta→fase='captado'. 409 si descartada o ya convertida. Devuelve `{ok, apartamento_id, propietario_id}`. El `m2` de la captación NO se traslada (`apartamentos` no tiene esa columna) |
 | GET | /api/dashboard | `proximos_checkin, reservas_en_curso, proximos_checkout` (máx 50 c/u) + `pagos_pendientes` |
 | GET | /api/estadisticas/portales | `?anio=`. Ingresos por portal (excluye canceladas). Si portal tiene `mayorista_id`: usa `importe_total` del contrato anual como ingreso (sin comisión). Si no: `ingresos_netos = ingresos_brutos × (1 − comision_porcentaje/100)`. Resumen usa `ingresos_netos` |
 | GET | /api/estadisticas/apartamentos | `?anio=[&apartamento_id=]`. Sin id: resumen. Con id: detalle + reservas |

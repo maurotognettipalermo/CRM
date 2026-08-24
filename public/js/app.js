@@ -91,6 +91,7 @@ function arrancarApp() {
   Mantenimiento.init();
   Ventas.init();
   Leads.init();
+  Captacion.init();
   ClientesAlquiler.init();
   Personal.init();
   ExtrasInventario.init();
@@ -229,6 +230,7 @@ function activarTab(nombre) {
   if (nombre === 'tarifas')      Tarifas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'ventas')       Ventas.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'comercial')    Leads.cargar().catch((e) => toast(e.message, 'error'));
+  if (nombre === 'captacion')    Captacion.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'extras')       ExtrasInventario.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'clientes')     ClientesAlquiler.cargar().catch((e) => toast(e.message, 'error'));
   if (nombre === 'propietarios') Propietarios.cargar().catch((e) => toast(e.message, 'error'));
