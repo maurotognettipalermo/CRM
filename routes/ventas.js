@@ -795,7 +795,7 @@ const PROP_CAMPOS = [
   'apartamento_nombre',
   'referencia', 'codigo_idealista', 'tipo', 'operacion', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad',
   'precio', 'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica',
-  'garaje', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
+  'garaje', 'tiene_trastero', 'numero_trastero', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
   'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
   'propietario_venta_id',
   'descripcion', 'notas',
@@ -806,8 +806,10 @@ const PROP_CAMPOS = [
 ];
 const PROP_INT = ['dormitorios', 'banos', 'num_fotos', 'propietario_venta_id', 'factura_comprador_id', 'factura_vendedor_id'];
 const PROP_REAL = ['precio', 'metros_cuadrados', 'metros_utiles', 'precio_venta_final', 'comision_total', 'comision_comprador', 'comision_vendedor'];
+const PROP_BOOL = ['tiene_trastero'];
 
 function normalizaPropCampo(campo, valor) {
+  if (PROP_BOOL.includes(campo)) return aBool(valor);
   if (PROP_INT.includes(campo)) return aEntero(valor);
   if (PROP_REAL.includes(campo)) return aReal(valor);
   return txt(valor);

@@ -432,6 +432,7 @@ const Ventas = (() => {
           ${dato('m² útiles', d.metros_utiles ?? '—')}
           ${dato('Clase energética', esc(d.clase_energetica) || '—')}
           ${dato('Garaje', esc(d.garaje) || '—')}
+          ${dato('Trastero', d.tiene_trastero ? `Sí${d.numero_trastero ? ' (nº ' + esc(d.numero_trastero) + ')' : ''}` : 'No')}
           ${dato('Fotos en Idealista', d.num_fotos ?? 0)}
           ${dato('Estado Idealista', esc(d.estado_idealista) || '—')}
           ${dato('Fecha alta', fechaES(d.fecha_alta))}
@@ -976,6 +977,10 @@ const Ventas = (() => {
         <div class="campo"><label>Clase energética</label><input id="vf-clase_energetica" value="${esc(p.clase_energetica)}"></div>
         <div class="campo"><label>Garaje</label><input id="vf-garaje" value="${esc(p.garaje)}"></div>
       </div>
+      <div class="fila-campos">
+        <div class="campo pago-toggle-campo"><label><input type="checkbox" id="vf-tiene_trastero"${p.tiene_trastero ? ' checked' : ''}> Trastero</label></div>
+        <div class="campo"><label>Nº de trastero</label><input id="vf-numero_trastero" value="${esc(p.numero_trastero)}"></div>
+      </div>
       <div class="vta-modal-sub">Propietario</div>
       <div class="campo vta-ta">
         <label>Propietario de la cartera de ventas</label>
@@ -1047,7 +1052,7 @@ const Ventas = (() => {
   const CAMPOS_FORM = [
     'apartamento_nombre',
     'referencia', 'tipo', 'operacion', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad', 'precio', 'estado',
-    'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje',
+    'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje', 'numero_trastero',
     'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
     'descripcion', 'notas',
   ];
@@ -1057,6 +1062,7 @@ const Ventas = (() => {
     if (id && !referencia) return toast('La referencia es obligatoria', 'error');
     const body = {};
     for (const c of CAMPOS_FORM) body[c] = val('vf-' + c);
+    body.tiene_trastero = document.getElementById('vf-tiene_trastero')?.checked ? 1 : 0;
     if (referencia) body.referencia = referencia; else delete body.referencia; // nueva sin referencia -> la genera el backend
     body.propietario_venta_id = vfPropVentaId; // null = sin vínculo
 

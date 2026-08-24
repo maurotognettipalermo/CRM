@@ -248,6 +248,9 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   // solo se puede activar sobre una propiedad ya publicada (Disponible + wp_url).
   destacado_web: 'INTEGER DEFAULT 0',
   destacado_orden: 'INTEGER',
+  // Trastero: checkbox + nº identificativo (independiente de garaje).
+  tiene_trastero: 'INTEGER DEFAULT 0',
+  numero_trastero: 'TEXT',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.
