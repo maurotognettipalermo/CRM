@@ -16,6 +16,7 @@ const Facturas = (() => {
   // Cachés cargadas bajo demanda para el wizard.
   let razonesCache = null;
   let propietariosCache = null;
+  let propietariosVentaCache = null;
   let apartamentosCache = null;
   let reservasCache = null;
 
@@ -688,6 +689,7 @@ const Facturas = (() => {
 
   async function ensureRazones() { if (!razonesCache) razonesCache = await API.get('/api/ajustes/razones-sociales'); return razonesCache; }
   async function ensurePropietarios() { if (!propietariosCache) propietariosCache = await API.get('/api/propietarios'); return propietariosCache; }
+  async function ensurePropietariosVenta() { if (!propietariosVentaCache) propietariosVentaCache = await API.get('/api/ventas/propietarios-venta'); return propietariosVentaCache; }
   async function ensureApartamentos() { if (!apartamentosCache) apartamentosCache = await API.get('/api/apartamentos?todos=1'); return apartamentosCache; }
   async function ensureReservas() { if (!reservasCache) reservasCache = await API.get('/api/reservas/todas'); return reservasCache; }
 
@@ -861,7 +863,13 @@ const Facturas = (() => {
         ${selectorAutof}
         <div class="ficha-seccion-titulo">${autofLibre ? 'Datos del propietario (emisor)' : 'Receptor'}</div>
         <div class="fila-campos">
-          <div class="campo"><label>Nombre receptor *</label><input id="wiz-rec-nombre"></div>
+          ${autofLibre
+            ? `<div class="campo"><label>Nombre receptor *</label><input id="wiz-rec-nombre"></div>`
+            : `<div class="campo cnt-typeahead">
+                 <label>Nombre receptor *</label>
+                 <input id="wiz-rec-nombre" placeholder="Nombre, o busca un propietario..." autocomplete="off">
+                 <div class="cnt-ta-dropdown oculto" id="wiz-rec-dd"></div>
+               </div>`}
           <div class="campo"><label>CIF/NIF</label><input id="wiz-rec-cif"></div>
         </div>
         <div class="fila-campos">
@@ -939,6 +947,9 @@ const Facturas = (() => {
 
   // ---- Libre ----
   function wireLibre() {
+    const autofLibre = wiz.tipo === 'autofactura' && wiz.modoAutofactura === 'libre';
+    if (!autofLibre) wireReceptorTypeahead();
+
     const body = document.getElementById('wiz-libre-body');
     const impLinea = (l) => euro((Number(l.cantidad) || 0) * (Number(l.precio_unitario) || 0));
 
@@ -1033,6 +1044,32 @@ const Facturas = (() => {
       () => { wiz.propSel = null; cargarPagosWiz(null); });
 
     document.getElementById('wiz-contrato').addEventListener('change', (e) => cargarCuotasWiz(Number(e.target.value) || null));
+  }
+
+  // Typeahead del receptor en factura/proforma Libre: busca entre propietarios de Alquiler
+  // Y de Ventas (carteras distintas, ver CLAUDE.md) y autorrellena los datos fiscales al elegir.
+  async function wireReceptorTypeahead() {
+    const [alquiler, venta] = await Promise.all([ensurePropietarios(), ensurePropietariosVenta()]);
+    // Alfabético (no agrupado por origen): con 50 resultados de corte, agrupar por origen dejaba
+    // fuera a los de Ventas siempre que Alquiler ya tuviera 50+ coincidencias para la búsqueda.
+    const candidatos = [
+      ...alquiler.map((p) => ({ ...p, _origen: 'Alquiler' })),
+      ...venta.map((p) => ({ ...p, _origen: 'Ventas' })),
+    ].sort((a, b) => nombreProp(a).localeCompare(nombreProp(b), 'es'));
+    crearTypeahead('wiz-rec-nombre', 'wiz-rec-dd',
+      (q) => candidatos.filter((p) => nombreProp(p).toLowerCase().includes(q.toLowerCase()) || (p.email || '').toLowerCase().includes(q.toLowerCase())),
+      (p) => `<span class="cnt-ta-nombre">${esc(nombreProp(p))} <span class="cnt-ta-edif">${p._origen}${p.email ? ' · ' + esc(p.email) : ''}</span></span>`,
+      (p) => {
+        document.getElementById('wiz-rec-nombre').value = nombreProp(p);
+        document.getElementById('wiz-rec-cif').value = p.numero_documento || p.dni || '';
+        document.getElementById('wiz-rec-dir').value = p.direccion || '';
+        document.getElementById('wiz-rec-email').value = p.email || '';
+        const ciudadEl = document.getElementById('wiz-rec-ciudad');
+        const cpEl = document.getElementById('wiz-rec-cp');
+        if (ciudadEl) ciudadEl.value = p.ciudad || '';
+        if (cpEl) cpEl.value = p.codigo_postal || '';
+      },
+      () => {});
   }
 
   async function cargarContratosWiz(propId) {
