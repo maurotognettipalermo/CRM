@@ -1035,7 +1035,12 @@ router.get('/propiedades/:id/cartel-pdf', (req, res) => {
 
   const descY = boxY + boxH + 10;
   doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000')
-    .text(prop.descripcion || '', boxX, descY, { width: boxW, align: 'center' });
+    .text(prop.descripcion || '', boxX, descY, {
+      width: boxW,
+      height: midY1 - 8 - descY,
+      align: 'center',
+      ellipsis: true,
+    });
 
   // ---- Columna derecha: rejilla 2x2 de fotos ----
   const gridX0 = dividerX + 8, gridY0 = midY0 + 8;
