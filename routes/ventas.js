@@ -795,7 +795,8 @@ const PROP_CAMPOS = [
   'apartamento_nombre',
   'referencia', 'codigo_idealista', 'tipo', 'operacion', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad',
   'precio', 'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica',
-  'garaje', 'tiene_trastero', 'numero_trastero', 'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
+  'garaje', 'tiene_trastero', 'numero_trastero', 'muebles', 'aire_acondicionado', 'orientacion',
+  'num_fotos', 'estado', 'estado_idealista', 'fecha_alta', 'fecha_baja',
   'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
   'propietario_venta_id',
   'descripcion', 'notas',
@@ -934,6 +935,131 @@ router.put('/propiedades/:id', (req, res) => {
   vals.id = prop.id;
   db.prepare(`UPDATE propiedades_venta SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = @id`).run(vals);
   res.json({ ok: true });
+});
+
+// ============================================================
+// Cartel de escaparate (GET /propiedades/:id/cartel-pdf)
+// ============================================================
+// Réplica en pdfkit del cartel que generaba el programa antiguo (Firebird/FastReport,
+// opción "Imprimir escaparate horizontal"): A4 horizontal, logo Costa Azahar + título +
+// precio arriba, ficha de características y descripción a la izquierda, foto principal +
+// 3 secundarias en rejilla 2x2 a la derecha, pie con referencia/web/teléfono.
+const CARTEL_WEB = 'www.hectorinmobiliaria.com';
+const CARTEL_TEL_DEFECTO = '964 31 32 80';
+
+function formatearEurosCartel(n) {
+  return Number(n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+// Fila "Etiqueta ....... Valor" con línea de puntos rellenando el hueco, como en el cartel
+// original. Antes de dibujar los puntos comprueba que quede hueco (rótulos largos + valores
+// largos en cajas estrechas podrían solaparse si no se recorta el nº de puntos a 0).
+function filaPunteadaCartel(doc, x, y, w, label, valor) {
+  doc.font('Helvetica').fontSize(9.5).fillColor('#000000');
+  doc.text(label, x, y, { lineBreak: false });
+  const labelW = doc.widthOfString(label);
+  const valorW = doc.widthOfString(valor);
+  const dotsX0 = x + labelW + 4;
+  const dotsX1 = x + w - valorW - 4;
+  if (dotsX1 > dotsX0) {
+    const dotW = doc.widthOfString('.') || 1;
+    const nDots = Math.max(0, Math.floor((dotsX1 - dotsX0) / dotW));
+    doc.text('.'.repeat(nDots), dotsX0, y, { lineBreak: false });
+  }
+  doc.font('Helvetica-Bold').text(valor, x, y, { width: w, align: 'right' });
+}
+
+router.get('/propiedades/:id/cartel-pdf', (req, res) => {
+  const prop = db.prepare('SELECT * FROM propiedades_venta WHERE id = ?').get(req.params.id);
+  if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
+  const fotos = db.prepare('SELECT url FROM propiedad_fotos WHERE propiedad_id = ? ORDER BY orden, id LIMIT 4').all(prop.id);
+
+  // Logo de la marca "Costa Azahar" (la que se usa en el cartel original, no la razón social
+  // por defecto de facturación, que puede ser otra distinta).
+  const rsLogo = db.prepare("SELECT logo_url, telefono FROM razones_sociales WHERE razon_social LIKE '%COSTA AZAHAR%' LIMIT 1").get();
+  const logoBuf = rsLogo ? leerLogoVenta(rsLogo.logo_url) : null;
+  const telefono = (rsLogo && rsLogo.telefono) || CARTEL_TEL_DEFECTO;
+
+  const M = 20;
+  const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: M });
+  const chunks = [];
+  doc.on('data', (c) => chunks.push(c));
+  doc.on('end', () => {
+    const pdf = Buffer.concat(chunks);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="cartel-${prop.referencia}.pdf"`);
+    res.send(pdf);
+  });
+  doc.on('error', (e) => { if (!res.headersSent) res.status(500).json({ error: e.message }); });
+
+  const x0 = M, y0 = M;
+  const x1 = doc.page.width - M, y1 = doc.page.height - M;
+  const innerW = x1 - x0, innerH = y1 - y0;
+  const leftW = innerW * 0.30;
+  const dividerX = x0 + leftW;
+  const headerH = 85;
+  const footerH = 28;
+  const midY0 = y0 + headerH;
+  const midY1 = y1 - footerH;
+
+  doc.lineWidth(1.5).rect(x0, y0, innerW, innerH).stroke('#000000');
+  doc.lineWidth(0.75)
+    .moveTo(dividerX, y0).lineTo(dividerX, midY1).stroke('#000000')
+    .moveTo(x0, midY1).lineTo(x1, midY1).stroke('#000000');
+
+  // ---- Cabecera: logo + título + precio ----
+  if (logoBuf) { try { doc.image(logoBuf, x0 + 10, y0 + 10, { fit: [leftW - 20, headerH - 20], align: 'center', valign: 'center' }); } catch (e) { /* logo inválido */ } }
+  const titulo = prop.apartamento_nombre || [prop.calle, prop.numero].filter(Boolean).join(' ') || prop.zona || prop.referencia;
+  const headerTextY = y0 + headerH / 2 - 8;
+  doc.font('Helvetica-Bold').fontSize(15).fillColor('#000000')
+    .text(titulo, dividerX + 10, headerTextY, { width: innerW - leftW - 170, align: 'center' });
+  doc.text(formatearEurosCartel(prop.precio), x1 - 150, headerTextY, { width: 140, align: 'right' });
+
+  // ---- Columna izquierda: ficha de características + descripción ----
+  const boxX = x0 + 8, boxY = midY0 + 8, boxW = leftW - 16;
+  const filas = [
+    ['Habitaciones', prop.dormitorios != null ? String(prop.dormitorios) : '—'],
+    ['Baños', prop.banos != null ? String(prop.banos) : '—'],
+    ['Muebles', prop.muebles || '—'],
+    ['Garaje', prop.garaje || '—'],
+    ['Trastero', prop.tiene_trastero ? ('SÍ' + (prop.numero_trastero ? ` (nº ${prop.numero_trastero})` : '')) : 'NO'],
+    ['Aire acondicionado', prop.aire_acondicionado || '—'],
+    ['Orientación', prop.orientacion || '—'],
+  ];
+  const filaH = 19;
+  const boxH = filas.length * filaH + 12;
+  doc.lineWidth(1).rect(boxX, boxY, boxW, boxH).fillAndStroke('#dedede', '#000000');
+  filas.forEach(([label, valor], i) => {
+    filaPunteadaCartel(doc, boxX + 8, boxY + 6 + i * filaH, boxW - 16, label, valor);
+  });
+
+  const descY = boxY + boxH + 10;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000')
+    .text(prop.descripcion || '', boxX, descY, { width: boxW, align: 'center' });
+
+  // ---- Columna derecha: rejilla 2x2 de fotos ----
+  const gridX0 = dividerX + 8, gridY0 = midY0 + 8;
+  const gridW = x1 - 8 - gridX0, gridH = midY1 - 8 - gridY0;
+  const gap = 6;
+  const cellW = (gridW - gap) / 2, cellH = (gridH - gap) / 2;
+  const celdas = [[0, 0], [1, 0], [0, 1], [1, 1]];
+  celdas.forEach(([cx, cy], i) => {
+    const px = gridX0 + cx * (cellW + gap), py = gridY0 + cy * (cellH + gap);
+    const foto = fotos[i] ? leerLogoVenta(fotos[i].url) : null;
+    if (foto) {
+      try { doc.image(foto, px, py, { fit: [cellW, cellH], align: 'center', valign: 'center' }); return; } catch (e) { /* foto inválida, cae al placeholder */ }
+    }
+    doc.rect(px, py, cellW, cellH).fill('#f0f0f0');
+  });
+
+  // ---- Pie: referencia / web / teléfono ----
+  const footerY = midY1 + footerH / 2 - 5;
+  doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000')
+    .text(`Nº Exp. ${prop.referencia}`, x0 + 10, footerY, { width: 200 });
+  doc.fillColor('#1e6fd9').text(CARTEL_WEB, x0, footerY, { width: innerW, align: 'center' });
+  doc.text(`Tel. ${telefono}`, x1 - 150, footerY, { width: 140, align: 'right' });
+
+  doc.end();
 });
 
 // PUT /api/ventas/propiedades/:id/destacado — marcar/quitar "destacado web" con su puesto (1-3).
@@ -1167,7 +1293,7 @@ async function publicarPropiedadEnWeb(prop) {
   set('anio_construccion', prop.anio_construccion); // columna no existe hoy en propiedades_venta: queda omitido
   set('direccion', [prop.calle, prop.numero].filter(Boolean).join(' '));
   set('referencia', prop.referencia);
-  if (prop.aire_acondicionado) set('aire_acondicionado', 'Sí'); // columna no existe hoy: nunca se envía
+  set('aire_acondicionado', prop.aire_acondicionado);
   if (prop.piscina_privada) set('piscina', 'Sí'); // columna no existe hoy: nunca se envía
   set('tipo', prop.tipo);
   set('zona', prop.zona);

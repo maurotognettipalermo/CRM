@@ -251,6 +251,10 @@ const COLUMNAS_PROPIEDADES_VENTA = {
   // Trastero: checkbox + nº identificativo (independiente de garaje).
   tiene_trastero: 'INTEGER DEFAULT 0',
   numero_trastero: 'TEXT',
+  // Campos libres del cartel de escaparate (mismo estilo que garaje: texto libre, no select).
+  muebles: 'TEXT',
+  aire_acondicionado: 'TEXT',
+  orientacion: 'TEXT',
 };
 
 // Crea las tablas si no existen ejecutando el schema.sql.

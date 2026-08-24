@@ -334,6 +334,7 @@ const Ventas = (() => {
         </div>
         <div class="panel-cabecera-acciones">
           <button id="vta-d-publicar-web" class="btn-sec">🌐 Publicar en la web</button>
+          <button id="vta-d-cartel" class="btn-sec">🖨️ Imprimir cartel</button>
           <button id="vta-d-editar" class="btn-sec">✏️ Editar</button>
           <button id="vta-d-cerrar" class="panel-cerrar" title="Cerrar">&times;</button>
         </div>
@@ -349,6 +350,7 @@ const Ventas = (() => {
     panel.querySelector('#vta-d-cerrar').addEventListener('click', cerrarPanel);
     panel.querySelector('#vta-d-editar').addEventListener('click', () => { if (fichaActual) modalFormulario(fichaActual); });
     panel.querySelector('#vta-d-publicar-web').addEventListener('click', manejarClicWebIndividual);
+    panel.querySelector('#vta-d-cartel').addEventListener('click', () => { if (fichaActual) descargarCartelPDF(fichaActual.id, fichaActual.referencia); });
     panel.querySelectorAll('.rsv-subtab').forEach((b) =>
       b.addEventListener('click', () => activarSubVenta(b.dataset.asub)));
     document.addEventListener('keydown', (e) => {
@@ -433,6 +435,9 @@ const Ventas = (() => {
           ${dato('Clase energética', esc(d.clase_energetica) || '—')}
           ${dato('Garaje', esc(d.garaje) || '—')}
           ${dato('Trastero', d.tiene_trastero ? `Sí${d.numero_trastero ? ' (nº ' + esc(d.numero_trastero) + ')' : ''}` : 'No')}
+          ${dato('Muebles', esc(d.muebles) || '—')}
+          ${dato('Aire acondicionado', esc(d.aire_acondicionado) || '—')}
+          ${dato('Orientación', esc(d.orientacion) || '—')}
           ${dato('Fotos en Idealista', d.num_fotos ?? 0)}
           ${dato('Estado Idealista', esc(d.estado_idealista) || '—')}
           ${dato('Fecha alta', fechaES(d.fecha_alta))}
@@ -981,6 +986,13 @@ const Ventas = (() => {
         <div class="campo pago-toggle-campo"><label><input type="checkbox" id="vf-tiene_trastero"${p.tiene_trastero ? ' checked' : ''}> Trastero</label></div>
         <div class="campo"><label>Nº de trastero</label><input id="vf-numero_trastero" value="${esc(p.numero_trastero)}"></div>
       </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Muebles</label><input id="vf-muebles" value="${esc(p.muebles)}" placeholder="Amueblado / Sin amueblar..."></div>
+        <div class="campo"><label>Aire acondicionado</label><input id="vf-aire_acondicionado" value="${esc(p.aire_acondicionado)}" placeholder="Frío/calor, Combinado, NO..."></div>
+      </div>
+      <div class="fila-campos">
+        <div class="campo"><label>Orientación</label><input id="vf-orientacion" value="${esc(p.orientacion)}" placeholder="Norte, Sur..."></div>
+      </div>
       <div class="vta-modal-sub">Propietario</div>
       <div class="campo vta-ta">
         <label>Propietario de la cartera de ventas</label>
@@ -1053,6 +1065,7 @@ const Ventas = (() => {
     'apartamento_nombre',
     'referencia', 'tipo', 'operacion', 'calle', 'numero', 'planta', 'numero_puerta', 'zona', 'localidad', 'precio', 'estado',
     'dormitorios', 'banos', 'metros_cuadrados', 'metros_utiles', 'clase_energetica', 'garaje', 'numero_trastero',
+    'muebles', 'aire_acondicionado', 'orientacion',
     'propietario_nombre', 'propietario_apellidos', 'propietario_telefono', 'propietario_email',
     'descripcion', 'notas',
   ];
@@ -1080,6 +1093,28 @@ const Ventas = (() => {
     } catch (e) {
       toast(e.message, 'error');
       btn.disabled = false; btn.textContent = id ? 'Guardar' : 'Crear';
+    }
+  }
+
+  // Descarga vía fetch con el token (window.open no envía X-Auth-Token -> 401).
+  async function descargarCartelPDF(id, referencia) {
+    try {
+      const sesion = Auth.sesion() || {};
+      const response = await fetch(`/api/ventas/propiedades/${id}/cartel-pdf`, {
+        headers: { 'X-Auth-Token': sesion.token },
+      });
+      if (!response.ok) throw new Error('Error al generar el cartel');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cartel-${referencia || 'propiedad'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast('Error al descargar el cartel', 'error');
     }
   }
 
