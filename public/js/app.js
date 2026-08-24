@@ -69,6 +69,7 @@ function arrancarApp() {
   // - Estadísticas: solo administradores.
   // - Roles de acceso único (limpieza, mantenimiento): solo ven su propio módulo.
   document.getElementById('nav-estadisticas').classList.toggle('oculto', rol !== 'administrador');
+  document.getElementById('nav-ajustes').classList.toggle('oculto', rol !== 'administrador');
   const restr = ROL_RESTRINGIDO[rol];
   if (restr) {
     document.querySelectorAll('.nav-item').forEach((it) =>
