@@ -11,6 +11,15 @@ const { registrarActividad } = require('../services/actividadService');
 
 const router = express.Router();
 
+// Solo administradores pueden crear/modificar/borrar facturas; el resto de roles solo consulta (GET).
+router.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  if (!req.usuario || req.usuario.rol !== 'administrador') {
+    return res.status(403).json({ error: 'Solo los administradores pueden crear o modificar facturas' });
+  }
+  next();
+});
+
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MM = 2.83465; // 1 mm en puntos PDF
 
@@ -1039,21 +1048,12 @@ router.post('/:id/abono', (req, res) => {
   res.status(201).json({ id: r.id, numero: r.numero });
 });
 
-// PUT /api/facturas/:id — edición completa (solo administradores): emisor, receptor,
-// fechas, estado, notas, importes y líneas. Si vienen `lineas`, se reemplazan todas y los
-// importes se recalculan desde ellas (la base manda). Campos NOT NULL conservan su valor
-// si llegan vacíos.
+// PUT /api/facturas/:id — edición completa (solo administradores, ver guard global arriba):
+// emisor, receptor, fechas, estado, notas, importes y líneas. Si vienen `lineas`, se
+// reemplazan todas y los importes se recalculan desde ellas (la base manda). Campos NOT
+// NULL conservan su valor si llegan vacíos.
 router.put('/:id', (req, res) => {
   const b = req.body || {};
-  // Los no administradores solo pueden tocar estado/fecha_vencimiento/notas (p. ej. "marcar
-  // pagada"); cualquier otro campo (líneas, importes, emisor, receptor…) exige rol admin.
-  if (!req.usuario || req.usuario.rol !== 'administrador') {
-    const PERMITIDOS_NO_ADMIN = ['estado', 'fecha_vencimiento', 'notas'];
-    const tieneOtros = Object.keys(b).some((k) => !PERMITIDOS_NO_ADMIN.includes(k));
-    if (tieneOtros) {
-      return res.status(403).json({ error: 'Solo los administradores pueden editar facturas' });
-    }
-  }
   const factura = db.prepare('SELECT * FROM facturas WHERE id = ?').get(req.params.id);
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
   if (b.estado !== undefined && b.estado !== null && b.estado !== '' && !ESTADOS.includes(b.estado)) {

@@ -85,9 +85,9 @@ const Facturas = (() => {
     for (const f of lista) {
       const logo = f.emisor_logo_url ? `<img class="fac-logo-mini" src="${esc(f.emisor_logo_url)}" alt="" onerror="this.style.display='none'"> ` : '';
       const accVer = `<button class="btn-mini" data-ver="${f.id}" data-numero="${esc(f.numero)}" title="Ver PDF">👁</button>`;
-      const accPagar = (f.estado !== 'pagada' && f.estado !== 'anulada' && f.tipo !== 'proforma') ? `<button class="btn-mini" data-pagar="${f.id}" title="Registrar pago">✓</button>` : '';
-      const accAnular = (f.estado !== 'anulada') ? `<button class="btn-mini" data-anular="${f.id}" title="Anular">⊘</button>` : '';
-      const accBorrar = (f.estado === 'borrador' || (f.estado === 'anulada' && esAdmin()))
+      const accPagar = (esAdmin() && f.estado !== 'pagada' && f.estado !== 'anulada' && f.tipo !== 'proforma') ? `<button class="btn-mini" data-pagar="${f.id}" title="Registrar pago">✓</button>` : '';
+      const accAnular = (esAdmin() && f.estado !== 'anulada') ? `<button class="btn-mini" data-anular="${f.id}" title="Anular">⊘</button>` : '';
+      const accBorrar = (esAdmin() && (f.estado === 'borrador' || f.estado === 'anulada'))
         ? `<button class="btn-mini" data-borrar="${f.id}" title="Eliminar">🗑️</button>` : '';
       const tr = document.createElement('tr');
       tr.dataset.ficha = f.id;
@@ -415,11 +415,11 @@ const Facturas = (() => {
     catch (e) { return toast(e.message, 'error'); }
     document.getElementById('fac-titulo').textContent = fichaActual.numero || 'Factura';
     document.getElementById('fac-badges').innerHTML = badgeTipo(fichaActual.tipo) + ' ' + badgeEstado(fichaActual.estado);
-    document.getElementById('fac-anular').classList.toggle('oculto', fichaActual.estado === 'anulada');
+    document.getElementById('fac-anular').classList.toggle('oculto', !esAdmin() || fichaActual.estado === 'anulada');
     document.getElementById('fac-editar').classList.toggle('oculto', !esAdmin());
-    const puedeBorrar = fichaActual.estado === 'borrador' || (fichaActual.estado === 'anulada' && esAdmin());
+    const puedeBorrar = esAdmin() && (fichaActual.estado === 'borrador' || fichaActual.estado === 'anulada');
     document.getElementById('fac-borrar').classList.toggle('oculto', !puedeBorrar);
-    const puedeAbonar = !['proforma', 'abono'].includes(fichaActual.tipo)
+    const puedeAbonar = esAdmin() && !['proforma', 'abono'].includes(fichaActual.tipo)
       && ['emitida', 'parcialmente_pagada', 'pagada'].includes(fichaActual.estado);
     document.getElementById('fac-abono').classList.toggle('oculto', !puedeAbonar);
     document.getElementById('fac-cuerpo').innerHTML = fichaHTML(fichaActual);
@@ -567,7 +567,7 @@ const Facturas = (() => {
     const total = Number(pagosFactura.total_factura) || Number(f.total) || 0;
     const cobrado = Number(pagosFactura.total_pagado) || 0;
     const pct = total > 0 ? Math.min(100, Math.round((cobrado / total) * 100)) : 0;
-    const puedeRegistrar = f.estado !== 'pagada' && f.estado !== 'anulada';
+    const puedeRegistrar = esAdmin() && f.estado !== 'pagada' && f.estado !== 'anulada';
 
     const filas = (pagosFactura.pagos || []).map((p) => `
       <tr>
@@ -575,10 +575,10 @@ const Facturas = (() => {
         <td class="num">${euro(p.importe)}</td>
         <td>${metodoBadgeFac(p.metodo_pago)}</td>
         <td>${esc(p.notas) || '—'}</td>
-        <td class="pago-acciones">
+        <td class="pago-acciones">${esAdmin() ? `
           <button class="btn-icono pago-fac-editar" data-id="${p.id}" title="Editar">✏️</button>
           <button class="btn-icono pago-fac-borrar" data-id="${p.id}" title="Eliminar">🗑️</button>
-        </td>
+        ` : ''}</td>
       </tr>`).join('');
     const cuerpoTabla = filas || '<tr><td colspan="5" class="pago-vacio">Sin pagos registrados.</td></tr>';
 
@@ -1436,7 +1436,9 @@ const Facturas = (() => {
   function init() {
     crearPanel();
     poblarAnios();
-    document.getElementById('btn-nueva-factura').addEventListener('click', abrirWizard);
+    const btnNueva = document.getElementById('btn-nueva-factura');
+    btnNueva.classList.toggle('oculto', !esAdmin());
+    btnNueva.addEventListener('click', abrirWizard);
     document.getElementById('fac-filtro-anio').addEventListener('change', (e) => { filtroAnio = Number(e.target.value); cargar().catch((err) => toast(err.message, 'error')); });
     const ftipo = document.getElementById('fac-filtro-tipo');
     if (ftipo && !ftipo.querySelector('option[value="proforma"]')) {

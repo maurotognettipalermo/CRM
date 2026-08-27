@@ -41,6 +41,15 @@ function recalcularEstadoFactura(facturaId) {
 
 const router = express.Router({ mergeParams: true });
 
+// Solo administradores registran/editan/borran pagos de facturas; el resto solo consulta.
+router.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  if (!req.usuario || req.usuario.rol !== 'administrador') {
+    return res.status(403).json({ error: 'Solo los administradores pueden modificar pagos de facturas' });
+  }
+  next();
+});
+
 // Lista los pagos de la factura + resumen de totales.
 router.get('/', (req, res) => {
   const factura = getFactura(req.params.id);
