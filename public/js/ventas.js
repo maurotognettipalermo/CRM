@@ -198,7 +198,6 @@ const Ventas = (() => {
   }
 
   function filaHTML(p) {
-    const dir = [p.calle, p.numero].filter(Boolean).join(' ') || '—';
     const nv = visitasRealizadas(p);
     const visitasCel = nv > 0 ? `<span class="vta-visitas-badge">${nv}</span>` : '<span class="vta-muted">0</span>';
     const btnVender = p.estado !== 'Vendida'
@@ -207,8 +206,8 @@ const Ventas = (() => {
       <tr data-ficha="${p.id}">
         <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
         <td>${esc(p.apartamento_nombre) || '—'}</td>
+        <td>${esc(p.numero_puerta) || '—'}</td>
         <td>${esc(p.tipo) || '—'} ${operacionBadge(p.operacion)}</td>
-        <td>${esc(dir)}</td>
         <td>${esc(p.zona) || '—'}</td>
         <td class="vta-precio">${euro(p.precio)}</td>
         <td>${p.dormitorios ?? '—'}</td>
