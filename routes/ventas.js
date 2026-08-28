@@ -1299,6 +1299,11 @@ async function publicarPropiedadEnWeb(prop) {
   set('direccion', [prop.calle, prop.numero].filter(Boolean).join(' '));
   set('referencia', prop.referencia);
   set('aire_acondicionado', prop.aire_acondicionado);
+  set('orientacion', prop.orientacion);
+  set('clase_energetica', prop.clase_energetica);
+  set('garaje', prop.garaje);
+  set('muebles', prop.muebles);
+  set('trastero', prop.tiene_trastero ? `Sí${prop.numero_trastero ? ' (nº ' + prop.numero_trastero + ')' : ''}` : null);
   if (prop.piscina_privada) set('piscina', 'Sí'); // columna no existe hoy: nunca se envía
   set('tipo', prop.tipo);
   set('zona', prop.zona);
