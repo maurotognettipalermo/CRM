@@ -203,7 +203,7 @@ const Ventas = (() => {
     const btnVender = p.estado !== 'Vendida'
       ? `<button class="btn-icono" data-vender="${p.id}" title="Marcar como vendida">🏷️</button>` : '';
     return `
-      <tr data-ficha="${p.id}">
+      <tr data-ficha="${p.id}"${p.estado === 'Retirada' ? ' class="vta-fila-retirada"' : ''}>
         <td><a class="vta-ref" data-ref="${p.id}">${esc(p.referencia)}</a></td>
         <td>${esc(p.apartamento_nombre) || '—'}</td>
         <td>${esc(p.numero_puerta) || '—'}</td>

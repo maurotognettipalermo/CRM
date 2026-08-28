@@ -650,6 +650,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .tabla tbody tr:last-child td { border-bottom: none; }
 .tabla tbody tr { transition: background 120ms ease; }
 .tabla tbody tr:hover { background: #f8f9fa; }
+.vta-fila-retirada { background: #f2f2f3; }
+.vta-fila-retirada:hover { background: #ececee; }
 
 /* Botones de acción: ocultos hasta hover */
 .tabla .acciones { display: flex; gap: 6px; opacity: 0; transition: opacity 120ms ease; }
