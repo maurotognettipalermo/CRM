@@ -4316,9 +4316,12 @@ const Ventas = (() => {
   // ============================================================
   //                    SUB-PESTAÑA COMISIONES (solo admin)
   // ============================================================
-  // % fijo por persona sobre el precio de venta final (no se reparte entre el personal: cada
-  // persona de la lista cobra ese % completo). Snapshot congelado por venta al vender —
-  // cambiar la lista o el % en Configurar no toca ventas ya cerradas.
+  // % fijo por persona sobre NUESTRA comisión (la de la agencia por esa venta: campo
+  // "Comisión Total" de la ficha, o su estimación a partir de facturas/reparto
+  // comprador-vendedor — igual que el badge de Vendidos), NO sobre el precio de venta. No se
+  // reparte entre el personal: cada persona de la lista cobra ese % completo. Snapshot
+  // congelado por venta la primera vez que se conoce nuestra comisión — cambiar la lista o el
+  // % en Configurar no toca ventas que ya tengan comisiones generadas.
   let comisionesVentas = [];
   let cmsConstruido = false;
 
@@ -4339,7 +4342,7 @@ const Ventas = (() => {
       <div class="tabla-scroll">
         <table class="tabla" id="tabla-comisiones">
           <thead><tr>
-            <th>Ref.</th><th>Apartamento</th><th>Precio venta</th><th>Fecha venta</th><th>Comprador</th><th>Comisiones</th>
+            <th>Ref.</th><th>Apartamento</th><th>Precio venta</th><th>Nuestra comisión</th><th>Fecha venta</th><th>Comprador</th><th>Comisiones personal</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -4350,10 +4353,10 @@ const Ventas = (() => {
 
   async function cargarComisiones() {
     const tbody = document.querySelector('#tabla-comisiones tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">Cargando comisiones…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">Cargando comisiones…</td></tr>';
     try { comisionesVentas = await API.get('/api/ventas/comisiones'); }
     catch (e) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">No se pudieron cargar las comisiones.</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">No se pudieron cargar las comisiones.</td></tr>';
       return toast(e.message, 'error');
     }
     renderComisiones();
@@ -4385,20 +4388,30 @@ const Ventas = (() => {
     actualizarResumenComisiones();
 
     if (!comisionesVentas.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="vta-vacio">Sin propiedades vendidas todavía.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="vta-vacio">Sin propiedades vendidas todavía.</td></tr>';
       return;
     }
-    tbody.innerHTML = comisionesVentas.map((v) => `
+    tbody.innerHTML = comisionesVentas.map((v) => {
+      const sinComision = v.comision_agencia === null || v.comision_agencia === undefined;
+      let celdaComisiones;
+      if (sinComision) {
+        celdaComisiones = '<span class="vta-muted">Falta indicar "Comisión Total" en la ficha de la venta</span>';
+      } else if (v.comisiones.length) {
+        celdaComisiones = v.comisiones.map(filaComisionPersona).join('');
+      } else {
+        celdaComisiones = '<span class="vta-muted">Sin personal configurado en el momento de la venta</span>';
+      }
+      return `
       <tr>
         <td><a class="vta-ref" data-ref="${v.id}">${esc(v.referencia)}</a></td>
         <td>${esc(v.apartamento_nombre) || '—'}</td>
         <td class="vta-precio">${euro(v.precio_venta_final)}</td>
+        <td class="vta-precio">${sinComision ? '<span class="vta-muted">—</span>' : euro(v.comision_agencia)}</td>
         <td>${fechaES(v.fecha_venta)}</td>
         <td>${esc(v.comprador_nombre) || '—'}</td>
-        <td class="cms-personas">${v.comisiones.length
-          ? v.comisiones.map(filaComisionPersona).join('')
-          : '<span class="vta-muted">Sin personal configurado en el momento de la venta</span>'}</td>
-      </tr>`).join('');
+        <td class="cms-personas">${celdaComisiones}</td>
+      </tr>`;
+    }).join('');
 
     tbody.querySelectorAll('[data-ref]').forEach((a) =>
       a.addEventListener('click', () => abrirFicha(a.dataset.ref)));
@@ -4425,8 +4438,9 @@ const Ventas = (() => {
 
     abrirModal(`
       <h3>⚙️ Configurar comisiones</h3>
-      <div class="campo"><label>Porcentaje por persona (%)</label>
+      <div class="campo"><label>Porcentaje por persona (% de nuestra comisión)</label>
         <input type="number" min="0" step="0.1" id="cms-cfg-pct" value="${cfg.porcentaje}"></div>
+      <div class="vta-modal-nota">Se aplica sobre nuestra comisión de la venta (campo "Comisión Total" de la ficha), no sobre el precio de venta.</div>
       <div class="vta-modal-sub">Personal que recibe comisión (cada uno cobra el % completo)</div>
       <div id="cms-cfg-lista" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
         ${cfg.empleados.length ? cfg.empleados.map((e) => `

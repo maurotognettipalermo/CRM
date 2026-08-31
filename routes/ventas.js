@@ -1154,7 +1154,7 @@ function marcarVendida(propId, b) {
     `).run(
       txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), precioVentaFinal,
       txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), propId);
-    aseguraComisionesVenta(propId, precioVentaFinal);
+    aseguraComisionesVenta(propId);
   })();
 }
 
@@ -1168,9 +1168,12 @@ router.post('/propiedades/:id/vender', (req, res) => {
 });
 
 // ============================================================
-// Comisiones internas del personal de oficina — solo administradores. % fijo del precio de
-// venta final que cobra CADA persona de la lista (no se reparte entre ellas: si hay 3
-// personas activas al 5%, la venta genera 3 comisiones del 5% cada una, no un 5% repartido).
+// Comisiones internas del personal de oficina — solo administradores. % fijo de NUESTRA
+// comisión (la de la agencia por esa venta: campo comision_total de la ficha, o estimada a
+// partir de las facturas/reparto comprador-vendedor si no está rellenado a mano — misma
+// lógica que el badge de comisión de la sub-pestaña Vendidos), NO del precio de venta. Cada
+// persona de la lista cobra ese % completo (no se reparte entre ellas: 3 personas activas al
+// 5% generan 3 comisiones del 5% cada una sobre nuestra comisión, no un 5% repartido).
 // ============================================================
 
 function porcentajeComision() {
@@ -1179,12 +1182,42 @@ function porcentajeComision() {
   return Number.isFinite(n) && n >= 0 ? n : 5;
 }
 
-// Snapshot al vender: % vigente y personas activas de la lista en ese momento. Cambios
-// posteriores en Configuración no afectan a ventas ya cerradas (mismo patrón que otros
+// Nuestra comisión (la de la agencia) para una venta, a partir de una fila con comision_total /
+// comision_comprador / comision_vendedor / factura_comprador_id / factura_vendedor_id / fc_total
+// / fv_total. Misma cascada que el badge de Vendidos: comision_total si está rellenada a mano;
+// si no, la suma de las facturas ya asignadas; si no, la suma comprador+vendedor. null si no hay
+// ningún dato de comisión todavía (venta recién cerrada, sin facturar ni rellenar a mano).
+function comisionAgenciaDesdeFila(p) {
+  if (p.comision_total !== null && p.comision_total !== undefined && p.comision_total !== '') {
+    return Number(p.comision_total);
+  }
+  if (p.factura_comprador_id || p.factura_vendedor_id) {
+    return (Number(p.fc_total) || 0) + (Number(p.fv_total) || 0);
+  }
+  const partes = [p.comision_comprador, p.comision_vendedor].filter((v) => v !== null && v !== undefined && v !== '');
+  if (partes.length) return partes.reduce((s, v) => s + (Number(v) || 0), 0);
+  return null;
+}
+
+function comisionAgenciaPropiedad(propId) {
+  const row = db.prepare(`
+    SELECT p.comision_total, p.comision_comprador, p.comision_vendedor,
+           p.factura_comprador_id, p.factura_vendedor_id, fc.total AS fc_total, fv.total AS fv_total
+    FROM propiedades_venta p
+    LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
+    LEFT JOIN facturas fv ON fv.id = p.factura_vendedor_id
+    WHERE p.id = ?
+  `).get(propId);
+  return row ? comisionAgenciaDesdeFila(row) : null;
+}
+
+// Snapshot al vender (o al primer backfill, ver aseguraComisionesVenta): % vigente, personas
+// activas y NUESTRA comisión conocida en ese momento. Cambios posteriores en Configuración o en
+// la comisión de la agencia no afectan a ventas que ya tengan filas (mismo patrón que otros
 // snapshots del proyecto: apartamento_gastos, reserva_extras, factura_lineas...).
-function generarComisionesVenta(propId, precioVentaFinal) {
-  const precio = Number(precioVentaFinal) || 0;
-  if (!precio) return;
+function generarComisionesVenta(propId) {
+  const comisionAgencia = comisionAgenciaPropiedad(propId);
+  if (!comisionAgencia) return; // todavía no se conoce nuestra comisión de esta venta
   const porcentaje = porcentajeComision();
   const empleados = db.prepare(`
     SELECT e.id, e.nombre, e.apellidos FROM comision_personal cp
@@ -1192,7 +1225,7 @@ function generarComisionesVenta(propId, precioVentaFinal) {
     WHERE e.activo = 1
   `).all();
   if (!empleados.length) return;
-  const importe = Math.round(precio * porcentaje) / 100;
+  const importe = Math.round(comisionAgencia * porcentaje) / 100;
   const ins = db.prepare(`
     INSERT INTO venta_comisiones (propiedad_id, empleado_id, empleado_nombre, porcentaje, importe)
     VALUES (?, ?, ?, ?, ?)
@@ -1200,14 +1233,15 @@ function generarComisionesVenta(propId, precioVentaFinal) {
   empleados.forEach((e) => ins.run(propId, e.id, `${e.nombre}${e.apellidos ? ' ' + e.apellidos : ''}`, porcentaje, importe));
 }
 
-// Si la venta todavía no tiene ninguna comisión generada (recién vendida, vendida antes de
-// configurar personal, o vendida antes de que existiera esta función) la genera ahora con la
-// configuración VIGENTE. No toca nada si ya tiene filas — aunque vengan de una config antigua o
-// esté vacía por config —, para no perder pagos ya marcados ni duplicar. Así "Configurar" surte
-// efecto retroactivamente sobre ventas cerradas que aún no tengan nada asignado.
-function aseguraComisionesVenta(propId, precioVentaFinal) {
+// Si la venta todavía no tiene ninguna comisión generada (recién vendida, nuestra comisión
+// rellenada/facturada después de vender, vendida antes de configurar personal, o vendida antes
+// de que existiera esta función) la genera ahora con la configuración y la comisión de agencia
+// VIGENTES. No toca nada si ya tiene filas — para no perder pagos ya marcados ni duplicar. Así
+// "Configurar" y rellenar la comisión de la agencia surten efecto retroactivamente sobre ventas
+// cerradas que aún no tengan nada asignado.
+function aseguraComisionesVenta(propId) {
   const yaTiene = db.prepare('SELECT COUNT(*) AS c FROM venta_comisiones WHERE propiedad_id = ?').get(propId).c;
-  if (!yaTiene) generarComisionesVenta(propId, precioVentaFinal);
+  if (!yaTiene) generarComisionesVenta(propId);
 }
 
 // Solo administradores. Devuelve true si ya respondió 403 (corta el handler).
@@ -1252,20 +1286,31 @@ router.put('/comisiones/config', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/ventas/comisiones — ventas (estado Vendida) con sus comisiones de personal.
+// GET /api/ventas/comisiones — ventas (estado Vendida) con nuestra comisión de agencia y las
+// comisiones de personal calculadas sobre ella.
 router.get('/comisiones', (req, res) => {
   if (bloqueaNoAdminComision(req, res)) return;
   const ventas = db.prepare(`
-    SELECT id, referencia, apartamento_nombre, calle, precio_venta_final, fecha_venta, comprador_nombre
-    FROM propiedades_venta WHERE estado = 'Vendida' ORDER BY fecha_venta DESC, id DESC
+    SELECT p.id, p.referencia, p.apartamento_nombre, p.calle, p.precio_venta_final, p.fecha_venta, p.comprador_nombre,
+           p.comision_total, p.comision_comprador, p.comision_vendedor,
+           p.factura_comprador_id, p.factura_vendedor_id, fc.total AS fc_total, fv.total AS fv_total
+    FROM propiedades_venta p
+    LEFT JOIN facturas fc ON fc.id = p.factura_comprador_id
+    LEFT JOIN facturas fv ON fv.id = p.factura_vendedor_id
+    WHERE p.estado = 'Vendida' ORDER BY p.fecha_venta DESC, p.id DESC
   `).all();
   db.transaction(() => {
-    ventas.forEach((v) => aseguraComisionesVenta(v.id, v.precio_venta_final));
+    ventas.forEach((v) => aseguraComisionesVenta(v.id));
   })();
   const comisiones = db.prepare('SELECT * FROM venta_comisiones ORDER BY empleado_nombre').all();
   const porProp = {};
   comisiones.forEach((c) => { (porProp[c.propiedad_id] = porProp[c.propiedad_id] || []).push(c); });
-  res.json(ventas.map((v) => ({ ...v, comisiones: porProp[v.id] || [] })));
+  res.json(ventas.map((v) => ({
+    id: v.id, referencia: v.referencia, apartamento_nombre: v.apartamento_nombre, calle: v.calle,
+    precio_venta_final: v.precio_venta_final, fecha_venta: v.fecha_venta, comprador_nombre: v.comprador_nombre,
+    comision_agencia: comisionAgenciaDesdeFila(v),
+    comisiones: porProp[v.id] || [],
+  })));
 });
 
 // PUT /api/ventas/comisiones/:id — marca/desmarca pagada una comisión concreta.
