@@ -1266,12 +1266,22 @@ router.get('/comisiones/config', (req, res) => {
 });
 
 // PUT /api/ventas/comisiones/config — { porcentaje, empleado_ids:[...] }. Antes de /comisiones/:id.
+// Mantiene las comisiones ya generadas en sincronía con la lista: a quien se añade se le
+// ponen al día TODAS las ventas que ya tienen comisiones para el resto del equipo (mismo %
+// e importe que sus compañeros en esa venta, para no quedarse en 0 hasta la próxima venta); a
+// quien se quita se le borran sus comisiones pendientes (las ya pagadas se dejan, para no
+// perder histórico de pagos reales).
 router.put('/comisiones/config', (req, res) => {
   if (bloqueaNoAdminComision(req, res)) return;
   const b = req.body || {};
   const porcentaje = aReal(b.porcentaje);
   if (porcentaje === null || porcentaje < 0) return res.status(400).json({ error: 'Porcentaje inválido' });
   const ids = Array.isArray(b.empleado_ids) ? b.empleado_ids.map((n) => parseInt(n, 10)).filter(Number.isInteger) : [];
+
+  const antes = new Set(db.prepare('SELECT empleado_id FROM comision_personal').all().map((r) => r.empleado_id));
+  const añadidos = ids.filter((id) => !antes.has(id));
+  const quitados = [...antes].filter((id) => !ids.includes(id));
+
   db.transaction(() => {
     db.prepare(`
       INSERT INTO ajustes (clave, valor) VALUES ('comision_porcentaje', ?)
@@ -1280,6 +1290,31 @@ router.put('/comisiones/config', (req, res) => {
     db.prepare('DELETE FROM comision_personal').run();
     const ins = db.prepare('INSERT INTO comision_personal (empleado_id) VALUES (?)');
     ids.forEach((id) => ins.run(id));
+
+    if (quitados.length) {
+      const ph = quitados.map(() => '?').join(',');
+      db.prepare(`DELETE FROM venta_comisiones WHERE pagado = 0 AND empleado_id IN (${ph})`).run(...quitados);
+    }
+
+    if (añadidos.length) {
+      const ph = añadidos.map(() => '?').join(',');
+      const empleadosInfo = db.prepare(`SELECT id, nombre, apellidos FROM empleados WHERE id IN (${ph})`).all(...añadidos);
+      const ventasConComision = db.prepare('SELECT DISTINCT propiedad_id FROM venta_comisiones').all();
+      const buscarEjemplo = db.prepare('SELECT porcentaje, importe FROM venta_comisiones WHERE propiedad_id = ? LIMIT 1');
+      const buscarExistente = db.prepare('SELECT id FROM venta_comisiones WHERE propiedad_id = ? AND empleado_id = ?');
+      const insC = db.prepare(`
+        INSERT INTO venta_comisiones (propiedad_id, empleado_id, empleado_nombre, porcentaje, importe)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      for (const v of ventasConComision) {
+        const ejemplo = buscarEjemplo.get(v.propiedad_id);
+        if (!ejemplo) continue;
+        for (const e of empleadosInfo) {
+          if (buscarExistente.get(v.propiedad_id, e.id)) continue;
+          insC.run(v.propiedad_id, e.id, `${e.nombre}${e.apellidos ? ' ' + e.apellidos : ''}`, ejemplo.porcentaje, ejemplo.importe);
+        }
+      }
+    }
   })();
   registrarActividad(db, req.usuario.id, actor(req), 'editar', 'comision-config', null,
     `${porcentaje}% · ${ids.length} persona${ids.length === 1 ? '' : 's'}`);
