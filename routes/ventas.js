@@ -1139,18 +1139,24 @@ router.post('/propiedades/importar', upload.single('archivo'), (req, res) => {
 });
 
 // Cierra una venta: estado='Vendida' + datos del comprador/escritura (lógica compartida por
-// el endpoint de vender y por convertir-venta de una visita).
+// el endpoint de vender y por convertir-venta de una visita). En la misma transacción genera
+// el snapshot de comisiones internas del personal (ver sección "Comisiones" más abajo).
 function marcarVendida(propId, b) {
-  db.prepare(`
-    UPDATE propiedades_venta SET
-      estado = 'Vendida',
-      fecha_venta = ?, fecha_escritura = ?, precio_venta_final = ?,
-      comprador_nombre = ?, comprador_telefono = ?, comprador_email = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `).run(
-    txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), aReal(b.precio_venta_final),
-    txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), propId);
+  const precioVentaFinal = aReal(b.precio_venta_final);
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE propiedades_venta SET
+        estado = 'Vendida',
+        fecha_venta = ?, fecha_escritura = ?, precio_venta_final = ?,
+        comprador_nombre = ?, comprador_telefono = ?, comprador_email = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), precioVentaFinal,
+      txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), propId);
+    const yaTiene = db.prepare('SELECT COUNT(*) AS c FROM venta_comisiones WHERE propiedad_id = ?').get(propId).c;
+    if (!yaTiene) generarComisionesVenta(propId, precioVentaFinal);
+  })();
 }
 
 // POST /api/ventas/propiedades/:id/vender — cierra la venta: estado='Vendida' + datos.
@@ -1159,6 +1165,108 @@ router.post('/propiedades/:id/vender', (req, res) => {
   if (!prop) return res.status(404).json({ error: 'Propiedad no encontrada' });
   marcarVendida(prop.id, req.body || {});
   registrarActividad(db, req.usuario && req.usuario.id, actor(req), 'editar', 'propiedad-venta', prop.id, `Vendida ${prop.referencia}`);
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Comisiones internas del personal de oficina — solo administradores. % fijo del precio de
+// venta final que cobra CADA persona de la lista (no se reparte entre ellas: si hay 3
+// personas activas al 5%, la venta genera 3 comisiones del 5% cada una, no un 5% repartido).
+// ============================================================
+
+function porcentajeComision() {
+  const row = db.prepare("SELECT valor FROM ajustes WHERE clave = 'comision_porcentaje'").get();
+  const n = row ? Number(row.valor) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 5;
+}
+
+// Snapshot al vender: % vigente y personas activas de la lista en ese momento. Cambios
+// posteriores en Configuración no afectan a ventas ya cerradas (mismo patrón que otros
+// snapshots del proyecto: apartamento_gastos, reserva_extras, factura_lineas...).
+function generarComisionesVenta(propId, precioVentaFinal) {
+  const precio = Number(precioVentaFinal) || 0;
+  if (!precio) return;
+  const porcentaje = porcentajeComision();
+  const empleados = db.prepare(`
+    SELECT e.id, e.nombre, e.apellidos FROM comision_personal cp
+    JOIN empleados e ON e.id = cp.empleado_id
+    WHERE e.activo = 1
+  `).all();
+  if (!empleados.length) return;
+  const importe = Math.round(precio * porcentaje) / 100;
+  const ins = db.prepare(`
+    INSERT INTO venta_comisiones (propiedad_id, empleado_id, empleado_nombre, porcentaje, importe)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  empleados.forEach((e) => ins.run(propId, e.id, `${e.nombre}${e.apellidos ? ' ' + e.apellidos : ''}`, porcentaje, importe));
+}
+
+// Solo administradores. Devuelve true si ya respondió 403 (corta el handler).
+function bloqueaNoAdminComision(req, res) {
+  if (!req.usuario || req.usuario.rol !== 'administrador') {
+    res.status(403).json({ error: 'Solo los administradores pueden acceder a Comisiones' });
+    return true;
+  }
+  return false;
+}
+
+// GET /api/ventas/comisiones/config — % vigente + empleados activos marcando quién la recibe.
+// Antes de /comisiones/:id.
+router.get('/comisiones/config', (req, res) => {
+  if (bloqueaNoAdminComision(req, res)) return;
+  const empleados = db.prepare(`
+    SELECT e.id, e.nombre, e.apellidos, (cp.id IS NOT NULL) AS recibe
+    FROM empleados e LEFT JOIN comision_personal cp ON cp.empleado_id = e.id
+    WHERE e.activo = 1 ORDER BY e.nombre
+  `).all().map((e) => ({ ...e, recibe: !!e.recibe }));
+  res.json({ porcentaje: porcentajeComision(), empleados });
+});
+
+// PUT /api/ventas/comisiones/config — { porcentaje, empleado_ids:[...] }. Antes de /comisiones/:id.
+router.put('/comisiones/config', (req, res) => {
+  if (bloqueaNoAdminComision(req, res)) return;
+  const b = req.body || {};
+  const porcentaje = aReal(b.porcentaje);
+  if (porcentaje === null || porcentaje < 0) return res.status(400).json({ error: 'Porcentaje inválido' });
+  const ids = Array.isArray(b.empleado_ids) ? b.empleado_ids.map((n) => parseInt(n, 10)).filter(Number.isInteger) : [];
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO ajustes (clave, valor) VALUES ('comision_porcentaje', ?)
+      ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
+    `).run(String(porcentaje));
+    db.prepare('DELETE FROM comision_personal').run();
+    const ins = db.prepare('INSERT INTO comision_personal (empleado_id) VALUES (?)');
+    ids.forEach((id) => ins.run(id));
+  })();
+  registrarActividad(db, req.usuario.id, actor(req), 'editar', 'comision-config', null,
+    `${porcentaje}% · ${ids.length} persona${ids.length === 1 ? '' : 's'}`);
+  res.json({ ok: true });
+});
+
+// GET /api/ventas/comisiones — ventas (estado Vendida) con sus comisiones de personal.
+router.get('/comisiones', (req, res) => {
+  if (bloqueaNoAdminComision(req, res)) return;
+  const ventas = db.prepare(`
+    SELECT id, referencia, apartamento_nombre, calle, precio_venta_final, fecha_venta, comprador_nombre
+    FROM propiedades_venta WHERE estado = 'Vendida' ORDER BY fecha_venta DESC, id DESC
+  `).all();
+  const comisiones = db.prepare('SELECT * FROM venta_comisiones ORDER BY empleado_nombre').all();
+  const porProp = {};
+  comisiones.forEach((c) => { (porProp[c.propiedad_id] = porProp[c.propiedad_id] || []).push(c); });
+  res.json(ventas.map((v) => ({ ...v, comisiones: porProp[v.id] || [] })));
+});
+
+// PUT /api/ventas/comisiones/:id — marca/desmarca pagada una comisión concreta.
+router.put('/comisiones/:id', (req, res) => {
+  if (bloqueaNoAdminComision(req, res)) return;
+  const c = db.prepare('SELECT * FROM venta_comisiones WHERE id = ?').get(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Comisión no encontrada' });
+  const b = req.body || {};
+  const pagado = b.pagado ? 1 : 0;
+  const fecha = pagado ? (txt(b.fecha_pago) || hoyISO()) : null;
+  db.prepare('UPDATE venta_comisiones SET pagado = ?, fecha_pago = ? WHERE id = ?').run(pagado, fecha, c.id);
+  registrarActividad(db, req.usuario.id, actor(req), 'editar', 'comision-venta', c.id,
+    `${c.empleado_nombre} — ${pagado ? 'pagada' : 'pendiente'}`);
   res.json({ ok: true });
 });
 

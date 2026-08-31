@@ -3128,6 +3128,11 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-precio { font-weight: 600; white-space: nowrap; }
 .vta-th-ordenable { cursor: pointer; user-select: none; white-space: nowrap; }
 .vta-th-ordenable:hover { color: var(--blue); }
+
+/* Comisiones */
+.cms-personas { display: flex; flex-direction: column; gap: 4px; min-width: 260px; }
+.cms-persona { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.cms-persona input[type="checkbox"] { cursor: pointer; }
 .vta-acciones { white-space: nowrap; }
 .vta-visitas-badge {
   display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px;

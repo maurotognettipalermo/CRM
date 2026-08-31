@@ -4313,6 +4313,148 @@ const Ventas = (() => {
     }
   }
 
+  // ============================================================
+  //                    SUB-PESTAÑA COMISIONES (solo admin)
+  // ============================================================
+  // % fijo por persona sobre el precio de venta final (no se reparte entre el personal: cada
+  // persona de la lista cobra ese % completo). Snapshot congelado por venta al vender —
+  // cambiar la lista o el % en Configurar no toca ventas ya cerradas.
+  let comisionesVentas = [];
+  let cmsConstruido = false;
+
+  function construirComisiones() {
+    if (cmsConstruido) return;
+    const panel = document.querySelector('#vista-ventas .sub-panel[data-panel-sub="comisiones"]');
+    if (!panel) return;
+    panel.innerHTML = `
+      <div class="barra-herramientas vta-prop-cab">
+        <div class="reservas-controles">
+          <span id="cms-contador" class="alo-contador"></span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
+          <div id="cms-resumen" style="font-size:14px;color:var(--muted)"></div>
+          <button class="btn-sec" id="cms-config">⚙️ Configurar</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla" id="tabla-comisiones">
+          <thead><tr>
+            <th>Ref.</th><th>Apartamento</th><th>Precio venta</th><th>Fecha venta</th><th>Comprador</th><th>Comisiones</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>`;
+    document.getElementById('cms-config').addEventListener('click', modalConfigComisiones);
+    cmsConstruido = true;
+  }
+
+  async function cargarComisiones() {
+    const tbody = document.querySelector('#tabla-comisiones tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">Cargando comisiones…</td></tr>';
+    try { comisionesVentas = await API.get('/api/ventas/comisiones'); }
+    catch (e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="vta-cargando">No se pudieron cargar las comisiones.</td></tr>';
+      return toast(e.message, 'error');
+    }
+    renderComisiones();
+  }
+
+  function actualizarResumenComisiones() {
+    const el = document.getElementById('cms-resumen');
+    if (!el) return;
+    const todas = comisionesVentas.flatMap((v) => v.comisiones);
+    const total = todas.reduce((s, c) => s + (Number(c.importe) || 0), 0);
+    const pagado = todas.filter((c) => c.pagado).reduce((s, c) => s + (Number(c.importe) || 0), 0);
+    el.innerHTML = `Pagado: <strong>${euro(pagado)}</strong> / Total: <strong>${euro(total)}</strong>`;
+  }
+
+  function filaComisionPersona(c) {
+    const fecha = c.pagado && c.fecha_pago ? ` <span class="vta-muted" style="font-size:12px">· ${fechaES(c.fecha_pago)}</span>` : '';
+    return `
+      <label class="cms-persona">
+        <input type="checkbox" data-cms-pagado="${c.id}"${c.pagado ? ' checked' : ''}>
+        <span>${esc(c.empleado_nombre)} — <strong>${euro(c.importe)}</strong> (${c.porcentaje}%)</span>${fecha}
+      </label>`;
+  }
+
+  function renderComisiones() {
+    const tbody = document.querySelector('#tabla-comisiones tbody');
+    if (!tbody) return;
+    const cont = document.getElementById('cms-contador');
+    if (cont) cont.textContent = `${comisionesVentas.length} venta${comisionesVentas.length === 1 ? '' : 's'}`;
+    actualizarResumenComisiones();
+
+    if (!comisionesVentas.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="vta-vacio">Sin propiedades vendidas todavía.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = comisionesVentas.map((v) => `
+      <tr>
+        <td><a class="vta-ref" data-ref="${v.id}">${esc(v.referencia)}</a></td>
+        <td>${esc(v.apartamento_nombre) || '—'}</td>
+        <td class="vta-precio">${euro(v.precio_venta_final)}</td>
+        <td>${fechaES(v.fecha_venta)}</td>
+        <td>${esc(v.comprador_nombre) || '—'}</td>
+        <td class="cms-personas">${v.comisiones.length
+          ? v.comisiones.map(filaComisionPersona).join('')
+          : '<span class="vta-muted">Sin personal configurado en el momento de la venta</span>'}</td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-ref]').forEach((a) =>
+      a.addEventListener('click', () => abrirFicha(a.dataset.ref)));
+    tbody.querySelectorAll('[data-cms-pagado]').forEach((chk) =>
+      chk.addEventListener('change', async () => {
+        const id = chk.dataset.cmsPagado;
+        const marcado = chk.checked;
+        chk.disabled = true;
+        try {
+          await API.put(`/api/ventas/comisiones/${id}`, { pagado: marcado });
+          await cargarComisiones();
+        } catch (e) {
+          chk.checked = !marcado;
+          chk.disabled = false;
+          toast(e.message, 'error');
+        }
+      }));
+  }
+
+  async function modalConfigComisiones() {
+    let cfg;
+    try { cfg = await API.get('/api/ventas/comisiones/config'); }
+    catch (e) { return toast(e.message, 'error'); }
+
+    abrirModal(`
+      <h3>⚙️ Configurar comisiones</h3>
+      <div class="campo"><label>Porcentaje por persona (%)</label>
+        <input type="number" min="0" step="0.1" id="cms-cfg-pct" value="${cfg.porcentaje}"></div>
+      <div class="vta-modal-sub">Personal que recibe comisión (cada uno cobra el % completo)</div>
+      <div id="cms-cfg-lista" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+        ${cfg.empleados.length ? cfg.empleados.map((e) => `
+          <label style="display:flex;align-items:center;gap:8px;font-size:14px">
+            <input type="checkbox" value="${e.id}"${e.recibe ? ' checked' : ''}>
+            ${esc([e.nombre, e.apellidos].filter(Boolean).join(' '))}
+          </label>`).join('') : '<div class="vta-muted">No hay empleados activos en Personal.</div>'}
+      </div>
+      <div class="modal-acciones">
+        <button class="btn-sec" id="cms-cfg-cancelar">Cancelar</button>
+        <button class="btn-pri" id="cms-cfg-guardar">Guardar</button>
+      </div>`);
+
+    document.getElementById('cms-cfg-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('cms-cfg-guardar').addEventListener('click', async () => {
+      const porcentaje = parseFloat(document.getElementById('cms-cfg-pct').value);
+      if (isNaN(porcentaje) || porcentaje < 0) return toast('Indica un porcentaje válido', 'error');
+      const empleado_ids = [...document.querySelectorAll('#cms-cfg-lista input[type=checkbox]:checked')]
+        .map((c) => Number(c.value));
+      try {
+        await API.put('/api/ventas/comisiones/config', { porcentaje, empleado_ids });
+        toast('Configuración guardada', 'ok');
+        cerrarModal();
+        cargarComisiones();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
   function init() {
     construirFiltros();
 
@@ -4370,6 +4512,7 @@ const Ventas = (() => {
     inyectarSub('arras', 'Arras');
     inyectarSub('autorizacion', 'Autorización');
     inyectarSub('destacados', 'Destacados web');
+    if (esAdmin()) inyectarSub('comisiones', 'Comisiones');
 
     // Sub-pestañas Propiedades / Clientes / Visitas / Calendario / Vendidos.
     document.querySelectorAll('#vta-subtabs .subtab').forEach((b) =>
@@ -4385,6 +4528,7 @@ const Ventas = (() => {
         if (b.dataset.sub === 'arras') { construirAutorizacion(); }
         if (b.dataset.sub === 'autorizacion') { construirAutVenta(); }
         if (b.dataset.sub === 'destacados') { construirDestacados(); cargarDestacados(); }
+        if (b.dataset.sub === 'comisiones') { construirComisiones(); cargarComisiones(); }
       }));
   }
 

@@ -1043,6 +1043,28 @@ CREATE TABLE IF NOT EXISTS extras_movimientos (
 CREATE INDEX IF NOT EXISTS idx_extras_mov_item ON extras_movimientos(item_id);
 CREATE INDEX IF NOT EXISTS idx_extras_mov_apartamento ON extras_movimientos(apartamento_id);
 
+-- Comisiones internas del personal de oficina sobre el precio de venta final de una
+-- propiedad. Config global (% fijo, en `ajustes` clave 'comision_porcentaje') + lista de
+-- empleados que la reciben (comision_personal) + snapshot por venta (venta_comisiones,
+-- generado al vender — cambios posteriores en Configuración no afectan a ventas ya cerradas).
+CREATE TABLE IF NOT EXISTS comision_personal (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empleado_id INTEGER NOT NULL UNIQUE REFERENCES empleados(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS venta_comisiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  propiedad_id INTEGER NOT NULL REFERENCES propiedades_venta(id) ON DELETE CASCADE,
+  empleado_id INTEGER NOT NULL REFERENCES empleados(id),
+  empleado_nombre TEXT NOT NULL,
+  porcentaje REAL NOT NULL,
+  importe REAL NOT NULL,
+  pagado INTEGER NOT NULL DEFAULT 0,
+  fecha_pago TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_venta_comisiones_propiedad ON venta_comisiones(propiedad_id);
+
 CREATE INDEX IF NOT EXISTS idx_actividad_fecha ON actividad_log(id);
 CREATE INDEX IF NOT EXISTS idx_reservas_fechas ON reservas(entrada, salida);
 CREATE INDEX IF NOT EXISTS idx_reservas_apartamento ON reservas(apartamento_id);
