@@ -1154,8 +1154,7 @@ function marcarVendida(propId, b) {
     `).run(
       txt(b.fecha_venta) || hoyISO(), txt(b.fecha_escritura), precioVentaFinal,
       txt(b.comprador_nombre), txt(b.comprador_telefono), txt(b.comprador_email), propId);
-    const yaTiene = db.prepare('SELECT COUNT(*) AS c FROM venta_comisiones WHERE propiedad_id = ?').get(propId).c;
-    if (!yaTiene) generarComisionesVenta(propId, precioVentaFinal);
+    aseguraComisionesVenta(propId, precioVentaFinal);
   })();
 }
 
@@ -1199,6 +1198,16 @@ function generarComisionesVenta(propId, precioVentaFinal) {
     VALUES (?, ?, ?, ?, ?)
   `);
   empleados.forEach((e) => ins.run(propId, e.id, `${e.nombre}${e.apellidos ? ' ' + e.apellidos : ''}`, porcentaje, importe));
+}
+
+// Si la venta todavía no tiene ninguna comisión generada (recién vendida, vendida antes de
+// configurar personal, o vendida antes de que existiera esta función) la genera ahora con la
+// configuración VIGENTE. No toca nada si ya tiene filas — aunque vengan de una config antigua o
+// esté vacía por config —, para no perder pagos ya marcados ni duplicar. Así "Configurar" surte
+// efecto retroactivamente sobre ventas cerradas que aún no tengan nada asignado.
+function aseguraComisionesVenta(propId, precioVentaFinal) {
+  const yaTiene = db.prepare('SELECT COUNT(*) AS c FROM venta_comisiones WHERE propiedad_id = ?').get(propId).c;
+  if (!yaTiene) generarComisionesVenta(propId, precioVentaFinal);
 }
 
 // Solo administradores. Devuelve true si ya respondió 403 (corta el handler).
@@ -1250,6 +1259,9 @@ router.get('/comisiones', (req, res) => {
     SELECT id, referencia, apartamento_nombre, calle, precio_venta_final, fecha_venta, comprador_nombre
     FROM propiedades_venta WHERE estado = 'Vendida' ORDER BY fecha_venta DESC, id DESC
   `).all();
+  db.transaction(() => {
+    ventas.forEach((v) => aseguraComisionesVenta(v.id, v.precio_venta_final));
+  })();
   const comisiones = db.prepare('SELECT * FROM venta_comisiones ORDER BY empleado_nombre').all();
   const porProp = {};
   comisiones.forEach((c) => { (porProp[c.propiedad_id] = porProp[c.propiedad_id] || []).push(c); });
