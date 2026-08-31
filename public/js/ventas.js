@@ -4323,6 +4323,7 @@ const Ventas = (() => {
   // congelado por venta la primera vez que se conoce nuestra comisión — cambiar la lista o el
   // % en Configurar no toca ventas que ya tengan comisiones generadas.
   let comisionesVentas = [];
+  let comisionesPersonalActivo = []; // nombres del personal activo ahora mismo (aunque aún no tenga ninguna comisión generada)
   let cmsConstruido = false;
 
   function construirComisiones() {
@@ -4355,8 +4356,13 @@ const Ventas = (() => {
   async function cargarComisiones() {
     const tbody = document.querySelector('#tabla-comisiones tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">Cargando comisiones…</td></tr>';
-    try { comisionesVentas = await API.get('/api/ventas/comisiones'); }
-    catch (e) {
+    try {
+      comisionesVentas = await API.get('/api/ventas/comisiones');
+      const cfg = await API.get('/api/ventas/comisiones/config');
+      comisionesPersonalActivo = (cfg.empleados || [])
+        .filter((e) => e.recibe)
+        .map((e) => [e.nombre, e.apellidos].filter(Boolean).join(' '));
+    } catch (e) {
       if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="vta-cargando">No se pudieron cargar las comisiones.</td></tr>';
       return toast(e.message, 'error');
     }
@@ -4373,18 +4379,21 @@ const Ventas = (() => {
   }
 
   // Totales por persona (pagado / pendiente / total) para llevar el control de a quién se le
-  // debe qué, sumando sus comisiones de todas las ventas.
+  // debe qué, sumando sus comisiones de todas las ventas. Incluye también al personal activo
+  // configurado ahora mismo aunque todavía no tenga ninguna comisión generada (0 €) — si no,
+  // alguien recién añadido a la lista no aparecería hasta la próxima venta.
   function renderResumenPersonal() {
     const cont = document.getElementById('cms-resumen-personal');
     if (!cont) return;
     const todas = comisionesVentas.flatMap((v) => v.comisiones);
-    if (!todas.length) { cont.innerHTML = ''; return; }
+    if (!todas.length && !comisionesPersonalActivo.length) { cont.innerHTML = ''; return; }
     const porPersona = {};
     todas.forEach((c) => {
       const p = porPersona[c.empleado_nombre] || (porPersona[c.empleado_nombre] = { pagado: 0, pendiente: 0 });
       if (c.pagado) p.pagado += Number(c.importe) || 0;
       else p.pendiente += Number(c.importe) || 0;
     });
+    comisionesPersonalActivo.forEach((n) => { if (!porPersona[n]) porPersona[n] = { pagado: 0, pendiente: 0 }; });
     const nombres = Object.keys(porPersona).sort((a, b) => a.localeCompare(b, 'es'));
     cont.innerHTML = `
       <table class="tabla cms-resumen-tabla">
