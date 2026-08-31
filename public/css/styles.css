@@ -3126,6 +3126,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .vta-ref { color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: none; }
 .vta-ref:hover { text-decoration: underline; }
 .vta-precio { font-weight: 600; white-space: nowrap; }
+.vta-th-ordenable { cursor: pointer; user-select: none; white-space: nowrap; }
+.vta-th-ordenable:hover { color: var(--blue); }
 .vta-acciones { white-space: nowrap; }
 .vta-visitas-badge {
   display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px;

@@ -27,6 +27,7 @@ const Ventas = (() => {
   let fPrecioMin = '';
   let fPrecioMax = '';
   let fDorm = '';              // '', '1','2','3','4' (4 = 4+)
+  let ordenPrecio = '';         // '', 'asc', 'desc'
 
   // Estado de la sub-pestaña Clientes.
   const ESTADOS_CLI = ['Nuevo', 'Contactado', 'Visitado', 'En negociación', 'Compró', 'Descartado'];
@@ -162,6 +163,10 @@ const Ventas = (() => {
         if (!txt.includes(q)) return false;
       }
       return true;
+    }).sort((a, b) => {
+      if (!ordenPrecio) return 0;
+      const d = (Number(a.precio) || 0) - (Number(b.precio) || 0);
+      return ordenPrecio === 'asc' ? d : -d;
     });
   }
 
@@ -171,6 +176,7 @@ const Ventas = (() => {
     const lista = filtradas();
     actualizarContador(lista.length);
     actualizarBadgeFiltros();
+    actualizarIndicadorOrden();
 
     if (!propiedades.length) {
       tbody.innerHTML = '<tr><td colspan="12" class="vta-vacio">No hay propiedades. Importa el Excel de Idealista o crea una nueva.</td></tr>';
@@ -221,6 +227,13 @@ const Ventas = (() => {
           <button class="btn-icono" data-borrar="${p.id}" title="Eliminar">🗑</button>
         </td>
       </tr>`;
+  }
+
+  function actualizarIndicadorOrden() {
+    const th = document.getElementById('vta-th-precio');
+    if (!th) return;
+    const flecha = ordenPrecio === 'asc' ? ' ▲' : ordenPrecio === 'desc' ? ' ▼' : '';
+    th.textContent = 'Precio' + flecha;
   }
 
   function actualizarContador(n) {
@@ -4312,6 +4325,11 @@ const Ventas = (() => {
       th.textContent = 'Apartamento';
       if (thRef) thRef.insertAdjacentElement('afterend', th); else thead.appendChild(th);
     }
+
+    document.getElementById('vta-th-precio')?.addEventListener('click', () => {
+      ordenPrecio = ordenPrecio === 'asc' ? 'desc' : 'asc';
+      renderTabla();
+    });
 
     document.getElementById('vta-buscar')?.addEventListener('input', (e) => { busqueda = e.target.value; renderTabla(); });
     document.getElementById('vta-nueva')?.addEventListener('click', () => modalFormulario(null));
