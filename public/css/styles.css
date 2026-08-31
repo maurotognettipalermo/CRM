@@ -3133,6 +3133,8 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .cms-personas { display: flex; flex-direction: column; gap: 4px; min-width: 260px; }
 .cms-persona { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .cms-persona input[type="checkbox"] { cursor: pointer; }
+.cms-resumen-tabla { max-width: 480px; margin: 0 0 18px; }
+.cms-resumen-tabla th, .cms-resumen-tabla td { padding: 8px 14px; }
 .vta-acciones { white-space: nowrap; }
 .vta-visitas-badge {
   display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 999px;

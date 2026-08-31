@@ -4339,6 +4339,7 @@ const Ventas = (() => {
           <button class="btn-sec" id="cms-config">⚙️ Configurar</button>
         </div>
       </div>
+      <div id="cms-resumen-personal"></div>
       <div class="tabla-scroll">
         <table class="tabla" id="tabla-comisiones">
           <thead><tr>
@@ -4371,6 +4372,38 @@ const Ventas = (() => {
     el.innerHTML = `Pagado: <strong>${euro(pagado)}</strong> / Total: <strong>${euro(total)}</strong>`;
   }
 
+  // Totales por persona (pagado / pendiente / total) para llevar el control de a quién se le
+  // debe qué, sumando sus comisiones de todas las ventas.
+  function renderResumenPersonal() {
+    const cont = document.getElementById('cms-resumen-personal');
+    if (!cont) return;
+    const todas = comisionesVentas.flatMap((v) => v.comisiones);
+    if (!todas.length) { cont.innerHTML = ''; return; }
+    const porPersona = {};
+    todas.forEach((c) => {
+      const p = porPersona[c.empleado_nombre] || (porPersona[c.empleado_nombre] = { pagado: 0, pendiente: 0 });
+      if (c.pagado) p.pagado += Number(c.importe) || 0;
+      else p.pendiente += Number(c.importe) || 0;
+    });
+    const nombres = Object.keys(porPersona).sort((a, b) => a.localeCompare(b, 'es'));
+    cont.innerHTML = `
+      <table class="tabla cms-resumen-tabla">
+        <thead><tr><th>Persona</th><th>Pagado</th><th>Pendiente</th><th>Total</th></tr></thead>
+        <tbody>
+          ${nombres.map((n) => {
+            const p = porPersona[n];
+            const total = p.pagado + p.pendiente;
+            return `<tr>
+              <td>${esc(n)}</td>
+              <td class="vta-precio" style="color:var(--green)">${euro(p.pagado)}</td>
+              <td class="vta-precio"${p.pendiente > 0 ? ' style="color:#b45309"' : ''}>${euro(p.pendiente)}</td>
+              <td class="vta-precio">${euro(total)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
+
   function filaComisionPersona(c) {
     const fecha = c.pagado && c.fecha_pago ? ` <span class="vta-muted" style="font-size:12px">· ${fechaES(c.fecha_pago)}</span>` : '';
     return `
@@ -4386,6 +4419,7 @@ const Ventas = (() => {
     const cont = document.getElementById('cms-contador');
     if (cont) cont.textContent = `${comisionesVentas.length} venta${comisionesVentas.length === 1 ? '' : 's'}`;
     actualizarResumenComisiones();
+    renderResumenPersonal();
 
     if (!comisionesVentas.length) {
       tbody.innerHTML = '<tr><td colspan="7" class="vta-vacio">Sin propiedades vendidas todavía.</td></tr>';
