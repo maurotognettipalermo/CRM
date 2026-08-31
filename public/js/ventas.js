@@ -1882,7 +1882,7 @@ const Ventas = (() => {
   // ============================================================
   let visitas = [];
   let visConstruido = false;
-  let visModo = 'dia';            // 'dia' | 'semana' | 'mes'
+  let visModo = 'mes';             // 'dia' | 'semana' | 'mes'
   let visFecha = hoyStr();        // día seleccionado (modo 'dia')
   let visBusqueda = '';
   let visEstado = '';             // '' = todas
@@ -2551,9 +2551,9 @@ const Ventas = (() => {
         <div class="reservas-controles">
           <input type="date" id="vvi-fecha" class="input-fecha" value="${visFecha}">
           <div class="filtro-tih-btns" id="vvi-rango">
-            <button class="btn-filtro-tih activo" data-rango="dia">Hoy</button>
+            <button class="btn-filtro-tih" data-rango="dia">Hoy</button>
             <button class="btn-filtro-tih" data-rango="semana">Esta semana</button>
-            <button class="btn-filtro-tih" data-rango="mes">Este mes</button>
+            <button class="btn-filtro-tih activo" data-rango="mes">Este mes</button>
           </div>
           <input type="search" id="vvi-buscar" class="input-buscar" placeholder="Buscar por cliente o propiedad..." autocomplete="off">
           <div class="filtro-tih-btns" id="vvi-estado">
