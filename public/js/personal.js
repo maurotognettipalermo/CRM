@@ -813,7 +813,12 @@ const Personal = (() => {
       <div id="aus-lista" class="tabla-scroll"></div>`;
 
     panel.querySelector('#aus-anio').addEventListener('change', (e) => { ausAnio = Number(e.target.value); cargarAusencias(); });
-    panel.querySelector('#aus-mes').addEventListener('change', (e) => { ausMes = Number(e.target.value); renderCalendario(); });
+    panel.querySelector('#aus-mes').addEventListener('change', async (e) => {
+      ausMes = Number(e.target.value);
+      try { ausCalendario = await API.get(`/api/personal/ausencias/calendario?anio=${ausAnio}&mes=${ausMes}`); }
+      catch (err) { return toast(err.message, 'error'); }
+      renderCalendario();
+    });
     panel.querySelector('#aus-nueva').addEventListener('click', () => modalAusencia(null));
     panel.querySelector('#aus-filtro-emp').addEventListener('change', (e) => { ausFiltroEmp = e.target.value; renderLista(); });
     ausConstruido = true;
