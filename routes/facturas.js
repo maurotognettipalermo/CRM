@@ -116,10 +116,22 @@ function direccionRazon(rs) {
 
 // Numeración correlativa por año + serie (dentro de la transacción del INSERT). Cada serie
 // lleva su propio contador, para que dos razones sociales con series distintas no choquen.
+// Autocorrige el contador si se ha quedado por detrás del mayor número YA USADO en esa
+// serie/año (p. ej. una factura renumerada a mano por PUT sin tocar el contador, o el
+// contador reiniciado) — si no, generaría un número que ya existe y el INSERT fallaría por
+// el UNIQUE de facturas.numero. Mismo espíritu que siguienteNumeroProforma (deriva del mayor
+// sufijo ya usado), pero manteniendo la tabla factura_contador para no escanear siempre.
 function siguienteNumeroFactura(anio, serie) {
   const s = serie || 'F';
+  const prefijo = `${s}-${anio}-`;
+  const usados = db.prepare('SELECT numero FROM facturas WHERE numero LIKE ?').all(prefijo + '%');
+  let maxUsado = 0;
+  for (const r of usados) {
+    const resto = r.numero.slice(prefijo.length);
+    if (/^\d+$/.test(resto)) maxUsado = Math.max(maxUsado, parseInt(resto, 10));
+  }
   db.prepare('INSERT OR IGNORE INTO factura_contador (anio, serie, ultimo_numero) VALUES (?, ?, 0)').run(anio, s);
-  db.prepare('UPDATE factura_contador SET ultimo_numero = ultimo_numero + 1 WHERE anio = ? AND serie = ?').run(anio, s);
+  db.prepare('UPDATE factura_contador SET ultimo_numero = MAX(ultimo_numero, ?) + 1 WHERE anio = ? AND serie = ?').run(maxUsado, anio, s);
   const n = db.prepare('SELECT ultimo_numero FROM factura_contador WHERE anio = ? AND serie = ?').get(anio, s).ultimo_numero;
   return `${s}-${anio}-${String(n).padStart(3, '0')}`;
 }
