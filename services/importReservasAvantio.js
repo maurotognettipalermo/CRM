@@ -44,8 +44,12 @@ const MAPA = {
   idcliente: 'cliente_id_avantio',
   clientenombre: 'cliente_nombre',
   clienteapellidos: 'cliente_apellidos',
+  clientefechanacimiento: 'cliente_fecha_nacimiento',
+  clientepais: 'cliente_pais',
   clientetelefono: 'cliente_telefono',
+  clientetelefonoalternativo1: 'cliente_telefono2',
   clienteemail: 'cliente_email',
+  clientenumerodocumento: 'cliente_dni',
   ocupantenombre: 'ocupante_nombre',
   ocupanteapellidos: 'ocupante_apellidos',
   edificio: 'edificio',
@@ -152,7 +156,7 @@ function importarReservasAvantio(buffer) {
   const hoja = wb.Sheets[wb.SheetNames[0]];
   const rows = xlsx.utils.sheet_to_json(hoja, { header: 1, raw: true, blankrows: false });
 
-  const resumen = { nuevas: 0, actualizadas: 0, errores: [], clientes_vinculados: 0, apartamentos_vinculados: 0 };
+  const resumen = { nuevas: 0, actualizadas: 0, errores: [], clientes_vinculados: 0, clientes_creados: 0, apartamentos_vinculados: 0 };
   if (rows.length === 0) return resumen;
 
   const filaCabeceras = detectarFilaCabeceras(rows);
@@ -167,7 +171,27 @@ function importarReservasAvantio(buffer) {
   const buscarCliente = db.prepare(
     "SELECT id FROM clientes WHERE id_avantio IS NOT NULL AND id_avantio <> '' AND id_avantio = ?"
   );
+  const insertarCliente = db.prepare(`
+    INSERT INTO clientes (id_avantio, nombre, apellido1, fecha_nacimiento, pais, telefono, telefono2, email, dni)
+    VALUES (@id_avantio, @nombre, @apellido1, @fecha_nacimiento, @pais, @telefono, @telefono2, @email, @dni)
+  `);
   const buscarReserva = db.prepare('SELECT * FROM reservas WHERE numero_reserva = ?');
+  const contarPagosReserva = db.prepare('SELECT COUNT(*) AS c FROM reserva_pagos WHERE reserva_id = ?');
+  const insertarPagoReserva = db.prepare(`
+    INSERT INTO reserva_pagos (reserva_id, concepto, importe, pagado, fecha_pago, orden)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  // Si la reserva (nueva o ya existente) no tiene ningún pago registrado todavía, refleja el
+  // estado real de cobro que trae Avantio (columnas "Pagado"/"Pendiente") como 1 o 2 líneas en
+  // reserva_pagos. No se toca si ya tiene pagos (gestión manual previa, no se pisa).
+  function sincronizarPagosAvantio(reservaId, pagado, pendiente, fechaAlta) {
+    if (pagado <= 0 && pendiente <= 0) return;
+    if (contarPagosReserva.get(reservaId).c > 0) return;
+    let orden = 1;
+    if (pagado > 0) insertarPagoReserva.run(reservaId, 'Pagado (Avantio)', pagado, 1, fechaAlta, orden++);
+    if (pendiente > 0) insertarPagoReserva.run(reservaId, 'Pendiente (Avantio)', pendiente, 0, null, orden++);
+  }
 
   const insertar = db.prepare(`
     INSERT INTO reservas
@@ -207,13 +231,37 @@ function importarReservasAvantio(buffer) {
       const apartamentoId = apto ? apto.id : null;
       const tih = apto && apto.tipo ? String(apto.tipo) : null;
 
-      // Cliente por id_avantio.
-      const clienteIdAvantio = limpiaTexto(d.cliente_id_avantio);
-      const cli = clienteIdAvantio ? buscarCliente.get(clienteIdAvantio) : null;
-      const clienteId = cli ? cli.id : null;
-
       const telefono = limpiaTexto(d.cliente_telefono);
       const email = limpia(d.cliente_email);
+
+      // Cliente por id_avantio: si no existe en el CRM (típico si nunca se importó el
+      // listado de clientes de Avantio, o es un cliente nuevo desde el último import) se
+      // crea con los datos que trae este mismo Excel, para no perder el enlace.
+      const clienteIdAvantio = limpiaTexto(d.cliente_id_avantio);
+      let clienteId = null;
+      if (clienteIdAvantio) {
+        const cli = buscarCliente.get(clienteIdAvantio);
+        if (cli) {
+          clienteId = cli.id;
+        } else {
+          const nombreCliente = limpia(d.cliente_nombre);
+          if (nombreCliente) {
+            const info = insertarCliente.run({
+              id_avantio: clienteIdAvantio,
+              nombre: nombreCliente,
+              apellido1: limpia(d.cliente_apellidos),
+              fecha_nacimiento: parseFecha(d.cliente_fecha_nacimiento),
+              pais: limpia(d.cliente_pais),
+              telefono,
+              telefono2: limpiaTexto(d.cliente_telefono2),
+              email,
+              dni: limpiaTexto(d.cliente_dni),
+            });
+            clienteId = info.lastInsertRowid;
+            resumen.clientes_creados++;
+          }
+        }
+      }
       const fragObs = [limpia(d.observaciones), telefono ? `TELF: ${telefono}` : null, email];
 
       const datos = {
@@ -243,14 +291,17 @@ function importarReservasAvantio(buffer) {
       const existente = buscarReserva.get(numero_reserva);
 
       if (existente) {
-        // UPDATE sin pisar: apartamento_id (si ya tenía uno), notas_internas; observaciones se
-        // hace append de los fragmentos nuevos sobre las existentes.
+        // UPDATE sin pisar: apartamento_id (si ya tenía uno), cliente_id (si ya tenía uno,
+        // p.ej. corregido a mano), notas_internas; observaciones se hace append de los
+        // fragmentos nuevos sobre las existentes.
         const apartamentoFinal = existente.apartamento_id != null ? existente.apartamento_id : datos.apartamento_id;
+        const clienteFinal = existente.cliente_id != null ? existente.cliente_id : datos.cliente_id;
         const observacionesFinal = componerObservaciones(existente.observaciones, fragObs);
         const upd = {
           ...datos,
           id: existente.id,
           apartamento_id: apartamentoFinal,
+          cliente_id: clienteFinal,
           observaciones: observacionesFinal,
           notas_internas: existente.notas_internas != null && existente.notas_internas !== ''
             ? existente.notas_internas : datos.notas_internas,
@@ -268,12 +319,15 @@ function importarReservasAvantio(buffer) {
         `).run(upd);
         resumen.actualizadas++;
         if (apartamentoFinal != null) resumen.apartamentos_vinculados++;
+        if (clienteFinal != null) resumen.clientes_vinculados++;
+        sincronizarPagosAvantio(existente.id, datos.pagado, datos.pendiente, datos.fecha_creacion);
       } else {
-        insertar.run({ ...datos, observaciones: componerObservaciones(null, fragObs) });
+        const info = insertar.run({ ...datos, observaciones: componerObservaciones(null, fragObs) });
         resumen.nuevas++;
         if (datos.apartamento_id != null) resumen.apartamentos_vinculados++;
+        if (clienteId != null) resumen.clientes_vinculados++;
+        sincronizarPagosAvantio(info.lastInsertRowid, datos.pagado, datos.pendiente, datos.fecha_creacion);
       }
-      if (clienteId != null) resumen.clientes_vinculados++;
     });
   });
 

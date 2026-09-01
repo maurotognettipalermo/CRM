@@ -1126,7 +1126,8 @@ const Reservas = (() => {
       if (!r.ok) throw new Error(data.error || 'Error al importar');
       const errs = data.errores || [];
       let html = `✅ <strong>${data.nuevas}</strong> nuevas, <strong>${data.actualizadas}</strong> actualizadas, `
-        + `<strong>${data.clientes_vinculados}</strong> clientes vinculados, `
+        + `<strong>${data.clientes_vinculados}</strong> clientes vinculados`
+        + (data.clientes_creados ? ` (<strong>${data.clientes_creados}</strong> creados)` : '') + `, `
         + `<strong>${data.apartamentos_vinculados}</strong> apartamentos vinculados`
         + (errs.length ? `, <strong>${errs.length}</strong> errores` : '') + '.';
       if (errs.length) {
