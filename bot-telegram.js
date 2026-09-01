@@ -73,6 +73,16 @@ const tools = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'listar_propietarios',
+    description: 'Lista todos los propietarios (nombre, apellidos, contacto, alojamientos asociados). Útil para buscar un propietario por nombre.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'ficha_propietario',
+    description: 'Detalle de un propietario por ID.',
+    input_schema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+  },
+  {
     name: 'pagos_propietario_resumen',
     description: 'Total pagado/pendiente a propietarios por apartamento, para un año.',
     input_schema: { type: 'object', properties: { anio: { type: 'integer' } }, required: ['anio'] },
@@ -114,6 +124,10 @@ async function ejecutarTool(nombre, input) {
       return llamarCrm('reservas/sin-asignar');
     case 'ficha_apartamento':
       return llamarCrm(`apartamentos/${input.id}`);
+    case 'listar_propietarios':
+      return llamarCrm('propietarios');
+    case 'ficha_propietario':
+      return llamarCrm(`propietarios/${input.id}`);
     case 'listar_apartamentos':
       return llamarCrm('apartamentos?todos=1');
     case 'pagos_propietario_resumen':
@@ -148,7 +162,7 @@ async function responder(pregunta) {
 
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const respuesta = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-5',
       max_tokens: 8000,
       system: SYSTEM_PROMPT,
       tools,

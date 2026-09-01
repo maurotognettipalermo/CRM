@@ -361,8 +361,8 @@ corriendo en `localhost:3000`.
   logs). El bot hace login una vez al arrancar y re-loguea solo si el token expira (401).
 - **Auth contra Telegram**: whitelist de un solo chat (`TELEGRAM_OWNER_ID` en `.env`);
   cualquier otro `chat.id` se ignora sin responder.
-- **Tools = subconjunto GET de la API** (dashboard, reservas, apartamentos, pagos a
-  propietarios, estadísticas, limpieza, mantenimiento, facturas) — deliberadamente sin
+- **Tools = subconjunto GET de la API** (dashboard, reservas, apartamentos, propietarios,
+  pagos a propietarios, estadísticas, limpieza, mantenimiento, facturas) — deliberadamente sin
   ninguna tool de escritura por ahora, para que una alucinación del modelo no pueda mover
   una reserva ni tocar datos. Si se agrega una tool nueva, mapearla 1:1 a un endpoint ya
   documentado en "API REST" más abajo, no inventar lógica nueva ahí.
@@ -371,10 +371,11 @@ corriendo en `localhost:3000`.
   `api.anthropic.com` desde el mismo servidor donde corre el CRM.
 - Variables en `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `ANTHROPIC_API_KEY`,
   `CRM_BOT_USERNAME`, `CRM_BOT_PASSWORD`, `CRM_API_URL` (default `http://localhost:3000`).
-- **Modelo**: `claude-haiku-4-5-20251001` (no `claude-sonnet-5`) — elegido a propósito por
-  costo/velocidad; para este uso (elegir qué tool llamar + resumir el JSON en texto) alcanza.
-  Si las respuestas se ven flojas en preguntas que cruzan varias tools, subir a `claude-sonnet-5`
-  es cambiar una sola línea. `max_tokens: 8000` — en Sonnet/Haiku de esta familia el "thinking"
+- **Modelo**: `claude-sonnet-5` — se probó `claude-haiku-4-5-20251001` primero (más barato)
+  pero fallaba en preguntas simples (ej. buscar un propietario por nombre) por falta de tools,
+  no por el modelo en sí; con el volumen de uso esperado (bot personal, poco tráfico) la
+  diferencia de costo Sonnet/Haiku es irrelevante, así que se dejó Sonnet 5 sin más vueltas.
+  `max_tokens: 8000` — en Sonnet/Haiku de esta familia el "thinking"
   viene activado por defecto y consume del mismo `max_tokens`; con 1024 se cortaba a mitad de
   un bloque `thinking` sin llegar a responder nada (visible en el log como
   `stop_reason max_tokens bloques ['thinking']`).
