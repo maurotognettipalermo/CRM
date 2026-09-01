@@ -348,6 +348,30 @@ Invoke-RestMethod -Uri http://localhost:3000/api/reservas -Method POST -Body $bo
 `backup.bat` → `backups\AAAA-MM-DD_HH-MM-SS\` con los **3 archivos** (`crm.db`, `crm.db-wal`, `crm.db-shm`).
 Restaurar: parar servidor → copiar los 3 archivos a `db\`.
 
+## Bot de Telegram (`bot-telegram.js`)
+
+Bot de **solo lectura** que responde preguntas sobre el CRM desde Telegram, usando Claude
+(tool-calling) para decidir qué endpoints de `/api/*` consultar. Proceso Node separado del
+servidor principal (`npm run bot` / `iniciar-bot.bat`); requiere que `server.js` ya esté
+corriendo en `localhost:3000`.
+
+- **Auth contra el CRM**: usuario de servicio dedicado `bot-telegram` (rol `usuario`, no
+  admin), creado con `node scripts/crear-usuario-bot.js` — escribe `CRM_BOT_USERNAME`/
+  `CRM_BOT_PASSWORD` directo en `.env` (nunca por consola, para no dejar la contraseña en
+  logs). El bot hace login una vez al arrancar y re-loguea solo si el token expira (401).
+- **Auth contra Telegram**: whitelist de un solo chat (`TELEGRAM_OWNER_ID` en `.env`);
+  cualquier otro `chat.id` se ignora sin responder.
+- **Tools = subconjunto GET de la API** (dashboard, reservas, apartamentos, pagos a
+  propietarios, estadísticas, limpieza, mantenimiento, facturas) — deliberadamente sin
+  ninguna tool de escritura por ahora, para que una alucinación del modelo no pueda mover
+  una reserva ni tocar datos. Si se agrega una tool nueva, mapearla 1:1 a un endpoint ya
+  documentado en "API REST" más abajo, no inventar lógica nueva ahí.
+- **Transporte**: `polling` (node-telegram-bot-api), no webhook — no requiere puerto
+  entrante ni IP pública; el bot solo necesita salida a `api.telegram.org` y
+  `api.anthropic.com` desde el mismo servidor donde corre el CRM.
+- Variables en `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `ANTHROPIC_API_KEY`,
+  `CRM_BOT_USERNAME`, `CRM_BOT_PASSWORD`, `CRM_API_URL` (default `http://localhost:3000`).
+
 ## Deploy remoto (`deploy/`)
 
 Scripts para desplegar en servidor remoto (Hetzner) vía Caddy (reverse proxy/TLS) + PM2 (proceso Node): `Caddyfile`, `deploy.sh`, `ecosystem.config.js`, `setup-servidor.sh`, `backup-remoto.sh`. Uso principal sigue siendo LAN local sin internet; esto es un modo de despliegue alternativo.
@@ -362,3 +386,13 @@ Scripts para desplegar en servidor remoto (Hetzner) vía Caddy (reverse proxy/TL
 - Mientras el DNS público de `hectorinmobiliaria.com`/`www` siga apuntando a Arsys (`217.160.0.150`), Caddy no puede emitir el certificado Let's Encrypt (falla `http-01` y `tls-alpn-01` porque el validador de Let's Encrypt conecta a Arsys, no a este VPS) — reintenta solo cada 60s hasta 30 días; se resuelve solo en cuanto el DNS apunte aquí.
 - **"Destacados web"** (2026-07-28): el CRM en producción corre en este mismo VPS/filesystem (ver "Módulos frontend" y modelo de datos, `propiedades_venta.destacado_web`), por eso `routes/ventas.js` escribe `img/destacados/` y `data/destacados.json` con `fs` directo, sin red — si el CRM alguna vez corriera en otra máquina, esto necesitaría rehacerse (scp/red) en vez de escritura local.
 - **Revertir**: borrar (o comentar) este bloque de `/etc/caddy/Caddyfile` y `sudo systemctl reload caddy`. No toca los bloques del CRM ni de `info.hectorinmobiliaria.com`.
+
+**Sección `/actividades/` (añadido 2026-08-01)**: página estática nueva en `/var/www/hectorinmobiliaria-home/actividades/index.html` + fotos `img/act-*.jpg`, servida igual que el resto de la home estática. El matcher `@local` se amplió a `path / /img/* /data/* /actividades/*`. Backups de versiones anteriores quedan junto a cada archivo como `NOMBRE.bak-AAAAMMDD-HHMMSS` (no se borran solos).
+- **Metodología para probar cambios de Caddyfile sin tocar el real**: aislar el bloque a modificar en un Caddyfile de prueba (`{admin off}` para no chocar con el admin API del Caddy real en `127.0.0.1:2019`; `{auto_https disable_redirects}` para no necesitar bind a puerto 80 como root; direcciones de sitio como `hectorinmobiliaria.com:8443` — **no** `:8443` a secas — para que `tls internal` sepa qué dominio certificar). Levantar con `caddy run --config ... --adapter caddyfile > log 2>&1 </dev/null & disown` y probar con `curl -sk --resolve dominio:PUERTO:127.0.0.1 -H "Host: dominio" https://dominio:PUERTO/ruta`. Para parar esa instancia de prueba, matar por PID explícito — **nunca** `pkill -f` con un patrón que incluya el propio comando (el propio `pkill` corriendo vía `ssh "... pkill -f 'caddy run --config X' ..."` se automata, porque su propio argv contiene ese texto; produce un críptico exit 255 en el `ssh`).
+
+**"Comprar" en la home estática apunta a `/propiedades-venta/`, no a `/property/` (2026-08-01)**: los 4 enlaces "Comprar" de `index.html` (nav desktop, panel móvil, tarjeta "Compra tu vivienda", footer) se cambiaron de `/property/` a `https://hectorinmobiliaria.com/propiedades-venta/` a petición explícita del usuario. Motivo de fondo (investigado, no resuelto del todo): `/property/` es el archive nativo del CPT `properties` que registra el plugin **Estatik** (taxonomías `es_*` — real estate), y esa página no está recogiendo el header/footer nuevo puesto en Apariencia → Editor → Partes de plantilla, mientras que el resto del sitio sí. Confirmado por REST API pública (sin credenciales de wp-admin):
+  - El tema activo es de bloques (FSE): `/wp-json/wp/v2/templates` y `/template-parts` devuelven 401 (ruta existe, requiere auth), no 404.
+  - Elementor también está activo (`elementor/v1`, CPT `elementor_library`) — puede estar pintando el header/footer de esa página vía Theme Builder con una condición vieja, en vez de (o además de) la ruta clásica `get_header()`/`get_footer()` de Estatik.
+  - Sin acceso a wp-admin no se pudo determinar cuál de las dos causas es la real (pendiente: revisar en wp-admin si Elementor → Theme Builder tiene una plantilla Header/Footer con condición "Archive: properties", y si Estatik tiene un ajuste tipo "Load theme header/footer"). Hasta que se arregle en WordPress, `/property/` sigue con header/footer viejo — de ahí el cambio de los enlaces "Comprar" a `/propiedades-venta/` como solución mientras tanto.
+
+**Bug de CSS en `.highlight-card` (actividades, 2026-08-01)**: el bloque de texto "Mediterranean Epic" se cortaba porque su altura estaba atada al vídeo 16:9 dentro de un grid con `overflow:hidden`. Fix: `align-items:start` en `.highlight-card` (quitando su `overflow:hidden`), `overflow:hidden` movido a `.highlight-card__video` (con `border-radius` a su lado del grid), `.highlight-card__body` con `border-radius` en el lado contrario; en el media query `max-width:920px` (tarjeta a una columna, vídeo arriba) los `border-radius` se redistribuyen arriba/abajo en vez de izquierda/derecha.

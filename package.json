@@ -4,9 +4,11 @@
   "description": "CRM de gestión de alquiler vacacional para uso en red local de oficina",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "bot": "node bot-telegram.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "better-sqlite3": "^12.2.0",
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",
@@ -14,6 +16,7 @@
     "flatpickr": "^4.6.13",
     "jimp": "^1.6.1",
     "multer": "^2.0.0",
+    "node-telegram-bot-api": "^2.1.0",
     "nodemailer": "^8.0.10",
     "pdfkit": "^0.18.0",
     "xlsx": "^0.18.5"
