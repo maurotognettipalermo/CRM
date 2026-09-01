@@ -603,8 +603,23 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.sin-asignar-lista { display: flex; flex-wrap: wrap; gap: 6px; }
+.sa-flecha { display: inline-block; font-size: 10px; transition: transform 120ms ease; }
+.sin-asignar.colapsado .sa-flecha { transform: rotate(-90deg); }
+.sin-asignar.colapsado .sin-asignar-titulo { margin-bottom: 0; }
+.sin-asignar-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.sin-asignar.colapsado .sin-asignar-lista { display: none; }
 .chip-reserva {
   background: #fef3c7;
   color: #92400e;

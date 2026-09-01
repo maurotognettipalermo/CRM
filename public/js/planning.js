@@ -35,6 +35,9 @@ const Planning = (() => {
   let menuCelda = null;            // menú contextual abierto sobre una celda vacía
   let bloqueoColor = '#7f1d1d';    // color del estado "Bloqueado" (estados_reserva); rojo oscuro por defecto
   let restriccionesActivas = [];   // [{ fecha_inicio, fecha_fin, motivo }] — bloqueo visual + banner
+  // Colapso de la bandeja "Sin asignar" (persistido; con muchas reservas sin asignar tapaba
+  // el planning y no dejaba hacer scroll). Por defecto colapsada.
+  let sinAsignarExpandido = localStorage.getItem('planning_sinAsignarExpandido') === '1';
 
   // Restricción que cubre un día ISO (inclusiva en ambos extremos), o null.
   function restriccionDe(diaISO) {
@@ -395,6 +398,7 @@ const Planning = (() => {
       return;
     }
     cont.classList.remove('oculto');
+    cont.classList.toggle('colapsado', !sinAsignarExpandido);
     for (const r of lista) {
       const chip = document.createElement('div');
       chip.className = 'chip-reserva';
@@ -840,6 +844,12 @@ const Planning = (() => {
   }
 
   function init() {
+    document.getElementById('sin-asignar-titulo').addEventListener('click', () => {
+      sinAsignarExpandido = !sinAsignarExpandido;
+      localStorage.setItem('planning_sinAsignarExpandido', sinAsignarExpandido ? '1' : '0');
+      document.getElementById('sin-asignar').classList.toggle('colapsado', !sinAsignarExpandido);
+    });
+
     const inputFecha = document.getElementById('fecha-inicio');
     sincronizarInput();
     inputFecha.addEventListener('change', () => {
