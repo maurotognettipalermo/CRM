@@ -371,6 +371,13 @@ corriendo en `localhost:3000`.
   `api.anthropic.com` desde el mismo servidor donde corre el CRM.
 - Variables en `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `ANTHROPIC_API_KEY`,
   `CRM_BOT_USERNAME`, `CRM_BOT_PASSWORD`, `CRM_API_URL` (default `http://localhost:3000`).
+- **Modelo**: `claude-haiku-4-5-20251001` (no `claude-sonnet-5`) — elegido a propósito por
+  costo/velocidad; para este uso (elegir qué tool llamar + resumir el JSON en texto) alcanza.
+  Si las respuestas se ven flojas en preguntas que cruzan varias tools, subir a `claude-sonnet-5`
+  es cambiar una sola línea. `max_tokens: 8000` — en Sonnet/Haiku de esta familia el "thinking"
+  viene activado por defecto y consume del mismo `max_tokens`; con 1024 se cortaba a mitad de
+  un bloque `thinking` sin llegar a responder nada (visible en el log como
+  `stop_reason max_tokens bloques ['thinking']`).
 - **⚠️ NO usar `node-telegram-bot-api` (paquete npm)**: desde la `2.0.0` es una reescritura
   total ("runtime-agnostic TypeScript client") con API distinta (`Bot`/`Context`/`compose`,
   no `new TelegramBot(token,{polling:true})`+`bot.on('message')`); instalar esa versión

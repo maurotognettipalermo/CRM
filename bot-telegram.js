@@ -148,8 +148,8 @@ async function responder(pregunta) {
 
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const respuesta = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 1024,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 8000,
       system: SYSTEM_PROMPT,
       tools,
       messages: mensajes,
@@ -157,6 +157,7 @@ async function responder(pregunta) {
 
     const usosDeTool = respuesta.content.filter((b) => b.type === 'tool_use');
     if (usosDeTool.length === 0) {
+      console.log('vuelta', vuelta, 'stop_reason', respuesta.stop_reason, 'bloques', respuesta.content.map((b) => b.type));
       return respuesta.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
     }
 
@@ -184,12 +185,13 @@ bot.use(async (ctx, next) => {
 });
 
 bot.on('text', async (ctx) => {
+  console.log('Mensaje recibido:', JSON.stringify(ctx.message.text));
   await ctx.sendChatAction('typing');
   try {
     const texto = await responder(ctx.message.text);
     await ctx.reply(texto || 'Sin respuesta.');
   } catch (e) {
-    console.error(e);
+    console.error('Error en responder():', e);
     await ctx.reply('Error consultando el CRM: ' + e.message);
   }
 });
