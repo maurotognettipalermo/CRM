@@ -27,6 +27,7 @@ const MAPA = {
   horasalida: 'hora_salida',
   nombrealojamiento: 'alojamiento',
   alojamiento: 'alojamiento',
+  idalojamiento: 'alojamiento_id_avantio',
   adultos: 'adultos',
   ninos: 'ninos',
   bebes: 'bebes',
@@ -164,9 +165,13 @@ function importarReservasAvantio(buffer) {
   const dataRows = rows.slice(filaCabeceras + 1);
 
   // Índices en memoria para resolver alojamiento y cliente.
-  const apartamentos = db.prepare('SELECT id, nombre, tipo FROM apartamentos').all();
+  const apartamentos = db.prepare('SELECT id, nombre, tipo, id_avantio FROM apartamentos').all();
   const aptoPorNombre = new Map();
-  for (const a of apartamentos) aptoPorNombre.set(normalizaClave(a.nombre), a);
+  const aptoPorIdAvantio = new Map();
+  for (const a of apartamentos) {
+    aptoPorNombre.set(normalizaClave(a.nombre), a);
+    if (a.id_avantio) aptoPorIdAvantio.set(String(a.id_avantio), a);
+  }
 
   const buscarCliente = db.prepare(
     "SELECT id FROM clientes WHERE id_avantio IS NOT NULL AND id_avantio <> '' AND id_avantio = ?"
@@ -226,8 +231,13 @@ function importarReservasAvantio(buffer) {
       if (!salida)  { resumen.errores.push({ fila: numFila, numero_reserva, motivo: 'Fecha de salida inválida' }); return; }
       if (entrada >= salida) { resumen.errores.push({ fila: numFila, numero_reserva, motivo: 'La entrada debe ser anterior a la salida' }); return; }
 
-      // Alojamiento por nombre normalizado.
-      const apto = aptoPorNombre.get(normalizaClave(limpia(d.alojamiento) || ''));
+      // Alojamiento: primero por id_avantio (fiable, viene de la columna "id alojamiento"),
+      // con fallback al nombre normalizado (por si el Excel no trae esa columna o el
+      // apartamento aún no tiene id_avantio en el CRM). El texto "Nombre alojamiento" de
+      // Avantio puede ser genérico ("Apartamento en 1º línea") aunque el id sí sea preciso.
+      const idAlojamientoAvantio = limpiaTexto(d.alojamiento_id_avantio);
+      const apto = (idAlojamientoAvantio && aptoPorIdAvantio.get(idAlojamientoAvantio))
+        || aptoPorNombre.get(normalizaClave(limpia(d.alojamiento) || ''));
       const apartamentoId = apto ? apto.id : null;
       const tih = apto && apto.tipo ? String(apto.tipo) : null;
 
