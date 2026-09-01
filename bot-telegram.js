@@ -3,7 +3,7 @@
 // qué endpoints de /api/* consultar (vía tool-calling) y responde en el chat.
 // Requiere internet saliente (Telegram + Anthropic); el CRM en sí sigue en LAN.
 require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+const { Telegraf } = require('telegraf');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const CRM_API_URL = process.env.CRM_API_URL || 'http://localhost:3000';
@@ -17,7 +17,7 @@ for (const v of ['TELEGRAM_BOT_TOKEN', 'ANTHROPIC_API_KEY', 'TELEGRAM_OWNER_ID',
 }
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 let crmToken = null;
 
@@ -175,26 +175,32 @@ async function responder(pregunta) {
   return 'No pude terminar de procesar la consulta (demasiados pasos).';
 }
 
-bot.on('message', async (msg) => {
-  if (String(msg.chat.id) !== TELEGRAM_OWNER_ID) {
-    console.log(`Mensaje ignorado de chat no autorizado: ${msg.chat.id}`);
+bot.use(async (ctx, next) => {
+  if (String(ctx.chat?.id) !== TELEGRAM_OWNER_ID) {
+    console.log(`Mensaje ignorado de chat no autorizado: ${ctx.chat?.id}`);
     return;
   }
-  if (!msg.text) return;
+  return next();
+});
 
-  bot.sendChatAction(msg.chat.id, 'typing');
+bot.on('text', async (ctx) => {
+  await ctx.sendChatAction('typing');
   try {
-    const texto = await responder(msg.text);
-    await bot.sendMessage(msg.chat.id, texto || 'Sin respuesta.');
+    const texto = await responder(ctx.message.text);
+    await ctx.reply(texto || 'Sin respuesta.');
   } catch (e) {
     console.error(e);
-    await bot.sendMessage(msg.chat.id, 'Error consultando el CRM: ' + e.message);
+    await ctx.reply('Error consultando el CRM: ' + e.message);
   }
 });
 
 loginCrm()
+  .then(() => bot.launch())
   .then(() => console.log('Bot de Telegram conectado al CRM y escuchando (polling)...'))
   .catch((e) => {
     console.error('No se pudo iniciar sesión en el CRM:', e.message);
     process.exit(1);
   });
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

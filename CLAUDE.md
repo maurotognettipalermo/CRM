@@ -366,11 +366,17 @@ corriendo en `localhost:3000`.
   ninguna tool de escritura por ahora, para que una alucinación del modelo no pueda mover
   una reserva ni tocar datos. Si se agrega una tool nueva, mapearla 1:1 a un endpoint ya
   documentado en "API REST" más abajo, no inventar lógica nueva ahí.
-- **Transporte**: `polling` (node-telegram-bot-api), no webhook — no requiere puerto
+- **Transporte**: `polling` (Telegraf, `bot.launch()`), no webhook — no requiere puerto
   entrante ni IP pública; el bot solo necesita salida a `api.telegram.org` y
   `api.anthropic.com` desde el mismo servidor donde corre el CRM.
 - Variables en `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `ANTHROPIC_API_KEY`,
   `CRM_BOT_USERNAME`, `CRM_BOT_PASSWORD`, `CRM_API_URL` (default `http://localhost:3000`).
+- **⚠️ NO usar `node-telegram-bot-api` (paquete npm)**: desde la `2.0.0` es una reescritura
+  total ("runtime-agnostic TypeScript client") con API distinta (`Bot`/`Context`/`compose`,
+  no `new TelegramBot(token,{polling:true})`+`bot.on('message')`); instalar esa versión
+  rompe con `TypeError: TelegramBot is not a constructor`. La `0.67.0` (API clásica) sí
+  tiene esa forma pero arrastra `request`→`form-data`/`qs`/`tough-cookie` deprecados (2
+  vulns críticas). Se usa **`telegraf`** en su lugar.
 
 ## Deploy remoto (`deploy/`)
 
