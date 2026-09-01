@@ -84,7 +84,9 @@ function generarNumeroReserva(portalNombre) {
 router.get('/', (req, res) => {
   const { desde, hasta } = req.query;
 
-  let sql = 'SELECT * FROM reservas WHERE 1=1';
+  // Las canceladas no ocupan piso: fuera del planning (si no, se ven solapadas con la
+  // reserva real que sí ocupa esas fechas).
+  let sql = "SELECT * FROM reservas WHERE (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')";
   const params = [];
 
   // Solape con la ventana: empieza en o antes del último día visible (entrada <= hasta)
@@ -99,7 +101,11 @@ router.get('/', (req, res) => {
 
 // Reservas sin apartamento asignado (bandeja "Sin asignar").
 router.get('/sin-asignar', (req, res) => {
-  res.json(db.prepare('SELECT * FROM reservas WHERE apartamento_id IS NULL ORDER BY entrada').all());
+  res.json(
+    db.prepare(
+      "SELECT * FROM reservas WHERE apartamento_id IS NULL AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada') ORDER BY entrada"
+    ).all()
+  );
 });
 
 // Todas las reservas con nombre del apartamento, ordenadas por entrada DESC. Usada por la pestaña Reservas.
@@ -123,8 +129,9 @@ router.get('/verificar-disponibilidad', (req, res) => {
     return res.status(400).json({ error: 'Faltan parámetros: apartamento_id, entrada y salida son obligatorios' });
   }
 
-  // Solapan: entrada < salida_otra AND salida > entrada_otra
-  let sql = 'SELECT * FROM reservas WHERE apartamento_id = ? AND entrada < ? AND salida > ?';
+  // Solapan: entrada < salida_otra AND salida > entrada_otra. Una reserva cancelada no ocupa
+  // el piso, así que no cuenta como conflicto.
+  let sql = "SELECT * FROM reservas WHERE apartamento_id = ? AND entrada < ? AND salida > ? AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')";
   const params = [apartamento_id, salida, entrada];
   if (excluir_reserva_id) {
     sql += ' AND id <> ?';
@@ -358,7 +365,7 @@ router.put('/:id/mover', (req, res) => {
     if (!apto) return res.status(400).json({ error: 'El alojamiento destino no existe' });
 
     const otras = db
-      .prepare('SELECT entrada, salida FROM reservas WHERE apartamento_id = ? AND id <> ?')
+      .prepare("SELECT entrada, salida FROM reservas WHERE apartamento_id = ? AND id <> ? AND (tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada')")
       .all(destino, reserva.id);
     const choca = otras.some((o) => solapan(reserva.entrada, reserva.salida, o.entrada, o.salida));
     if (choca) {
