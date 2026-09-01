@@ -45,6 +45,40 @@ async function llamarCrm(rutaConQuery) {
   return res.json();
 }
 
+// --- Helpers de filtrado/proyección: las listas del CRM (reservas, propietarios,
+// apartamentos) tienen cientos/miles de filas con decenas de columnas cada una (hasta
+// 2MB en JSON) - mandarle eso entero a Claude lo trunca a la mitad y rompe el JSON.
+// Se filtra y proyecta ANTES de armar el tool_result, nunca se corta el texto a ciegas.
+const DIACRITICOS = /[̀-ͯ]/g;
+const normalizar = (s) => String(s ?? '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+
+function coincideTexto(campos, termino) {
+  if (!termino) return true;
+  const haystack = normalizar(campos.filter(Boolean).join(' '));
+  return normalizar(termino).split(/\s+/).filter(Boolean).every((palabra) => haystack.includes(palabra));
+}
+
+function soloCampos(obj, campos) {
+  const out = {};
+  for (const c of campos) out[c] = obj[c];
+  return out;
+}
+
+function limitar(items, limite, etiqueta) {
+  return {
+    total: items.length,
+    mostrando: Math.min(items.length, limite),
+    [etiqueta]: items.slice(0, limite),
+  };
+}
+
+function seSolapan(entrada, salida, desde, hasta) {
+  if (!desde && !hasta) return true;
+  const d = desde || hasta;
+  const h = hasta || desde;
+  return entrada < h && d < salida;
+}
+
 // --- Tools: cada una es GET puro sobre la API ya documentada en CLAUDE.md ---
 const tools = [
   {
@@ -54,8 +88,16 @@ const tools = [
   },
   {
     name: 'buscar_reservas',
-    description: 'Lista todas las reservas (con nombre de apartamento). Útil para buscar por cliente, fechas o estado en el texto devuelto.',
-    input_schema: { type: 'object', properties: {} },
+    description: 'Busca reservas por cliente, apartamento y/o rango de fechas (todos los filtros son opcionales y combinables; sin ningún filtro devuelve las más recientes). Usar "cliente" para buscar por nombre de huésped.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cliente: { type: 'string', description: 'Nombre del cliente/huésped (parcial, sin distinguir mayúsculas/acentos)' },
+        apartamento: { type: 'string', description: 'Nombre del apartamento (parcial)' },
+        desde: { type: 'string', description: 'YYYY-MM-DD, filtra reservas que solapen desde esta fecha' },
+        hasta: { type: 'string', description: 'YYYY-MM-DD, filtra reservas que solapen hasta esta fecha' },
+      },
+    },
   },
   {
     name: 'reservas_sin_asignar',
@@ -69,13 +111,13 @@ const tools = [
   },
   {
     name: 'listar_apartamentos',
-    description: 'Lista todos los apartamentos con sus propietarios y portal.',
-    input_schema: { type: 'object', properties: {} },
+    description: 'Lista apartamentos con propietario y portal. "buscar" filtra por nombre de apartamento/edificio O nombre/apellidos del propietario - usarla para encontrar "el apartamento de FULANO". Sin filtro devuelve los primeros (hay 253 en total).',
+    input_schema: { type: 'object', properties: { buscar: { type: 'string', description: 'Nombre/edificio del apartamento, o nombre/apellidos del propietario' } } },
   },
   {
     name: 'listar_propietarios',
-    description: 'Lista todos los propietarios (nombre, apellidos, contacto, alojamientos asociados). Útil para buscar un propietario por nombre.',
-    input_schema: { type: 'object', properties: {} },
+    description: 'Busca propietarios por nombre, apellidos o DNI (parcial, sin distinguir mayúsculas/acentos). Siempre pasar "buscar" - hay 1400+ propietarios, sin filtro solo se ven los primeros.',
+    input_schema: { type: 'object', properties: { buscar: { type: 'string', description: 'Nombre, apellido(s) o DNI a buscar' } } },
   },
   {
     name: 'ficha_propietario',
@@ -84,8 +126,13 @@ const tools = [
   },
   {
     name: 'pagos_propietario_resumen',
-    description: 'Total pagado/pendiente a propietarios por apartamento, para un año.',
+    description: 'Pagos MANUALES sueltos a propietarios (tabla aparte, no todos los apartamentos tienen filas). NO usar para "cuánto se le debe del contrato" - para eso usar resumen_contrato_propietario. Devuelve solo los apartamentos que tienen algún pago manual registrado ese año.',
     input_schema: { type: 'object', properties: { anio: { type: 'integer' } }, required: ['anio'] },
+  },
+  {
+    name: 'resumen_contrato_propietario',
+    description: 'Lo que se le debe/pagó a un propietario por su CONTRATO de alquiler este año: cuotas totales, cuotas pagadas, importe pagado y pendiente. Requiere el id del propietario (obtenerlo con listar_propietarios primero).',
+    input_schema: { type: 'object', properties: { propietario_id: { type: 'integer' }, anio: { type: 'integer' } }, required: ['propietario_id', 'anio'] },
   },
   {
     name: 'estadisticas_portales',
@@ -114,24 +161,60 @@ const tools = [
   },
 ];
 
+const CAMPOS_RESERVA = ['id', 'numero_reserva', 'nombre_cliente', 'ocupante', 'apartamento_nombre',
+  'entrada', 'salida', 'tipo_reserva', 'portal', 'checkin_estado', 'checkout_estado',
+  'precio_total', 'total_pagado', 'pendiente', 'observaciones'];
+const CAMPOS_PROPIETARIO = ['id', 'nombre', 'apellidos', 'segundo_apellido', 'telefono',
+  'telefono2', 'email', 'numero_documento', 'num_alojamientos', 'ciudad'];
+const CAMPOS_APARTAMENTO = ['id', 'nombre', 'edificio', 'tipo_clasificacion', 'estado_limpieza',
+  'portal_nombre', 'propietario_id', 'propietario_nombre', 'propietario_apellidos',
+  'propietario_segundo_apellido', 'capacidad'];
+
 async function ejecutarTool(nombre, input) {
   switch (nombre) {
-    case 'dashboard':
-      return llamarCrm('dashboard');
-    case 'buscar_reservas':
-      return llamarCrm('reservas/todas');
+    case 'dashboard': {
+      const d = await llamarCrm('dashboard');
+      const CAMPOS_DASH = ['numero_reserva', 'nombre_cliente', 'apartamento_nombre', 'entrada', 'salida', 'portal'];
+      return {
+        pagos_pendientes: d.pagos_pendientes,
+        reservas_entrantes: d.reservas_entrantes,
+        proximos_checkin: { total: d.proximos_checkin.length, items: d.proximos_checkin.slice(0, 15).map((r) => soloCampos(r, CAMPOS_DASH)) },
+        proximos_checkout: { total: d.proximos_checkout.length, items: d.proximos_checkout.slice(0, 15).map((r) => soloCampos(r, CAMPOS_DASH)) },
+        reservas_en_curso: { total: d.reservas_en_curso.length, items: d.reservas_en_curso.slice(0, 15).map((r) => soloCampos(r, CAMPOS_DASH)) },
+      };
+    }
+    case 'buscar_reservas': {
+      const todas = await llamarCrm('reservas/todas');
+      const filtradas = todas
+        .filter((r) => coincideTexto([r.nombre_cliente, r.ocupante], input.cliente))
+        .filter((r) => coincideTexto([r.apartamento_nombre], input.apartamento))
+        .filter((r) => seSolapan(r.entrada, r.salida, input.desde, input.hasta))
+        .sort((a, b) => (b.entrada || '').localeCompare(a.entrada || ''));
+      return limitar(filtradas.map((r) => soloCampos(r, CAMPOS_RESERVA)), 40, 'reservas');
+    }
     case 'reservas_sin_asignar':
       return llamarCrm('reservas/sin-asignar');
     case 'ficha_apartamento':
       return llamarCrm(`apartamentos/${input.id}`);
-    case 'listar_propietarios':
-      return llamarCrm('propietarios');
+    case 'listar_propietarios': {
+      const todos = await llamarCrm('propietarios');
+      const filtrados = todos.filter((p) => coincideTexto([p.nombre, p.apellidos, p.segundo_apellido, p.numero_documento, p.email], input.buscar));
+      return limitar(filtrados.map((p) => soloCampos(p, CAMPOS_PROPIETARIO)), 30, 'propietarios');
+    }
     case 'ficha_propietario':
       return llamarCrm(`propietarios/${input.id}`);
-    case 'listar_apartamentos':
-      return llamarCrm('apartamentos?todos=1');
+    case 'listar_apartamentos': {
+      const todos = await llamarCrm('apartamentos?todos=1');
+      const filtrados = todos.filter((a) => coincideTexto(
+        [a.nombre, a.edificio, a.propietario_nombre, a.propietario_apellidos, a.propietario_segundo_apellido],
+        input.buscar,
+      ));
+      return limitar(filtrados.map((a) => soloCampos(a, CAMPOS_APARTAMENTO)), 60, 'apartamentos');
+    }
     case 'pagos_propietario_resumen':
       return llamarCrm(`apartamentos/pagos-propietario/resumen?anio=${input.anio}`);
+    case 'resumen_contrato_propietario':
+      return llamarCrm(`contratos/resumen-propietario?propietario_id=${input.propietario_id}&anio=${input.anio}`);
     case 'estadisticas_portales':
       return llamarCrm(`estadisticas/portales?anio=${input.anio}`);
     case 'estadisticas_ocupacion':
@@ -144,18 +227,41 @@ async function ejecutarTool(nombre, input) {
       const qs = new URLSearchParams();
       if (input.estado) qs.set('estado', input.estado);
       if (input.anio) qs.set('anio', input.anio);
-      return llamarCrm(`facturas?${qs}`);
+      const CAMPOS_FACTURA = ['id', 'numero', 'tipo', 'estado', 'emisor_nombre', 'receptor_nombre',
+        'apartamento_nombre', 'propietario_nombre', 'propietario_apellidos', 'total',
+        'fecha_emision', 'fecha_vencimiento'];
+      const facturas = await llamarCrm(`facturas?${qs}`);
+      return limitar(facturas.map((f) => soloCampos(f, CAMPOS_FACTURA)), 40, 'facturas');
     }
     default:
       throw new Error('Tool desconocida: ' + nombre);
   }
 }
 
-const SYSTEM_PROMPT = `Sos un asistente que responde preguntas sobre un CRM de alquiler vacacional,
+function systemPrompt() {
+  const hoy = new Date();
+  const fechaHoy = hoy.toISOString().slice(0, 10);
+  const anioActual = hoy.getFullYear();
+  return `Sos un asistente que responde preguntas sobre un CRM de alquiler vacacional,
 consultando su API mediante las tools disponibles. Respondé siempre en español, breve y concreto,
 con los datos reales que te devuelven las tools (no inventes números). Si una pregunta requiere
 varias consultas (por ejemplo cruzar reservas con apartamentos), encadená las tools que hagan falta.
+Hoy es ${fechaHoy}. En cualquier tool que pida "anio" y la pregunta no especifique año, usá
+${anioActual} (el año actual) por defecto - NO pruebes con años anteriores salvo que te lo pidan
+explícitamente ("el año pasado", "en 2025", etc.).
+Las tools de búsqueda (reservas, propietarios, apartamentos, facturas) devuelven "total" y
+"mostrando": si mostrando < total, hay más resultados de los que ves - si la búsqueda inicial no
+encontró lo que pedían, probá con un término más corto o parcial (ej. solo el apellido) antes de
+decir que no existe.
+IMPORTANTE - no mezclar datos de entidades distintas: antes de dar una cifra o un dato, verificá
+que el nombre de apartamento/propietario que aparece en el resultado de la tool es EXACTAMENTE
+el que te preguntaron, no una fila cualquiera de la lista. "pagos_propietario_resumen" solo
+devuelve apartamentos con pagos manuales sueltos registrados - si el apartamento que buscás no
+aparece ahí, no es que deba 0, es que no tiene filas en esa tabla; para "cuánto se le debe del
+contrato" usá siempre "resumen_contrato_propietario", nunca "pagos_propietario_resumen". Si no
+podés confirmar la coincidencia, decilo en vez de inventar o de dar el dato de otra entidad.
 Formateá fechas como DD/MM/AAAA y montos en euros.`;
+}
 
 async function responder(pregunta) {
   const mensajes = [{ role: 'user', content: pregunta }];
@@ -164,7 +270,7 @@ async function responder(pregunta) {
     const respuesta = await anthropic.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 8000,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt(),
       tools,
       messages: mensajes,
     });
@@ -180,7 +286,7 @@ async function responder(pregunta) {
     for (const uso of usosDeTool) {
       try {
         const data = await ejecutarTool(uso.name, uso.input || {});
-        resultados.push({ type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(data).slice(0, 8000) });
+        resultados.push({ type: 'tool_result', tool_use_id: uso.id, content: JSON.stringify(data).slice(0, 20000) });
       } catch (e) {
         resultados.push({ type: 'tool_result', tool_use_id: uso.id, content: `Error: ${e.message}`, is_error: true });
       }

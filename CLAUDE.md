@@ -362,10 +362,31 @@ corriendo en `localhost:3000`.
 - **Auth contra Telegram**: whitelist de un solo chat (`TELEGRAM_OWNER_ID` en `.env`);
   cualquier otro `chat.id` se ignora sin responder.
 - **Tools = subconjunto GET de la API** (dashboard, reservas, apartamentos, propietarios,
-  pagos a propietarios, estadísticas, limpieza, mantenimiento, facturas) — deliberadamente sin
-  ninguna tool de escritura por ahora, para que una alucinación del modelo no pueda mover
-  una reserva ni tocar datos. Si se agrega una tool nueva, mapearla 1:1 a un endpoint ya
-  documentado en "API REST" más abajo, no inventar lógica nueva ahí.
+  pagos manuales a propietarios, cuotas de contrato por propietario, estadísticas, limpieza,
+  mantenimiento, facturas) — deliberadamente sin ninguna tool de escritura por ahora, para que
+  una alucinación del modelo no pueda mover una reserva ni tocar datos. Si se agrega una tool
+  nueva, mapearla 1:1 a un endpoint ya documentado en "API REST" más abajo, no inventar lógica
+  nueva ahí.
+- **Filtrado/proyección obligatorios en listas grandes**: `reservas/todas` (2MB, 2975 filas),
+  `propietarios` (1.3MB, 1423 filas), `apartamentos?todos=1` (196KB, 253 filas) no se le pueden
+  mandar enteras a Claude — un primer intento las cortaba a ciegas a 8000 caracteres
+  (`JSON.stringify(data).slice(0,8000)`) y el JSON quedaba roto a mitad de un registro, o el
+  propietario buscado quedaba fuera del corte ("no encuentra propietario" aunque exista). Las
+  tools de listado (`buscar_reservas`, `listar_propietarios`, `listar_apartamentos`,
+  `facturas_pendientes`) ahora filtran server-side (bot-telegram.js, `coincideTexto` -
+  normaliza acentos/mayúsculas, todas las palabras del término deben aparecer) y proyectan solo
+  las columnas relevantes (`soloCampos`) antes de armar el tool_result, devolviendo
+  `{total, mostrando, items}` para que el modelo sepa si hay más resultados de los que ve.
+- **No mezclar `pagos_propietario` (tabla ad-hoc) con `contrato_cuotas` (plan de pagos del
+  contrato)**: son dos cosas distintas en el CRM. `pagos_propietario_resumen` (tool) lee la
+  primera — la mayoría de apartamentos no tiene ninguna fila ahí, así que "no aparece" no
+  significa "debe 0". Para "cuánto se le debe del contrato este año" existe la tool separada
+  `resumen_contrato_propietario` (`GET /api/contratos/resumen-propietario?propietario_id=&anio=`).
+  Confundir las dos tools hizo que el bot le atribuyera a un propietario los datos de otro
+  apartamento sin relación (única fila que había ese año en `pagos_propietario`).
+- **Año por defecto = año actual**: `systemPrompt()` (no una constante — se recalcula en cada
+  llamada) inyecta la fecha de hoy y le dice al modelo que use el año actual salvo que se pida
+  explícitamente otro; antes probaba 2024/2025 primero y "no encontraba nada".
 - **Transporte**: `polling` (Telegraf, `bot.launch()`), no webhook — no requiere puerto
   entrante ni IP pública; el bot solo necesita salida a `api.telegram.org` y
   `api.anthropic.com` desde el mismo servidor donde corre el CRM.
