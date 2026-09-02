@@ -1,4 +1,4 @@
-// Módulo Dashboard: pantalla de inicio con 4 tarjetas (pagos pendientes, próximos
+// Módulo Dashboard: pantalla de inicio con 4 tarjetas (visitas de venta del mes, próximos
 // check-in, reservas en curso, próximos check-out). Carga GET /api/dashboard +
 // API.getPortales() en paralelo, con skeleton, manejo de error y refresco cada 5 min.
 
@@ -12,9 +12,6 @@ const Dashboard = (() => {
   const paginas = { checkin: 0, encurso: 0, checkout: 0 };
 
   // ---- Utilidades de formato ----
-  function euro(n) {
-    return (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-  }
   function ddmm(iso) {
     if (!iso) return '';
     const p = String(iso).split('-');
@@ -101,12 +98,37 @@ const Dashboard = (() => {
     return cardShell({ icono, color, titulo, subtitulo, count: total, body });
   }
 
-  // ---- Tarjeta de pagos pendientes ----
-  function cardPagos(p) {
-    const body = p.total > 0
-      ? `<div class="dash-importe">${euro(p.total)}</div>`
-      : '<div class="dash-vacio-lista">Sin pagos pendientes</div>';
-    return cardShell({ icono: '€', color: '#eab308', titulo: 'Pagos pendientes', subtitulo: 'Importe total pendiente', count: p.count, body });
+  // ---- Ítem de la tarjeta de visitas ----
+  function itemVisitaHTML(v) {
+    const cliente = `${v.cliente_nombre || ''} ${v.cliente_apellidos || ''}`.trim() || '—';
+    const propiedad = v.propiedad_referencia || v.propiedad_calle
+      ? esc(v.propiedad_referencia || v.propiedad_calle)
+      : '<span class="dash-vacio">Sin propiedad</span>';
+    return `
+      <div class="dash-item">
+        <div class="dash-item-l1">
+          <span class="dash-cliente">${esc(cliente)}</span>
+          <span class="dash-fecha">${ddmm(v.fecha)}${v.hora ? ' · ' + esc(v.hora) : ''}</span>
+        </div>
+        <div class="dash-item-l2">${propiedad}</div>
+      </div>`;
+  }
+
+  // ---- Tarjeta de visitas de venta del mes (orden por fecha más próxima) ----
+  function cardVisitas(items) {
+    const clave = 'visitas';
+    const total = items.length;
+    const totalPag = Math.max(1, Math.ceil(total / POR_PAGINA));
+    const pag = Math.min(paginas[clave] || 0, totalPag - 1);
+    paginas[clave] = pag;
+    const slice = items.slice(pag * POR_PAGINA, pag * POR_PAGINA + POR_PAGINA);
+
+    let body = total === 0
+      ? '<div class="dash-vacio-lista">Sin visitas programadas este mes</div>'
+      : slice.map(itemVisitaHTML).join('');
+    if (total > POR_PAGINA) body += paginacionHTML(clave, totalPag, pag);
+
+    return cardShell({ icono: '🏠', color: '#eab308', titulo: 'Visitas este mes', subtitulo: 'Próximas primero', count: total, body });
   }
 
   // ---- Render completo ----
@@ -114,7 +136,7 @@ const Dashboard = (() => {
     const cont = document.getElementById('dashboard');
     if (!cont || !datos) return;
     cont.innerHTML =
-      cardPagos(datos.pagos_pendientes) +
+      cardVisitas(datos.visitas_mes) +
       cardLista({ clave: 'checkin', icono: '↓', color: '#10b981', titulo: 'Próximos Check-in', subtitulo: 'Próximos 7 días', items: datos.proximos_checkin, usaSalida: false }) +
       cardLista({ clave: 'encurso', icono: '●', color: '#3b82f6', titulo: 'Reservas en curso', subtitulo: 'Hoy', items: datos.reservas_en_curso, usaSalida: true, verTodas: true }) +
       cardLista({ clave: 'checkout', icono: '↑', color: '#f97316', titulo: 'Próximos Check-out', subtitulo: 'Próximos 7 días', items: datos.proximos_checkout, usaSalida: true });

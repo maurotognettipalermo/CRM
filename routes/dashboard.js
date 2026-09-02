@@ -54,14 +54,20 @@ router.get('/', (req, res) => {
     LIMIT 50
   `).all(hoyISO, hoyISO);
 
-  // Pagos pendientes: total del campo `pendiente` y nº de reservas con saldo > 0.
-  // Se excluyen las canceladas.
-  const pagos = db.prepare(`
-    SELECT COALESCE(SUM(pendiente), 0) AS total,
-           COUNT(CASE WHEN pendiente > 0 THEN 1 END) AS count
-    FROM reservas
-    WHERE tipo_reserva IS NULL OR tipo_reserva <> 'Cancelada'
-  `).get();
+  // Visitas de venta programadas de hoy al fin de mes, ordenadas por fecha más próxima.
+  const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+  const finMesISO = isoLocal(finMes);
+  const visitas_mes = db.prepare(`
+    SELECT v.id, v.fecha, v.hora, v.estado,
+           c.nombre AS cliente_nombre, c.apellidos AS cliente_apellidos,
+           p.referencia AS propiedad_referencia, p.calle AS propiedad_calle
+    FROM visitas_venta v
+    JOIN clientes_compradores c ON c.id = v.cliente_id
+    JOIN propiedades_venta p ON p.id = v.propiedad_id
+    WHERE v.fecha >= ? AND v.fecha <= ? AND v.estado = 'Programada'
+    ORDER BY v.fecha ASC, v.hora ASC
+    LIMIT 50
+  `).all(hoyISO, finMesISO);
 
   // Reservas creadas en los últimos 7 días (fecha_creacion se guarda en UTC).
   const entrantes = db.prepare(`
@@ -73,7 +79,7 @@ router.get('/', (req, res) => {
   res.json({
     proximos_checkin,
     reservas_en_curso,
-    pagos_pendientes: { total: pagos.total, count: pagos.count },
+    visitas_mes,
     reservas_entrantes: { count: entrantes.count },
     proximos_checkout,
   });
