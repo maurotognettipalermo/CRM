@@ -94,10 +94,9 @@ const Dashboard = (() => {
         <input type="date" class="dash-filtro-fecha-input${filtro.modo === 'custom' ? ' activo' : ''}" data-filtro-fecha="${clave}" value="${filtro.fecha}">
       </div>`;
   }
-  function subtituloFiltro(filtro) {
-    if (filtro.modo === 'hoy') return 'Hoy';
-    if (filtro.modo === 'manana') return 'Mañana';
-    return ddmm(filtro.fecha);
+  function subtituloFiltro(filtro, total, singular, plural) {
+    const dia = filtro.modo === 'hoy' ? 'Hoy' : filtro.modo === 'manana' ? 'Mañana' : ddmm(filtro.fecha);
+    return `${dia} · Total: ${total} ${total === 1 ? singular : plural}`;
   }
 
   // ---- Cabecera + contenedor de una tarjeta ----
@@ -116,7 +115,7 @@ const Dashboard = (() => {
   }
 
   // ---- Tarjeta de lista (check-in / check-out) ----
-  function cardLista({ clave, icono, color, titulo, filtro, items, usaSalida }) {
+  function cardLista({ clave, icono, color, titulo, filtro, items, usaSalida, singular, plural }) {
     const total = items.length;
     const totalPag = Math.max(1, Math.ceil(total / POR_PAGINA));
     const pag = Math.min(paginas[clave] || 0, totalPag - 1);
@@ -129,7 +128,7 @@ const Dashboard = (() => {
       : slice.map((r) => itemHTML(r, usaSalida)).join('');
     if (total > POR_PAGINA) body += paginacionHTML(clave, totalPag, pag);
 
-    return cardShell({ icono, color, titulo, subtitulo: subtituloFiltro(filtro), count: total, body });
+    return cardShell({ icono, color, titulo, subtitulo: subtituloFiltro(filtro, total, singular, plural), count: total, body });
   }
 
   // ---- Ítem de la tarjeta de visitas ----
@@ -171,8 +170,8 @@ const Dashboard = (() => {
     if (!cont || !datos) return;
     cont.innerHTML =
       cardVisitas(datos.visitas_mes) +
-      cardLista({ clave: 'checkin', icono: '↓', color: '#10b981', titulo: 'Próximos Check-in', filtro: filtros.checkin, items: datos.proximos_checkin, usaSalida: false }) +
-      cardLista({ clave: 'checkout', icono: '↑', color: '#f97316', titulo: 'Próximos Check-out', filtro: filtros.checkout, items: datos.proximos_checkout, usaSalida: true });
+      cardLista({ clave: 'checkin', icono: '↓', color: '#10b981', titulo: 'Próximos Check-in', filtro: filtros.checkin, items: datos.proximos_checkin, usaSalida: false, singular: 'check-in', plural: 'check-ins' }) +
+      cardLista({ clave: 'checkout', icono: '↑', color: '#f97316', titulo: 'Próximos Check-out', filtro: filtros.checkout, items: datos.proximos_checkout, usaSalida: true, singular: 'check-out', plural: 'check-outs' });
     bindEventos();
   }
 
