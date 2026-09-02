@@ -30,13 +30,12 @@ router.get('/', (req, res) => {
   const checkinFecha = FECHA_RE.test(req.query.checkin_fecha) ? req.query.checkin_fecha : hoyISO;
   const checkoutFecha = FECHA_RE.test(req.query.checkout_fecha) ? req.query.checkout_fecha : hoyISO;
 
-  // Reservas que entran el día elegido.
+  // Reservas que entran el día elegido (sin LIMIT: es un día concreto, no un rango).
   const proximos_checkin = db.prepare(`
     SELECT ${CAMPOS}
     FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
     WHERE r.entrada = ?
     ORDER BY r.hora_entrada ASC, r.id ASC
-    LIMIT 50
   `).all(checkinFecha);
 
   // Reservas que salen el día elegido.
@@ -45,7 +44,6 @@ router.get('/', (req, res) => {
     FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
     WHERE r.salida = ?
     ORDER BY r.hora_salida ASC, r.id ASC
-    LIMIT 50
   `).all(checkoutFecha);
 
   // Visitas de venta programadas de hoy al fin de mes, ordenadas por fecha más próxima.
