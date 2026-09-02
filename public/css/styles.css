@@ -1901,6 +1901,33 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .dash-vacio-lista { color: var(--muted); font-size: 13px; padding: 16px 0; }
 .dash-vacio { color: var(--muted); }
 
+/* Selector Hoy/Mañana/personalizado de check-in y check-out */
+.dash-filtro-fecha { display: flex; gap: 6px; align-items: center; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
+.dash-filtro-btn {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.dash-filtro-btn:hover { background: #f3f4f6; color: var(--text); }
+.dash-filtro-btn.activo { background: var(--nav); color: #ffffff; border-color: var(--nav); }
+.dash-filtro-fecha-input {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  width: 92px;
+}
+.dash-filtro-fecha-input.activo { color: var(--text); border-color: var(--nav); }
+
 /* Ítems de lista */
 .dash-item { padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
 .dash-item:last-child { border-bottom: none; }
@@ -1956,16 +1983,6 @@ main { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: c
 .dash-pag-btn:hover:not(:disabled), .dash-pag-num:hover { background: #f3f4f6; color: var(--text); }
 .dash-pag-btn:disabled { opacity: 0.4; cursor: default; }
 .dash-pag-num.activo { background: var(--nav); color: #ffffff; border-color: var(--nav); }
-
-.dash-vertodas {
-  display: inline-block;
-  margin-top: 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--blue);
-  cursor: pointer;
-}
-.dash-vertodas:hover { text-decoration: underline; }
 
 /* Estado de error */
 .dash-error {

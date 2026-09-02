@@ -1,5 +1,5 @@
-// Módulo Dashboard: pantalla de inicio con 4 tarjetas (visitas de venta del mes, próximos
-// check-in, reservas en curso, próximos check-out). Carga GET /api/dashboard +
+// Módulo Dashboard: pantalla de inicio con 3 tarjetas (visitas de venta del mes, próximos
+// check-in, próximos check-out). Carga GET /api/dashboard +
 // API.getPortales() en paralelo, con skeleton, manejo de error y refresco cada 5 min.
 
 const Dashboard = (() => {
@@ -9,9 +9,28 @@ const Dashboard = (() => {
   let datos = null;
   let portalesMap = {};
   let intervalo = null;
-  const paginas = { checkin: 0, encurso: 0, checkout: 0 };
+  const paginas = { checkin: 0, checkout: 0 };
+  // Día mostrado en cada ficha de check-in/check-out: 'hoy' | 'manana' | 'custom'.
+  const filtros = {
+    checkin: { modo: 'hoy', fecha: hoyISO() },
+    checkout: { modo: 'hoy', fecha: hoyISO() },
+  };
 
   // ---- Utilidades de formato ----
+  function hoyISO() {
+    return isoLocal(new Date());
+  }
+  function mananaISO() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return isoLocal(d);
+  }
+  function isoLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  }
   function ddmm(iso) {
     if (!iso) return '';
     const p = String(iso).split('-');
@@ -66,6 +85,21 @@ const Dashboard = (() => {
       </div>`;
   }
 
+  // ---- Selector de día (Hoy / Mañana / personalizado) de check-in/check-out ----
+  function toolbarFechaHTML(clave, filtro) {
+    return `
+      <div class="dash-filtro-fecha">
+        <button class="dash-filtro-btn${filtro.modo === 'hoy' ? ' activo' : ''}" data-filtro-clave="${clave}" data-filtro-modo="hoy">Hoy</button>
+        <button class="dash-filtro-btn${filtro.modo === 'manana' ? ' activo' : ''}" data-filtro-clave="${clave}" data-filtro-modo="manana">Mañana</button>
+        <input type="date" class="dash-filtro-fecha-input${filtro.modo === 'custom' ? ' activo' : ''}" data-filtro-fecha="${clave}" value="${filtro.fecha}">
+      </div>`;
+  }
+  function subtituloFiltro(filtro) {
+    if (filtro.modo === 'hoy') return 'Hoy';
+    if (filtro.modo === 'manana') return 'Mañana';
+    return ddmm(filtro.fecha);
+  }
+
   // ---- Cabecera + contenedor de una tarjeta ----
   function cardShell({ icono, color, titulo, subtitulo, count, body }) {
     return `
@@ -81,21 +115,21 @@ const Dashboard = (() => {
       </div>`;
   }
 
-  // ---- Tarjeta de lista (check-in / en curso / check-out) ----
-  function cardLista({ clave, icono, color, titulo, subtitulo, items, usaSalida, verTodas }) {
+  // ---- Tarjeta de lista (check-in / check-out) ----
+  function cardLista({ clave, icono, color, titulo, filtro, items, usaSalida }) {
     const total = items.length;
     const totalPag = Math.max(1, Math.ceil(total / POR_PAGINA));
     const pag = Math.min(paginas[clave] || 0, totalPag - 1);
     paginas[clave] = pag;
     const slice = items.slice(pag * POR_PAGINA, pag * POR_PAGINA + POR_PAGINA);
 
-    let body = total === 0
+    let body = toolbarFechaHTML(clave, filtro);
+    body += total === 0
       ? '<div class="dash-vacio-lista">Sin registros</div>'
       : slice.map((r) => itemHTML(r, usaSalida)).join('');
     if (total > POR_PAGINA) body += paginacionHTML(clave, totalPag, pag);
-    if (verTodas) body += '<a class="dash-vertodas" data-vertodas="1">Ver todas →</a>';
 
-    return cardShell({ icono, color, titulo, subtitulo, count: total, body });
+    return cardShell({ icono, color, titulo, subtitulo: subtituloFiltro(filtro), count: total, body });
   }
 
   // ---- Ítem de la tarjeta de visitas ----
@@ -137,9 +171,8 @@ const Dashboard = (() => {
     if (!cont || !datos) return;
     cont.innerHTML =
       cardVisitas(datos.visitas_mes) +
-      cardLista({ clave: 'checkin', icono: '↓', color: '#10b981', titulo: 'Próximos Check-in', subtitulo: 'Próximos 7 días', items: datos.proximos_checkin, usaSalida: false }) +
-      cardLista({ clave: 'encurso', icono: '●', color: '#3b82f6', titulo: 'Reservas en curso', subtitulo: 'Hoy', items: datos.reservas_en_curso, usaSalida: true, verTodas: true }) +
-      cardLista({ clave: 'checkout', icono: '↑', color: '#f97316', titulo: 'Próximos Check-out', subtitulo: 'Próximos 7 días', items: datos.proximos_checkout, usaSalida: true });
+      cardLista({ clave: 'checkin', icono: '↓', color: '#10b981', titulo: 'Próximos Check-in', filtro: filtros.checkin, items: datos.proximos_checkin, usaSalida: false }) +
+      cardLista({ clave: 'checkout', icono: '↑', color: '#f97316', titulo: 'Próximos Check-out', filtro: filtros.checkout, items: datos.proximos_checkout, usaSalida: true });
     bindEventos();
   }
 
@@ -149,19 +182,26 @@ const Dashboard = (() => {
         paginas[b.dataset.pagClave] = Number(b.dataset.pagIdx);
         render();
       }));
-    const vt = document.querySelector('#dashboard [data-vertodas]');
-    if (vt) vt.addEventListener('click', verTodasReservas);
+    document.querySelectorAll('#dashboard [data-filtro-modo]').forEach((b) =>
+      b.addEventListener('click', () => cambiarFiltro(b.dataset.filtroClave, b.dataset.filtroModo)));
+    document.querySelectorAll('#dashboard [data-filtro-fecha]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        if (inp.value) cambiarFiltro(inp.dataset.filtroFecha, 'custom', inp.value);
+      }));
   }
 
-  // Navega a Reservas con el filtro del mes actual (sin tocar el módulo Reservas).
-  function verTodasReservas() {
-    const hoy = new Date();
-    const mes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-    if (typeof activarTab === 'function') activarTab('reservas');
-    const sel = document.getElementById('reservas-filtro-mes');
-    if (sel) {
-      sel.value = mes;
-      sel.dispatchEvent(new Event('change'));
+  // Cambia el día mostrado en la ficha de check-in/check-out (Hoy/Mañana/personalizado)
+  // y vuelve a pedir los datos al backend, que filtra por ese día exacto.
+  async function cambiarFiltro(clave, modo, fechaCustom) {
+    const f = filtros[clave];
+    f.modo = modo;
+    f.fecha = modo === 'hoy' ? hoyISO() : modo === 'manana' ? mananaISO() : fechaCustom;
+    paginas[clave] = 0;
+    try {
+      await obtenerDatos();
+      render();
+    } catch (e) {
+      renderError(e.message);
     }
   }
 
@@ -180,7 +220,7 @@ const Dashboard = (() => {
         </div>
         <div class="dash-card-body">${'<span class="skeleton sk-bloque"></span>'.repeat(4)}</div>
       </div>`;
-    cont.innerHTML = tarjeta.repeat(4);
+    cont.innerHTML = tarjeta.repeat(3);
   }
 
   function renderError(msg) {
@@ -197,7 +237,8 @@ const Dashboard = (() => {
 
   // ---- Carga de datos ----
   async function obtenerDatos() {
-    const [d, portales] = await Promise.all([API.get('/api/dashboard'), API.getPortales()]);
+    const qs = `?checkin_fecha=${filtros.checkin.fecha}&checkout_fecha=${filtros.checkout.fecha}`;
+    const [d, portales] = await Promise.all([API.get('/api/dashboard' + qs), API.getPortales()]);
     datos = d;
     portalesMap = {};
     for (const p of portales) portalesMap[p.nombre] = { color: p.color, imagen_url: p.imagen_url };

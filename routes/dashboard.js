@@ -19,40 +19,34 @@ function isoLocal(d) {
   return `${y}-${m}-${dd}`;
 }
 
+const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 // GET /api/dashboard -> todos los datos del dashboard en una sola respuesta.
+// ?checkin_fecha= / ?checkout_fecha= (YYYY-MM-DD): día a mostrar en cada ficha
+// (Hoy/Mañana/personalizado desde el frontend); por defecto, hoy.
 router.get('/', (req, res) => {
   const hoy = new Date();
   const hoyISO = isoLocal(hoy);
-  const mas7 = new Date(hoy);
-  mas7.setDate(mas7.getDate() + 7);
-  const hoy7ISO = isoLocal(mas7);
+  const checkinFecha = FECHA_RE.test(req.query.checkin_fecha) ? req.query.checkin_fecha : hoyISO;
+  const checkoutFecha = FECHA_RE.test(req.query.checkout_fecha) ? req.query.checkout_fecha : hoyISO;
 
-  // Reservas que entran entre hoy y hoy+7 días.
+  // Reservas que entran el día elegido.
   const proximos_checkin = db.prepare(`
     SELECT ${CAMPOS}
     FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE r.entrada >= ? AND r.entrada <= ?
-    ORDER BY r.entrada ASC
+    WHERE r.entrada = ?
+    ORDER BY r.hora_entrada ASC, r.id ASC
     LIMIT 50
-  `).all(hoyISO, hoy7ISO);
+  `).all(checkinFecha);
 
-  // Reservas que salen entre hoy y hoy+7 días.
+  // Reservas que salen el día elegido.
   const proximos_checkout = db.prepare(`
     SELECT ${CAMPOS}
     FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE r.salida >= ? AND r.salida <= ?
-    ORDER BY r.salida ASC
+    WHERE r.salida = ?
+    ORDER BY r.hora_salida ASC, r.id ASC
     LIMIT 50
-  `).all(hoyISO, hoy7ISO);
-
-  // Reservas en curso: ya entraron y todavía no han salido.
-  const reservas_en_curso = db.prepare(`
-    SELECT ${CAMPOS}
-    FROM reservas r LEFT JOIN apartamentos a ON a.id = r.apartamento_id
-    WHERE r.entrada <= ? AND r.salida >= ?
-    ORDER BY r.entrada ASC
-    LIMIT 50
-  `).all(hoyISO, hoyISO);
+  `).all(checkoutFecha);
 
   // Visitas de venta programadas de hoy al fin de mes, ordenadas por fecha más próxima.
   const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
@@ -78,7 +72,6 @@ router.get('/', (req, res) => {
 
   res.json({
     proximos_checkin,
-    reservas_en_curso,
     visitas_mes,
     reservas_entrantes: { count: entrantes.count },
     proximos_checkout,
