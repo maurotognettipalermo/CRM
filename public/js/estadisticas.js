@@ -541,15 +541,19 @@ const Estadisticas = (() => {
     return lista.map((p) => {
       const comp = Number(p.total_comprometido) || 0;
       const pct = comp > 0 ? (Number(p.total_pagado) / comp) * 100 : 0;
+      const sinProp = !p.propietario_id;
+      const accion = sinProp
+        ? '<span style="color:#9ca3af;font-size:12px">Asignar propietario en el contrato</span>'
+        : `<button class="btn-mini" data-ver-contratos="${p.propietario_id}" data-nombre="${esc(p.propietario_nombre)}">Ver contratos</button>`;
       return `
-        <tr>
-          <td>${esc(p.propietario_nombre)}</td>
+        <tr${sinProp ? ' style="background:#fff7ed"' : ''}>
+          <td>${esc(p.propietario_nombre)}${sinProp ? ' ⚠️' : ''}</td>
           <td class="num">${num(p.contratos)}</td>
           <td class="num">${euro(p.total_comprometido)}</td>
           <td class="est-col-pct">${euro(p.total_pagado)}${barra(pct, '#10b981')}</td>
           <td class="num">${euro(p.total_pendiente)}</td>
           <td>${celdaProxima(p)}</td>
-          <td class="acciones"><button class="btn-mini" data-ver-contratos="${p.propietario_id}" data-nombre="${esc(p.propietario_nombre)}">Ver contratos</button></td>
+          <td class="acciones">${accion}</td>
         </tr>`;
     }).join('');
   }
@@ -603,8 +607,9 @@ const Estadisticas = (() => {
       </div>`;
 
     const buscador = `
-      <div style="margin-bottom:12px">
-        <input class="input-buscar" data-buscar-prop type="search" placeholder="Buscar propietario…" value="${esc(propBuscar)}">
+      <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center">
+        <input class="input-buscar" data-buscar-prop type="search" placeholder="Buscar propietario…" value="${esc(propBuscar)}" style="flex:1">
+        <button class="btn-sec" data-exportar-prop>📥 Exportar Excel</button>
       </div>`;
 
     const lista = filtrarProp(por_propietario);
@@ -723,7 +728,36 @@ const Estadisticas = (() => {
     panel.innerHTML = pagosCuentaHTML(pagosCuentaCache);
   }
 
-  // Conecta el buscador (filtra en memoria) y los botones "Ver contratos".
+  // Descarga el .xlsx de GET /api/estadisticas/propietarios/exportar (mismo patrón que
+  // descargarPDF en facturas.js: fetch con X-Auth-Token + blob, no <a href> directo).
+  async function exportarPropietariosExcel(btn) {
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Exportando…';
+    try {
+      const sesion = Auth.sesion() || {};
+      const response = await fetch(`/api/estadisticas/propietarios/exportar?anio=${anio}`, {
+        headers: { 'X-Auth-Token': sesion.token },
+      });
+      if (!response.ok) throw new Error('Error al exportar');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contratos_propietarios_${anio}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast('Error al exportar a Excel', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  }
+
+  // Conecta el buscador (filtra en memoria), el botón "Exportar Excel" y los botones "Ver contratos".
   function enlazarProp(panel) {
     const input = panel.querySelector('[data-buscar-prop]');
     if (input) {
@@ -738,6 +772,8 @@ const Estadisticas = (() => {
         enlazarVerContratos(panel);
       });
     }
+    const btnExportar = panel.querySelector('[data-exportar-prop]');
+    if (btnExportar) btnExportar.addEventListener('click', () => exportarPropietariosExcel(btnExportar));
     enlazarVerContratos(panel);
   }
 

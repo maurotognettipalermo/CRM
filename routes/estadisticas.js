@@ -1,6 +1,7 @@
 // API REST de Estadísticas (solo accesible bajo requireAuth; la pestaña es admin-only
 // en el frontend). Agrega datos de reservas por distintos criterios para los informes.
 const express = require('express');
+const xlsx = require('xlsx');
 const db = require('../db/database');
 
 const router = express.Router();
@@ -332,27 +333,32 @@ router.get('/ocupacion', (req, res) => {
   });
 });
 
-// GET /api/estadisticas/propietarios?anio=2026
 // Compromiso de pago por propietario según sus contratos de **precio_cerrado** del año
 // (los de comisión no tienen cuotas fijas, se excluyen). Se excluyen los cancelados.
 // Comprometido = SUM(precio_total); pagado/pendiente = SUM(importe de cuotas según `pagado`).
 // Ordena por total_pendiente DESC (primero a quien más se debe).
-router.get('/propietarios', (req, res) => {
-  const anio = parseInt(anioParam(req), 10);
+// LEFT JOIN (no INNER) con propietarios: un contrato puede quedar sin propietario_id asignado
+// (apartamento sin propietario activo al crearlo) — antes esos contratos se excluían en
+// silencio de esta vista, así que la suma de "Contratos"/importes de la tabla no cuadraba con
+// `resumen.contratos_activos`/`total_comprometido` (que sí cuentan TODOS los del año, sin
+// join). Se agrupan bajo un único `propietario_id: null` ("Sin propietario asignado") para
+// que el dinero comprometido/pendiente de esos contratos siga siendo visible.
+function cashflowPropietarios(anio) {
   const FILTRO = "c.tipo = 'precio_cerrado' AND c.anio = ? AND c.estado <> 'cancelado'";
 
-  // Una fila por propietario. Las cuotas se agregan en una subconsulta por contrato para no
-  // duplicar precio_total al hacer JOIN con las cuotas.
+  // Una fila por propietario (o una fila "Sin propietario asignado" con id NULL). Las cuotas
+  // se agregan en una subconsulta por contrato para no duplicar precio_total al hacer JOIN.
   const por_propietario = db.prepare(`
     SELECT
       p.id                                                              AS propietario_id,
-      TRIM(COALESCE(p.nombre, '') || ' ' || COALESCE(p.apellidos, '')) AS propietario_nombre,
+      CASE WHEN p.id IS NULL THEN 'Sin propietario asignado'
+        ELSE TRIM(COALESCE(p.nombre, '') || ' ' || COALESCE(p.apellidos, '')) END AS propietario_nombre,
       COUNT(c.id)                                                       AS contratos,
       COALESCE(SUM(c.precio_total), 0)                                  AS total_comprometido,
       COALESCE(SUM(cu.pagado_sum), 0)                                   AS total_pagado,
       COALESCE(SUM(cu.pendiente_sum), 0)                                AS total_pendiente
     FROM contratos c
-    JOIN propietarios p ON p.id = c.propietario_id
+    LEFT JOIN propietarios p ON p.id = c.propietario_id
     LEFT JOIN (
       SELECT contrato_id,
         SUM(CASE WHEN pagado = 1 THEN importe ELSE 0 END) AS pagado_sum,
@@ -401,7 +407,7 @@ router.get('/propietarios', (req, res) => {
     FROM contratos c WHERE ${FILTRO} AND propietario_id IS NOT NULL
   `).get(anio);
 
-  res.json({
+  return {
     resumen: {
       total_propietarios_con_contrato: totProp.n,
       total_comprometido: totC.total_comprometido,
@@ -410,7 +416,50 @@ router.get('/propietarios', (req, res) => {
       contratos_activos: totC.contratos_activos,
     },
     por_propietario,
+  };
+}
+
+// GET /api/estadisticas/propietarios?anio=2026
+router.get('/propietarios', (req, res) => {
+  const anio = parseInt(anioParam(req), 10);
+  res.json(cashflowPropietarios(anio));
+});
+
+// GET /api/estadisticas/propietarios/exportar?anio=2026 — mismo cashflow en un .xlsx descargable
+// (contratos pagados/pendientes por propietario, precio_cerrado del año). Antes de /:id — no
+// aplica aquí porque esta ruta no tiene /:id, pero se mantiene junto a /propietarios por claridad.
+router.get('/propietarios/exportar', (req, res) => {
+  const anio = parseInt(anioParam(req), 10);
+  const { resumen, por_propietario } = cashflowPropietarios(anio);
+
+  const filas = por_propietario.map((p) => ({
+    Propietario: p.propietario_nombre,
+    Contratos: p.contratos,
+    'Comprometido (€)': Number(p.total_comprometido) || 0,
+    'Pagado (€)': Number(p.total_pagado) || 0,
+    'Pendiente (€)': Number(p.total_pendiente) || 0,
+    'Próxima cuota': p.proxima_cuota_fecha || '',
+    'Importe próxima cuota (€)': p.proxima_cuota_importe || '',
+  }));
+  filas.push({
+    Propietario: 'TOTAL',
+    Contratos: resumen.contratos_activos,
+    'Comprometido (€)': resumen.total_comprometido,
+    'Pagado (€)': resumen.total_pagado,
+    'Pendiente (€)': resumen.total_pendiente,
+    'Próxima cuota': '',
+    'Importe próxima cuota (€)': '',
   });
+
+  const hoja = xlsx.utils.json_to_sheet(filas);
+  hoja['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 15 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 20 }];
+  const libro = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(libro, hoja, 'Propietarios');
+  const buffer = xlsx.write(libro, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="contratos_propietarios_${anio}.xlsx"`);
+  res.send(buffer);
 });
 
 module.exports = router;
